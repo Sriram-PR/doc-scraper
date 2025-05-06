@@ -165,8 +165,16 @@ sites:
 | `sites` | Map | Site-specific configurations | *(required)* |
 
 **HTTP Client Settings:**
-- `timeout`: Request timeout (Default: `30s`)
-- `max_idle_conns_per_host`: Maximum idle connections per host (Default: `4`)
+*(These are global and cannot be overridden per site in the current structure)*
+-   `timeout`: Overall request timeout (Default in code: `45s`)
+-   `max_idle_conns`: Total idle connections (Default in code: `100`)
+-   `max_idle_conns_per_host`: Idle connections per host (Default in code: `6`)
+-   `idle_conn_timeout`: Timeout for idle connections (Default in code: `90s`)
+-   `tls_handshake_timeout`: TLS handshake timeout (Default in code: `10s`)
+-   `expect_continue_timeout`: "100 Continue" timeout (Default in code: `1s`)
+-   `force_attempt_http2`: `null` (use Go default), `true`, or `false`. (Default in code: `null`)
+-   `dialer_timeout`: TCP connection timeout (Default in code: `15s`)
+-   `dialer_keep_alive`: TCP keep-alive interval (Default in code: `30s`)
 
 **Site-Specific Configuration Options:**
 - `start_urls`: Array of starting URLs for crawling (Required)
@@ -270,7 +278,7 @@ Please ensure code adheres to Go best practices and includes appropriate documen
 
 ## 📝 License
 
-This project is licensed under the **[MIT License]** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the [MIT License](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE.txt).
 
 ## 🙏 Acknowledgements
 
