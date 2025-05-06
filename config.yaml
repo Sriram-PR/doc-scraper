@@ -1,0 +1,166 @@
+# --- Global Application Settings ---
+
+# Default User-Agent string for HTTP requests (used if site doesn't specify).
+# # Also used for fetching robots.txt.
+# default_user_agent: "GoCrawler/1.0 (Your Bot Info)"
+
+# Default minimum time delay between requests to the same host.
+# Format: e.g., "2s", "500ms". "0s" means no default delay.
+default_delay_per_host: 500ms
+
+# Number of concurrent workers processing pages.
+num_workers: 6
+
+# Number of concurrent workers downloading images (optional, defaults to num_workers if omitted).
+num_image_workers: 6
+
+# Global limit for total concurrent outgoing HTTP requests across all workers.
+max_requests: 48
+
+# Limit for concurrent outgoing HTTP requests *per host*.
+max_requests_per_host: 4
+
+# Base directory for saving crawled output (Markdown files, images).
+# Each site gets a subdirectory named after its sanitized domain.
+output_base_dir: "./crawled_docs"
+
+# Directory for storing persistent state (e.g., visited URLs database).
+# Each site gets a subdirectory here.
+state_dir: "./crawler_state"
+
+# --- Retry Settings (optional) ---
+# Maximum number of retries for failed requests (network errors, 5xx).
+max_retries: 4
+# Initial delay before the first retry (e.g., "1s", "500ms").
+initial_retry_delay: 1s
+# Maximum delay between retries (caps exponential backoff).
+max_retry_delay: 30s
+
+# --- Timeout Settings (optional) ---
+# Maximum time to wait to acquire a semaphore before timing out.
+semaphore_acquire_timeout: 30s
+# Overall maximum duration for the entire crawl run (e.g., "2h", "30m"). "0s" or omitted means no timeout.
+global_crawl_timeout: 0s
+
+# --- Global Image Handling Defaults (optional, can be overridden per site) ---
+# Globally skip downloading and processing images.
+skip_images: false
+# Globally limit maximum image size in bytes (0 means unlimited).
+max_image_size_bytes: 10485760 # Example: 10 MiB
+
+# --- HTTP Client Settings (optional section, reasonable defaults applied if omitted) ---
+http_client_settings:
+  # Overall timeout for a single HTTP request.
+  # Covers connection, TLS handshake, sending request, waiting for headers, AND reading the entire response body.
+  # Default in your code: 45s
+  timeout: 45s
+
+  # Max total idle connections across all hosts.
+  # Limits the total number of reusable TCP connections kept open waiting for new requests to any server.
+  # Default in your code: 100
+  max_idle_conns: 100
+
+  # Max idle connections per host.
+  # Limits the number of reusable TCP connections kept open waiting for new requests to a *specific* server (hostname:port).
+  # Default in your code: 5 (Slightly higher than Go's default of 2)
+  max_idle_conns_per_host: 6
+
+  # Max time an idle connection is kept alive.
+  # How long an unused connection can sit in the idle pool before being closed automatically.
+  # Default in your code: 90s
+  idle_conn_timeout: 90s
+
+  # Timeout for TLS handshake.
+  # Time limit specifically for completing the secure connection setup (SSL/TLS).
+  # Default in your code: 10s
+  tls_handshake_timeout: 10s
+
+  # Timeout waiting for "100 Continue" response.
+  # Relevant for requests like POST/PUT where the client might send headers first and wait for a "100 Continue" status before sending the body.
+  # Default in your code: 1s
+  expect_continue_timeout: 1s
+
+  # Explicitly attempt/disable HTTP/2 (true/false). null uses Go default.
+  # Controls whether the client tries to negotiate HTTP/2 with servers that support it. HTTP/2 can offer performance benefits (e.g., multiplexing).
+  # Default in your code: null (which means 'true' - use Go's default behavior of attempting HTTP/2)
+  force_attempt_http2: null
+
+  # Timeout for establishing TCP connection.
+  # Time limit specifically for the underlying network dialer to connect to the server's IP address and port.
+  # Default in your code: 15s
+  dialer_timeout: 15s
+
+  # TCP keep-alive interval.
+  # If non-zero, enables TCP keep-alives, sending small packets on idle connections to check if they are still active and prevent intermediate network devices (firewalls, NATs) from dropping them.
+  # Default in your code: 30s
+  dialer_keep_alive: 30s
+
+# --- Site-Specific Configurations ---
+# Define one or more sites to crawl below, using a unique key for each.
+sites:
+  # Replace 'example_site' with an identifier for your target site (e.g., 'example_docs')
+  example_site:
+    # List of starting URLs for this site.
+    start_urls:
+      - "https://example.com/docs/"
+    # Domain that the crawler is restricted to for this site. (Required)
+    allowed_domain: "example.com"
+    # Path prefix the crawler is restricted to (e.g., "/docs"). Use "/" for the whole domain. (Required)
+    allowed_path_prefix: "/docs"
+    # CSS selector for the main content area to extract. (Required)
+    content_selector: "article.content" # Example: Change to your target selector
+
+    # --- Optional Site Settings ---
+    # CSS selectors to search for links within (defaults to 'body' if omitted).
+    link_extraction_selectors:
+      - "article.content"
+      - "nav.sidebar"
+    # Regex patterns for paths to exclude (paths matching these won't be crawled).
+    disallowed_path_patterns:
+      - "/api/.*"
+      - "/private/"
+      - "\\.pdf$"
+    # Respect rel="nofollow" attribute on links.
+    respect_nofollow: true
+    # Override the default_user_agent for this site.
+    user_agent: "MyCustomBot/1.0 (+http://mybot.info)"
+    # Override the default_delay_per_host for this site.
+    delay_per_host: "1500ms"
+    # Maximum crawl depth relative to start URLs (0 means unlimited).
+    max_depth: 5
+    # Override global 'skip_images' setting (true/false). null uses global.
+    skip_images: null
+    # Override global 'max_image_size_bytes' (0 for unlimited). null uses global.
+    # max_image_size_bytes: 5242880 # Example: 5 MiB override
+    # Only download images from these domain patterns (*.example.com or specific.com).
+    allowed_image_domains:
+      - "cdn.example.com"
+      - "*.static-example.net"
+    # Never download images from these domain patterns.
+    disallowed_image_domains:
+      - "ads.example.com"
+
+  langchain_py:
+    start_urls:
+      - https://python.langchain.com/docs/introduction/
+    allowed_domain: python.langchain.com
+    allowed_path_prefix: /docs/
+    content_selector: article
+    max_depth: 0 # unlimited
+    respect_nofollow: true
+    disallowed_path_patterns:
+        - ^/docs/experimental/.*
+        - ^/docs/api/.* # Adjusted pattern
+
+  rust_docs:
+    start_urls:
+      - https://rust-cli.github.io/book/tutorial/
+    allowed_domain: rust-cli.github.io
+    allowed_path_prefix: /book/
+    content_selector: div#content.content
+    max_depth: 0 # unlimited
+    respect_nofollow: true
+    link_extraction_selectors:
+     - nav.nav-wrapper
+     - div#menu-bar.menu-bar
+    #  - a.nav-chapeters.previous
