@@ -1,0 +1,60 @@
+# Go dependencies (managed by go mod)
+vendor/
+
+# Go build outputs
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.prof
+
+# Output directory for crawled documents (from config.yaml)
+crawled_docs/
+
+# State directory (from config.yaml)
+crawler_state/
+
+archive/
+tuning.md
+
+# Visited log file (if -write-visited-log is used)
+*-visited.txt
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE / Editor specific files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Log files (if you redirect output)
+*.log
+
+# Profile data files
+*.pprof
+cpu.pprof
+mem.pprof
+mutex.pprof
+block.pprof
+
+# Coverage profile
+coverage.out
+coverage.html
+
+# Environment variables file (if used)
+.env
