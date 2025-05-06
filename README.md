@@ -247,26 +247,13 @@ Each generated Markdown file contains:
 - Local image references (if images are enabled)
 - A footer with metadata including source URL and crawl timestamp
 
-## 🔍 Directory Structure Utility
+## 🔍 Directory Structure Output
 
-The codebase includes a utility (`pkg/utils/tree.go`) to generate a text file visualizing the directory structure of a crawled site's output. This can be helpful for verification and analysis.
+After a successful crawl for a specific site, the crawler automatically generates a text file named `<sanitized_domain>_structure.txt` within the global `output_base_dir` (alongside the site's content folder). This file contains a visual tree representation of the generated directory structure for the crawled site, which can be helpful for verification and analysis.
 
-**Usage Example:**
-```go
-package main
-
-import (
-    "log"
-    "github.com/Sriram-PR/doc-scraper/pkg/utils"
-)
-
-func main() {
-    err := utils.GenerateAndSaveTreeStructure("./crawled_docs/docs.example.com", "./tree_output.txt")
-    if err != nil {
-        log.Fatalf("Failed to generate tree: %v", err)
-    }
-}
-```
+**Example Location:**
+If `output_base_dir` is `./crawled_docs` and you crawled `docs.example.com`, the structure file will be:
+`./crawled_docs/docs.example.com_structure.txt`
 
 ## 🤝 Contributing
 
