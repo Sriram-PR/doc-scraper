@@ -68,6 +68,8 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 		return pageTitle, err
 	}
 
+	currentPageOutputDir := filepath.Dir(currentPageFullOutputPath)
+
 	// ProcessImages finds images, attempts downloads/checks cache via workers, and sets 'data-crawl-status' attribute on mainContent tags
 	imageMap, _ := cp.imgProcessor.ProcessImages(mainContent, finalURL, siteCfg, siteOutputDir, taskLog, ctx)
 	// Ignore non-fatal image processing errors (already logged by ImageProcessor)
@@ -96,8 +98,22 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 			}
 
 			if imgData, ok := imageMap[absImgURL.String()]; ok && imgData.LocalPath != "" {
+
+				// 1. Construct the absolute path to the saved image file
+				absoluteImagePath := filepath.Join(siteOutputDir, imgData.LocalPath)
+				// 2. Calculate the path relative from the current MD file's directory to the image file
+				relativeImagePath, relErr := filepath.Rel(currentPageOutputDir, absoluteImagePath)
+				if relErr != nil {
+					taskLog.Warnf("Could not calculate relative image path from '%s' to '%s' for src '%s': %v. Removing image tag.", currentPageOutputDir, absoluteImagePath, originalSrc, relErr)
+					element.Remove()
+					imgRemoveCount++
+					return
+				}
+
+				// 3. Use the calculated relative path (ensure forward slashes for web/markdown)
+				finalImageSrc := filepath.ToSlash(relativeImagePath)
 				// Rewrite src to local path and update alt from caption
-				element.SetAttr("src", imgData.LocalPath)
+				element.SetAttr("src", finalImageSrc)
 				if imgData.Caption != "" {
 					element.SetAttr("alt", imgData.Caption)
 				} else {
