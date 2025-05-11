@@ -299,7 +299,7 @@ Please ensure code adheres to Go best practices and includes appropriate documen
 
 ## 📝 License
 
-This project is licensed under the [MIT License](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE.txt).
+This project is licensed under the [Apache-2.0 License](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE.txt).
 
 ## 🙏 Acknowledgements
 
