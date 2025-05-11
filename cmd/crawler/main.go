@@ -166,6 +166,7 @@ func main() {
 		rateLimiter, // Inject rate limiter
 		crawlCtx,    // Pass context
 		cancelCrawl, // Pass cancel func
+		*resumeFlag,
 	)
 	if err != nil {
 		log.Fatalf("Failed to initialize crawler: %v", err)
@@ -318,6 +319,11 @@ func validateAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 	if appCfg.HTTPClientSettings.DialerKeepAlive <= 0 {
 		appCfg.HTTPClientSettings.DialerKeepAlive = 30 * time.Second
 	}
+
+	if appCfg.EnableOutputMapping && appCfg.OutputMappingFilename == "" {
+		log.Warnf("Global 'enable_output_mapping' is true but global 'output_mapping_filename' is empty. Defaulting global filename to 'url_to_file_map.tsv'")
+		appCfg.OutputMappingFilename = "url_to_file_map.tsv"
+	}
 }
 
 // logAppConfig logs the effective global configuration
@@ -335,6 +341,8 @@ func logAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 	log.Infof("Global Config HTTP Client: Timeout:%v, MaxIdle:%d, MaxIdlePerHost:%d, IdleTimeout:%v, TLSTimeout:%v, DialerTimeout:%v",
 		appCfg.HTTPClientSettings.Timeout, appCfg.HTTPClientSettings.MaxIdleConns, appCfg.HTTPClientSettings.MaxIdleConnsPerHost,
 		appCfg.HTTPClientSettings.IdleConnTimeout, appCfg.HTTPClientSettings.TLSHandshakeTimeout, appCfg.HTTPClientSettings.DialerTimeout)
+	log.Infof("Global Config Output Mapping: Enabled Globally:%t, Default Global Filename:'%s'",
+		appCfg.EnableOutputMapping, appCfg.OutputMappingFilename)
 }
 
 // validateSiteConfig checks site-specific config - Operates on pointer to modify prefix

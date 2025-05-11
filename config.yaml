@@ -48,6 +48,14 @@ skip_images: false
 # Globally limit maximum image size in bytes (0 means unlimited).
 max_image_size_bytes: 10485760 # Example: 10 MiB
 
+# Whether to generate and save the URL-to-file output mapping.
+# Helps in tracking and referencing downloaded content easily.
+enable_output_mapping: true
+
+# Filename for output URL-to-file mapping table.
+# Stores a map of original URLs to their corresponding local filenames.
+output_mapping_filename: "url_to_file_map.tsv"
+
 # --- HTTP Client Settings (optional section, reasonable defaults applied if omitted) ---
 http_client_settings:
   # Overall timeout for a single HTTP request.
@@ -139,6 +147,9 @@ sites:
     # Never download images from these domain patterns.
     disallowed_image_domains:
       - "ads.example.com"
+    enable_output_mapping: true
+    # Override global name for this site
+    output_mapping_filename: "example_site_manifest.txt"
 
   langchain_py:
     start_urls:
@@ -151,6 +162,7 @@ sites:
     disallowed_path_patterns:
         - ^/docs/experimental/.*
         - ^/docs/api/.* # Adjusted pattern
+    output_mapping_filename: "langchain_py_manifest.txt"
 
   rust_docs:
     start_urls:
@@ -164,3 +176,6 @@ sites:
      - nav.nav-wrapper
      - div#menu-bar.menu-bar
     #  - a.nav-chapeters.previous
+    enable_output_mapping: false
+    # Override global name for this site
+    output_mapping_filename: "rust_docs_manifest.txt"

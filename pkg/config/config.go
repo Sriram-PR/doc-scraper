@@ -18,6 +18,8 @@ type SiteConfig struct {
 	MaxImageSizeBytes       *int64        `yaml:"max_image_size_bytes,omitempty"`
 	AllowedImageDomains     []string      `yaml:"allowed_image_domains,omitempty"`
 	DisallowedImageDomains  []string      `yaml:"disallowed_image_domains,omitempty"`
+	EnableOutputMapping     *bool         `yaml:"enable_output_mapping,omitempty"`
+	OutputMappingFilename   string        `yaml:"output_mapping_filename,omitempty"`
 }
 
 // AppConfig holds the global application configuration
@@ -39,6 +41,8 @@ type AppConfig struct {
 	MaxImageSizeBytes       int64                 `yaml:"max_image_size_bytes,omitempty"`
 	HTTPClientSettings      HTTPClientConfig      `yaml:"http_client_settings,omitempty"`
 	Sites                   map[string]SiteConfig `yaml:"sites"`
+	EnableOutputMapping     bool                  `yaml:"enable_output_mapping,omitempty"`
+	OutputMappingFilename   string                `yaml:"output_mapping_filename,omitempty"`
 }
 
 // HTTPClientConfig holds settings for the shared HTTP client
@@ -68,4 +72,26 @@ func GetEffectiveMaxImageSize(siteCfg SiteConfig, appCfg AppConfig) int64 {
 		return *siteCfg.MaxImageSizeBytes
 	}
 	return appCfg.MaxImageSizeBytes
+}
+
+// GetEffectiveEnableOutputMapping determines the effective setting for enabling the mapping file
+func GetEffectiveEnableOutputMapping(siteCfg SiteConfig, appCfg AppConfig) bool {
+	if siteCfg.EnableOutputMapping != nil {
+		return *siteCfg.EnableOutputMapping
+	}
+	return appCfg.EnableOutputMapping // Fallback to global setting
+}
+
+// GetEffectiveOutputMappingFilename determines the effective filename for the mapping file
+// Site config (if non-empty) overrides global
+// If both site and global are empty, a hardcoded default is returned
+func GetEffectiveOutputMappingFilename(siteCfg SiteConfig, appCfg AppConfig) string {
+	if siteCfg.OutputMappingFilename != "" {
+		return siteCfg.OutputMappingFilename
+	}
+	if appCfg.OutputMappingFilename != "" {
+		return appCfg.OutputMappingFilename
+	}
+	// Fallback to a hardcoded default if neither global nor site-specific filename is provided
+	return "url_to_file_map.tsv"
 }

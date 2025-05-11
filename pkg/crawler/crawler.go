@@ -66,6 +66,11 @@ type Crawler struct {
 	sitemapQueue    chan string
 	foundSitemaps   map[string]bool
 	foundSitemapsMu sync.Mutex
+
+	// URL to .md files mapping
+	mappingFile     *os.File
+	mappingFileMu   sync.Mutex
+	mappingFilePath string
 }
 
 // NewCrawler creates and initializes a new Crawler instance and its components
@@ -78,6 +83,7 @@ func NewCrawler(
 	rateLimiter *fetch.RateLimiter,
 	crawlCtx context.Context,
 	cancelCrawl context.CancelFunc,
+	resume bool,
 ) (*Crawler, error) {
 
 	compiledDisallowedPatterns, err := utils.CompileRegexPatterns(siteCfg.DisallowedPathPatterns)
@@ -114,6 +120,34 @@ func NewCrawler(
 	c.imageProcessor = process.NewImageProcessor(c.store, c.fetcher, c.robotsHandler, c.rateLimiter, c.globalSemaphore, c.appCfg, c.log)
 	c.contentProcessor = process.NewContentProcessor(c.imageProcessor, c.appCfg, c.log)
 	c.linkProcessor = process.NewLinkProcessor(c.store, c.pq, c.compiledDisallowedPatterns, c.log)
+
+	// --- Initialize Mapping File ---
+	effectiveEnableMapping := config.GetEffectiveEnableOutputMapping(c.siteCfg, c.appCfg)
+	effectiveMappingFilename := config.GetEffectiveOutputMappingFilename(c.siteCfg, c.appCfg)
+	if effectiveEnableMapping {
+		// Place the mapping file inside the site-specific output directory
+		c.mappingFilePath = filepath.Join(c.siteOutputDir, effectiveMappingFilename)
+		log.Infof("URL-to-FilePath mapping enabled. Output file: %s", c.mappingFilePath)
+
+		openFlags := os.O_CREATE | os.O_WRONLY
+		if resume {
+			log.Infof("Resume mode: Appending to mapping file: %s", c.mappingFilePath)
+			openFlags |= os.O_APPEND
+		} else {
+			log.Infof("Non-resume mode: Truncating mapping file: %s", c.mappingFilePath)
+			openFlags |= os.O_TRUNC
+		}
+
+		file, err := os.OpenFile(c.mappingFilePath, openFlags, 0644)
+		if err != nil {
+			log.Errorf("Failed to open/create mapping file '%s': %v. Mapping will be disabled.", c.mappingFilePath, err)
+			c.mappingFile = nil // Ensure it's nil so writes are skipped
+		} else {
+			c.mappingFile = file
+		}
+	} else {
+		log.Info("URL-to-FilePath mapping is disabled.")
+	}
 
 	return c, nil
 }
@@ -223,6 +257,8 @@ func (c *Crawler) Run(resume bool) error {
 	}
 	c.log.Infof("%d workers started.", c.appCfg.NumWorkers)
 	c.sitemapProcessor.Start(c.crawlCtx)
+
+	defer c.closeMappingFile()
 
 	// --- Waiter Goroutine (Coordinates Startup & Shutdown) ---
 	waiterDone := make(chan struct{})
@@ -566,8 +602,13 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	}
 
 	// 7. Process & Save Content
-	_, err = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, c.crawlCtx)
+	var savedContentPath string
+	_, savedContentPath, err = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, c.crawlCtx)
 	handleTaskError(err) // Critical if content saving fails
+
+	if taskErr == nil && !skipped && savedContentPath != "" {
+		c.writeToMappingFile(finalURL.String(), savedContentPath, taskLog)
+	}
 }
 
 // --- Helper methods for processSinglePageTask stages ---
@@ -763,4 +804,44 @@ func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskL
 		return nil, err
 	}
 	return doc, nil
+}
+
+func (c *Crawler) closeMappingFile() {
+	c.mappingFileMu.Lock()
+	defer c.mappingFileMu.Unlock()
+
+	if c.mappingFile != nil {
+		c.log.Infof("Closing mapping file: %s", c.mappingFilePath)
+		if err := c.mappingFile.Close(); err != nil {
+			c.log.Errorf("Error closing mapping file '%s': %v", c.mappingFilePath, err)
+		}
+		c.mappingFile = nil // Set to nil after closing
+	}
+}
+
+func (c *Crawler) writeToMappingFile(pageURL, filePath string, taskLog *logrus.Entry) {
+	c.mappingFileMu.Lock()
+	defer c.mappingFileMu.Unlock()
+
+	if c.mappingFile == nil { // File wasn't opened or was closed due to an error
+		return
+	}
+
+	// Format: URL<TAB>RelativeFilePath\n
+
+	// For relative path:
+	// relativePath, err := filepath.Rel(c.appCfg.OutputBaseDir, filePath)
+	// if err != nil {
+	//    taskLog.Warnf("Could not make path relative for mapping file: %s, %v", filePath, err)
+	//    relativePath = filePath // Fallback to absolute
+	// }
+	// line := fmt.Sprintf("%s\t%s\n", pageURL, relativePath)
+
+	line := fmt.Sprintf("%s\t%s\n", pageURL, filePath) // Using absolute path
+	if _, err := c.mappingFile.WriteString(line); err != nil {
+		taskLog.WithFields(logrus.Fields{
+			"mapping_file": c.mappingFilePath,
+			"line":         strings.TrimSpace(line), // Log line without newline for cleaner logs
+		}).Errorf("Failed to write to mapping file: %v", err)
+	}
 }

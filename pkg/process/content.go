@@ -42,7 +42,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	siteOutputDir string, // Base output directory for this site
 	taskLog *logrus.Entry, // Logger with task-specific context
 	ctx context.Context, // Context for cancellation propagation
-) (pageTitle string, err error) {
+) (pageTitle string, savedFilePath string, err error) {
 	taskLog.Debug("Extracting, processing, and saving content...")
 
 	pageTitle = strings.TrimSpace(doc.Find("title").First().Text())
@@ -55,7 +55,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	if mainContentSelection.Length() == 0 {
 		err = fmt.Errorf("%w: selector '%s' not found on page '%s'", utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String())
 		taskLog.Warn(err.Error())
-		return pageTitle, err
+		return pageTitle, "", err
 	}
 	// Clone selection to modify images/links without affecting original doc needed for link extraction
 	mainContent := mainContentSelection.First().Clone()
@@ -65,7 +65,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	if !pageInScope {
 		err = fmt.Errorf("%w: output path calculation failed unexpectedly for in-scope URL '%s'", utils.ErrScopeViolation, finalURL.String())
 		taskLog.Error(err)
-		return pageTitle, err
+		return pageTitle, "", err
 	}
 
 	currentPageOutputDir := filepath.Dir(currentPageFullOutputPath)
@@ -155,7 +155,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	if outerHtmlErr != nil {
 		err = fmt.Errorf("failed getting modified HTML: %w", outerHtmlErr)
 		taskLog.Error(err)
-		return pageTitle, err
+		return pageTitle, "", err
 	}
 
 	converter := md.NewConverter("", true, nil)
@@ -163,7 +163,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	if convertErr != nil {
 		err = fmt.Errorf("%w: %w", utils.ErrMarkdownConversion, convertErr)
 		taskLog.Error(err)
-		return pageTitle, err
+		return pageTitle, "", err
 	}
 
 	// Save the Markdown file
@@ -171,19 +171,19 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	if mkdirErr := os.MkdirAll(outputDirForFile, 0755); mkdirErr != nil {
 		err = fmt.Errorf("%w: creating output directory '%s': %w", utils.ErrFilesystem, outputDirForFile, mkdirErr)
 		taskLog.Error(err)
-		return pageTitle, err
+		return pageTitle, "", err
 	}
 
 	writeErr := os.WriteFile(currentPageFullOutputPath, []byte(markdownContent), 0644)
 	if writeErr != nil {
 		err = fmt.Errorf("%w: saving markdown '%s': %w", utils.ErrFilesystem, currentPageFullOutputPath, writeErr)
 		taskLog.Error(err)
-		return pageTitle, err
+		return pageTitle, "", err
 	}
 
 	taskLog.Infof("Saved Markdown (%d bytes): %s", len(markdownContent), currentPageFullOutputPath)
 	taskLog.Debug("Content extraction, processing, and saving complete.")
-	return pageTitle, nil // Success
+	return pageTitle, currentPageFullOutputPath, nil // Success
 }
 
 // getOutputPathForURL calculates the local filesystem path for a crawled URL, performing scope checks and mapping URLs to sanitized file/directory structures
