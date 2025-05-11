@@ -34,6 +34,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **HTML-to-Markdown** | Converts extracted HTML to clean Markdown |
 | **Image Handling** | Optional downloading and local rewriting of image links with domain and size filtering |
 | **Link Rewriting** | Rewrites internal links to relative paths for local structure |
+| **URL-to-File Mapping** | Optional TSV file logging saved file paths and their corresponding original URLs |
 | **Concurrency** | Configurable worker pools and semaphore-based request limits (global and per-host) |
 | **Rate Limiting** | Configurable per-host delays with jitter |
 | **Robots.txt & Sitemaps** | Respects `robots.txt` and processes discovered sitemaps |
@@ -110,6 +111,8 @@ semaphore_acquire_timeout: 30s
 global_crawl_timeout: 0s
 skip_images: false # Set to true to skip images globally
 max_image_size_bytes: 10485760 # 10 MiB
+enable_output_mapping: true
+output_mapping_filename: "global_url_map.tsv"
 
 # HTTP Client Settings
 http_client_settings:
@@ -127,6 +130,8 @@ sites:
     content_selector: "article.pytorch-article .body"
     max_depth: 0 # 0 for unlimited depth
     skip_images: false
+    # Override global mapping filename for this site
+    output_mapping_filename: "pytorch_docs_map.txt"
     disallowed_path_patterns:
       - "/docs/stable/.*/_modules/.*"
       - "/docs/stable/.*\.html#.*"
@@ -140,6 +145,8 @@ sites:
     content_selector: ".devsite-article-body"
     max_depth: 0
     delay_per_host: 1s  # Site-specific override
+    # Disable mapping for this site, overriding global
+    enable_output_mapping: false
     disallowed_path_patterns:
       - "/install/.*"
       - "/js/.*"
@@ -161,6 +168,8 @@ sites:
 | `max_retry_delay` | Duration | Maximum delay for retry backoff | `30s` |
 | `skip_images` | Boolean | Whether to skip downloading images | `false` |
 | `max_image_size_bytes` | Integer | Maximum allowed image size | `10485760` (10 MiB) |
+| `enable_output_mapping` | Boolean | Enable URL-to-file mapping log | `false` |
+| `output_mapping_filename` | String | Filename for the URL-to-file mapping log | `"url_to_file_map.tsv"` (if enabled and not set) |
 | `http_client_settings` | Object | HTTP client configuration | *(see below)* |
 | `sites` | Map | Site-specific configurations | *(required)* |
 
@@ -262,6 +271,16 @@ After a successful crawl for a specific site, the crawler automatically generate
 **Example Location:**
 If `output_base_dir` is `./crawled_docs` and you crawled `docs.example.com`, the structure file will be:
 `./crawled_docs/docs.example.com_structure.txt`
+
+## 🗺️ URL-to-File Mapping Output (URL Map)
+
+When enabled via configuration, the crawler generates a mapping file (typically a `.tsv` or `.txt` file) for each crawled site. This file logs each successfully processed page's final absolute URL and the corresponding local filesystem path where its content was saved.
+
+**Format:**
+Each line in the file typically follows a tab-separated format:
+`<FINAL_ABSOLUTE_URL><TAB><LOCAL_FILESYSTEM_PATH>`
+
+This feature is controlled by the `enable_output_mapping` and `output_mapping_filename` settings in `config.yaml`.
 
 ## 🤝 Contributing
 
