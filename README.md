@@ -195,6 +195,8 @@ sites:
 - `disallowed_path_patterns`: Array of regex patterns for URLs to skip
 - `skip_images`: Override global image setting for this site
 - `allowed_image_domains`: Array of domains from which to download images
+- `enable_output_mapping`: `true` or `false`. Override global URL-to-file mapping enablement for this site.
+- `output_mapping_filename`: String. Override global URL-to-file mapping filename for this site.
 
 ## 🛠️ Usage
 
