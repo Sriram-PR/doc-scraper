@@ -35,6 +35,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **Image Handling** | Optional downloading and local rewriting of image links with domain and size filtering |
 | **Link Rewriting** | Rewrites internal links to relative paths for local structure |
 | **URL-to-File Mapping** | Optional TSV file logging saved file paths and their corresponding original URLs |
+| **YAML Metadata Output**  | Optional detailed YAML file per site with crawl stats and per-page metadata (including content hashes) |
 | **Concurrency** | Configurable worker pools and semaphore-based request limits (global and per-host) |
 | **Rate Limiting** | Configurable per-host delays with jitter |
 | **Robots.txt & Sitemaps** | Respects `robots.txt` and processes discovered sitemaps |
@@ -113,6 +114,8 @@ skip_images: false # Set to true to skip images globally
 max_image_size_bytes: 10485760 # 10 MiB
 enable_output_mapping: true
 output_mapping_filename: "global_url_map.tsv"
+enable_metadata_yaml: true
+metadata_yaml_filename: "crawl_meta.yaml"
 
 # HTTP Client Settings
 http_client_settings:
@@ -132,6 +135,7 @@ sites:
     skip_images: false
     # Override global mapping filename for this site
     output_mapping_filename: "pytorch_docs_map.txt"
+    metadata_yaml_filename: "pytorch_metadata_output.yaml"
     disallowed_path_patterns:
       - "/docs/stable/.*/_modules/.*"
       - "/docs/stable/.*\.html#.*"
@@ -147,6 +151,7 @@ sites:
     delay_per_host: 1s  # Site-specific override
     # Disable mapping for this site, overriding global
     enable_output_mapping: false
+    enable_metadata_yaml: false
     disallowed_path_patterns:
       - "/install/.*"
       - "/js/.*"
@@ -170,6 +175,8 @@ sites:
 | `max_image_size_bytes` | Integer | Maximum allowed image size | `10485760` (10 MiB) |
 | `enable_output_mapping` | Boolean | Enable URL-to-file mapping log | `false` |
 | `output_mapping_filename` | String | Filename for the URL-to-file mapping log | `"url_to_file_map.tsv"` (if enabled and not set) |
+| `enable_metadata_yaml` | Boolean | Enable detailed YAML metadata output file | `false` |
+| `metadata_yaml_filename` | String  | Filename for the YAML metadata output file | `"metadata.yaml"` (if enabled & not set)   |
 | `http_client_settings` | Object | HTTP client configuration | *(see below)* |
 | `sites` | Map | Site-specific configurations | *(required)* |
 
@@ -197,6 +204,8 @@ sites:
 - `allowed_image_domains`: Array of domains from which to download images
 - `enable_output_mapping`: `true` or `false`. Override global URL-to-file mapping enablement for this site.
 - `output_mapping_filename`: String. Override global URL-to-file mapping filename for this site.
+- `enable_metadata_yaml`: `true` or `false`. Override global YAML metadata output enablement for this site.
+- `metadata_yaml_filename`: String. Override global YAML metadata filename for this site.
 
 ## 🛠️ Usage
 
@@ -250,6 +259,8 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
     │   ├── image1.png
     │   └── image2.jpg
     ├── index.md                # Markdown for the root path
+    ├── <metadata_yaml_filename.yaml>
+    ├── <output_mapping_filename.tsv>
     ├── topic_one/
     │   ├── index.md
     │   └── subtopic_a.md
@@ -283,6 +294,12 @@ Each line in the file typically follows a tab-separated format:
 `<FINAL_ABSOLUTE_URL><TAB><LOCAL_FILESYSTEM_PATH>`
 
 This feature is controlled by the `enable_output_mapping` and `output_mapping_filename` settings in `config.yaml`.
+
+## 📋 YAML Metadata Output
+
+In addition to (or instead of) the simple TSV mapping, the crawler can generate a comprehensive YAML file for each crawled site. This file (`metadata.yaml` by default, configurable) contains overall crawl statistics and detailed metadata for every successfully processed page.
+
+The filename can be configured globally and overridden per site using `enable_metadata_yaml` and `metadata_yaml_filename` in `config.yaml`.
 
 ## 🤝 Contributing
 
