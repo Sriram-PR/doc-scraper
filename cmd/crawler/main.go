@@ -160,6 +160,7 @@ func main() {
 	crawlerInstance, err := crawler.NewCrawler(
 		appCfg,
 		siteCfg,
+		*siteKeyFlag,
 		log,
 		store,       // Inject store
 		fetcher,     // Inject fetcher
@@ -324,6 +325,10 @@ func validateAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 		log.Warnf("Global 'enable_output_mapping' is true but global 'output_mapping_filename' is empty. Defaulting global filename to 'url_to_file_map.tsv'")
 		appCfg.OutputMappingFilename = "url_to_file_map.tsv"
 	}
+	if appCfg.EnableMetadataYAML && appCfg.MetadataYAMLFilename == "" {
+		log.Warnf("Global 'enable_metadata_yaml' is true but global 'metadata_yaml_filename' is empty. Defaulting to 'metadata.yaml'")
+		appCfg.MetadataYAMLFilename = "metadata.yaml"
+	}
 }
 
 // logAppConfig logs the effective global configuration
@@ -343,6 +348,8 @@ func logAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 		appCfg.HTTPClientSettings.IdleConnTimeout, appCfg.HTTPClientSettings.TLSHandshakeTimeout, appCfg.HTTPClientSettings.DialerTimeout)
 	log.Infof("Global Config Output Mapping: Enabled Globally:%t, Default Global Filename:'%s'",
 		appCfg.EnableOutputMapping, appCfg.OutputMappingFilename)
+	log.Infof("Global Config YAML Metadata: Enabled Globally:%t, Default Global Filename:'%s'",
+		appCfg.EnableMetadataYAML, appCfg.MetadataYAMLFilename)
 }
 
 // validateSiteConfig checks site-specific config - Operates on pointer to modify prefix

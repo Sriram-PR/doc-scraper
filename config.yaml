@@ -56,6 +56,14 @@ enable_output_mapping: true
 # Stores a map of original URLs to their corresponding local filenames.
 output_mapping_filename: "url_to_file_map.tsv"
 
+# Whether to generate and save metadata (like crawl timestamp, site info, etc.) in a YAML file.
+# Useful for tracking crawl history and managing data provenance.
+enable_metadata_yaml: true
+
+# Filename for the generated metadata YAML file.
+# This file will contain crawl-related information (e.g., site name, crawl time, total pages/images, errors).
+metadata_yaml_filename: "crawl_meta.yaml"
+
 # --- HTTP Client Settings (optional section, reasonable defaults applied if omitted) ---
 http_client_settings:
   # Overall timeout for a single HTTP request.
@@ -163,6 +171,8 @@ sites:
         - ^/docs/experimental/.*
         - ^/docs/api/.* # Adjusted pattern
     output_mapping_filename: "langchain_py_manifest.txt"
+    enable_metadata_yaml: true
+    metadata_yaml_filename: "langchain_metadata.yaml"
 
   rust_docs:
     start_urls:
@@ -176,6 +186,7 @@ sites:
      - nav.nav-wrapper
      - div#menu-bar.menu-bar
     #  - a.nav-chapeters.previous
-    enable_output_mapping: false
+    enable_output_mapping: true
     # Override global name for this site
     output_mapping_filename: "rust_docs_manifest.txt"
+    enable_metadata_yaml: true

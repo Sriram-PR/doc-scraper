@@ -20,6 +20,8 @@ type SiteConfig struct {
 	DisallowedImageDomains  []string      `yaml:"disallowed_image_domains,omitempty"`
 	EnableOutputMapping     *bool         `yaml:"enable_output_mapping,omitempty"`
 	OutputMappingFilename   string        `yaml:"output_mapping_filename,omitempty"`
+	EnableMetadataYAML      *bool         `yaml:"enable_metadata_yaml,omitempty"`
+	MetadataYAMLFilename    string        `yaml:"metadata_yaml_filename,omitempty"`
 }
 
 // AppConfig holds the global application configuration
@@ -43,6 +45,8 @@ type AppConfig struct {
 	Sites                   map[string]SiteConfig `yaml:"sites"`
 	EnableOutputMapping     bool                  `yaml:"enable_output_mapping,omitempty"`
 	OutputMappingFilename   string                `yaml:"output_mapping_filename,omitempty"`
+	EnableMetadataYAML      bool                  `yaml:"enable_metadata_yaml,omitempty"`
+	MetadataYAMLFilename    string                `yaml:"metadata_yaml_filename,omitempty"`
 }
 
 // HTTPClientConfig holds settings for the shared HTTP client
@@ -94,4 +98,23 @@ func GetEffectiveOutputMappingFilename(siteCfg SiteConfig, appCfg AppConfig) str
 	}
 	// Fallback to a hardcoded default if neither global nor site-specific filename is provided
 	return "url_to_file_map.tsv"
+}
+
+// GetEffectiveEnableMetadataYAML determines if YAML metadata should be generated.
+func GetEffectiveEnableMetadataYAML(siteCfg SiteConfig, appCfg AppConfig) bool {
+	if siteCfg.EnableMetadataYAML != nil {
+		return *siteCfg.EnableMetadataYAML
+	}
+	return appCfg.EnableMetadataYAML
+}
+
+// GetEffectiveMetadataYAMLFilename determines the filename for the YAML metadata.
+func GetEffectiveMetadataYAMLFilename(siteCfg SiteConfig, appCfg AppConfig) string {
+	if siteCfg.MetadataYAMLFilename != "" {
+		return siteCfg.MetadataYAMLFilename
+	}
+	if appCfg.MetadataYAMLFilename != "" {
+		return appCfg.MetadataYAMLFilename
+	}
+	return "metadata.yaml"
 }

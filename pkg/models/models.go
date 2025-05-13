@@ -32,3 +32,27 @@ type ImageData struct {
 	LocalPath   string // Relative path from site output dir
 	Caption     string // Image caption/alt text
 }
+
+// CrawlMetadata holds all metadata for a single crawl session of a site.
+type CrawlMetadata struct {
+	SiteKey           string                 `yaml:"site_key"`
+	AllowedDomain     string                 `yaml:"allowed_domain"`
+	CrawlStartTime    time.Time              `yaml:"crawl_start_time"`
+	CrawlEndTime      time.Time              `yaml:"crawl_end_time"`
+	TotalPagesSaved   int                    `yaml:"total_pages_saved"`
+	SiteConfiguration map[string]interface{} `yaml:"site_configuration,omitempty"` // For a flexible dump of SiteConfig
+	Pages             []PageMetadata         `yaml:"pages"`
+}
+
+// PageMetadata holds metadata for a single scraped page.
+type PageMetadata struct {
+	OriginalURL   string    `yaml:"original_url"`
+	NormalizedURL string    `yaml:"normalized_url"`
+	LocalFilePath string    `yaml:"local_file_path"` // Relative to site_output_dir
+	Title         string    `yaml:"title,omitempty"`
+	Depth         int       `yaml:"depth"`
+	ProcessedAt   time.Time `yaml:"processed_at"`
+	ContentHash   string    `yaml:"content_hash,omitempty"` // MD5 or SHA256 hex string
+	ImageCount    int       `yaml:"image_count,omitempty"`  // Count of images processed for this page
+	// LinkedFrom    []string  `yaml:"linked_from,omitempty"` // Deferring for now
+}
