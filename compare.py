@@ -1,7 +1,7 @@
 import argparse
 import difflib
-import os
 from pathlib import Path
+
 
 def get_relative_items(root_dir: Path) -> set[Path]:
     """
@@ -9,9 +9,10 @@ def get_relative_items(root_dir: Path) -> set[Path]:
     and returns their paths relative to root_dir.
     """
     items = set()
-    for item in root_dir.rglob('*'):
+    for item in root_dir.rglob("*"):
         items.add(item.relative_to(root_dir))
     return items
+
 
 def compare_files_line_by_line(file1: Path, file2: Path) -> list[str] | None:
     """
@@ -19,18 +20,18 @@ def compare_files_line_by_line(file1: Path, file2: Path) -> list[str] | None:
     if they differ, or None if they are identical or an error occurs.
     """
     try:
-        with open(file1, 'r', encoding='utf-8', errors='ignore') as f1, \
-             open(file2, 'r', encoding='utf-8', errors='ignore') as f2:
+        with (
+            open(file1, "r", encoding="utf-8", errors="ignore") as f1,
+            open(file2, "r", encoding="utf-8", errors="ignore") as f2,
+        ):
             lines1 = f1.readlines()
             lines2 = f2.readlines()
 
-        diff = list(difflib.unified_diff(
-            lines1,
-            lines2,
-            fromfile=str(file1),
-            tofile=str(file2),
-            lineterm='\n'
-        ))
+        diff = list(
+            difflib.unified_diff(
+                lines1, lines2, fromfile=str(file1), tofile=str(file2), lineterm="\n"
+            )
+        )
 
         if not diff:
             return None
@@ -124,17 +125,16 @@ def compare_folders(dir1: Path, dir2: Path):
                         print(f"\n* Content difference: '{item_rel_path}'")
                         # for line in diff_lines[:50]:
                         for line in diff_lines:
-                             print(f"  {line.rstrip()}")
-                        # if len(diff_lines) > 50:
-                        #    print("  ... (diff output truncated)")
-
+                            print(f"  {line.rstrip()}")
 
                 except OSError as e:
                     found_diff = True
                     print(f"\n* Error accessing file stats for '{item_rel_path}': {e}")
                 except Exception as e:
                     found_diff = True
-                    print(f"\n* Unexpected error processing file '{item_rel_path}': {e}")
+                    print(
+                        f"\n* Unexpected error processing file '{item_rel_path}': {e}"
+                    )
 
     # --- 3. Final Summary ---
     print("\n--- Comparison Summary ---")
