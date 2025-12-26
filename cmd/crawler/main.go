@@ -88,6 +88,11 @@ func main() {
 	// --- Start pprof HTTP Server (Optional) ---
 	if *pprofAddr != "" {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Errorf("PANIC in pprof server: %v", r)
+				}
+			}()
 			log.Infof("Starting pprof HTTP server on: http://%s/debug/pprof/", *pprofAddr)
 			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
 				log.Errorf("Pprof server failed to start on %s: %v", *pprofAddr, err)
@@ -119,6 +124,11 @@ func main() {
 
 	// Goroutine to handle signals -> cancel context -> force exit on second signal
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Errorf("PANIC in signal handler: %v", r)
+			}
+		}()
 		sig := <-sigChan
 		log.Warnf("Received signal: %v. Initiating graceful shutdown...", sig)
 		cancelCrawl() // Trigger shutdown via context cancellation
