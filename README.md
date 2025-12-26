@@ -6,7 +6,7 @@
 
 ## 📖 Overview
 
-This project provides a powerful command-line tool to crawl documentation sites based on settings defined in a `config.yaml` file. It navigates the site structure, extracts content from specified HTML sections using CSS selectors, and converts it into clean Markdown files. 
+This project provides a powerful command-line tool to crawl documentation sites based on settings defined in a `config.yaml` file. It navigates the site structure, extracts content from specified HTML sections using CSS selectors, and converts it into clean Markdown files.
 
 ### Why Use This Tool?
 
@@ -19,10 +19,10 @@ This project provides a powerful command-line tool to crawl documentation sites 
 
 The main objective of this tool is to automate the often tedious process of gathering and cleaning web-based documentation for use with Large Language Models. By converting structured web content into clean Markdown, it aims to provide a dataset that is:
 
-* **Text-Focused:** Prioritizes the textual content extracted via CSS selectors
-* **Structured:** Maintains the directory hierarchy of the original documentation site, preserving context
-* **Cleaned:** Converts HTML to Markdown, removing web-specific markup and clutter
-* **Locally Accessible:** Provides the content as local files for easier processing and pipeline integration
+- **Text-Focused:** Prioritizes the textual content extracted via CSS selectors
+- **Structured:** Maintains the directory hierarchy of the original documentation site, preserving context
+- **Cleaned:** Converts HTML to Markdown, removing web-specific markup and clutter
+- **Locally Accessible:** Provides the content as local files for easier processing and pipeline integration
 
 ## ✨ Key Features
 
@@ -49,36 +49,42 @@ The main objective of this tool is to automate the often tedious process of gath
 
 ### Prerequisites
 
-* **Go:** Version 1.21 or later
-* **Git:** For cloning the repository
-* **Disk Space:** Sufficient for storing crawled content and state database
+- **Go:** Version 1.21 or later
+- **Git:** For cloning the repository
+- **Disk Space:** Sufficient for storing crawled content and state database
 
 ### Installation
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/Sriram-PR/doc-scraper.git
    cd doc-scraper
    ```
 
 2. **Install Dependencies:**
+
    ```bash
    go mod tidy
    ```
 
 3. **Build the Binary:**
+
    ```bash
    go build -o crawler.exe ./cmd/crawler/...
    ```
+
    This creates an executable file named `crawler` in the project root directory.
 
 ### Quick Start
 
 1. Create a basic `config.yaml` file (see [Configuration](#-configuration-configyaml) section)
 2. Run the crawler:
+
    ```bash
    ./crawler.exe -site your_site_key -loglevel info
    ```
+
 3. Find your crawled documentation in the `./crawled_docs/` directory
 
 ## ⚙️ Configuration (`config.yaml`)
@@ -182,17 +188,19 @@ sites:
 
 **HTTP Client Settings:**
 *(These are global and cannot be overridden per site in the current structure)*
--   `timeout`: Overall request timeout (Default in code: `45s`)
--   `max_idle_conns`: Total idle connections (Default in code: `100`)
--   `max_idle_conns_per_host`: Idle connections per host (Default in code: `6`)
--   `idle_conn_timeout`: Timeout for idle connections (Default in code: `90s`)
--   `tls_handshake_timeout`: TLS handshake timeout (Default in code: `10s`)
--   `expect_continue_timeout`: "100 Continue" timeout (Default in code: `1s`)
--   `force_attempt_http2`: `null` (use Go default), `true`, or `false`. (Default in code: `null`)
--   `dialer_timeout`: TCP connection timeout (Default in code: `15s`)
--   `dialer_keep_alive`: TCP keep-alive interval (Default in code: `30s`)
+
+- `timeout`: Overall request timeout (Default in code: `45s`)
+- `max_idle_conns`: Total idle connections (Default in code: `100`)
+- `max_idle_conns_per_host`: Idle connections per host (Default in code: `6`)
+- `idle_conn_timeout`: Timeout for idle connections (Default in code: `90s`)
+- `tls_handshake_timeout`: TLS handshake timeout (Default in code: `10s`)
+- `expect_continue_timeout`: "100 Continue" timeout (Default in code: `1s`)
+- `force_attempt_http2`: `null` (use Go default), `true`, or `false`. (Default in code: `null`)
+- `dialer_timeout`: TCP connection timeout (Default in code: `15s`)
+- `dialer_keep_alive`: TCP keep-alive interval (Default in code: `30s`)
 
 **Site-Specific Configuration Options:**
+
 - `start_urls`: Array of starting URLs for crawling (Required)
 - `allowed_domain`: Restrict crawling to this domain (Required)
 - `allowed_path_prefix`: Further restrict crawling to URLs with this prefix (Required)
@@ -229,21 +237,25 @@ Execute the compiled binary from the project root directory:
 ### Example Usage Scenarios
 
 **Basic Crawl:**
+
 ```bash
 ./crawler -site tensorflow_docs -loglevel info
 ```
 
 **Resume a Large Crawl:**
+
 ```bash
 ./crawler -site pytorch_docs -resume -loglevel info
 ```
 
 **High Performance Crawl with Profiling:**
+
 ```bash
 ./crawler -site small_docs -loglevel warn -pprof localhost:6060
 ```
 
 **Debug Mode for Troubleshooting:**
+
 ```bash
 ./crawler -site test_site -loglevel debug
 ```
@@ -271,6 +283,7 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
 ### Output Format
 
 Each generated Markdown file contains:
+
 - Original page title as level-1 heading
 - Clean content converted from HTML to Markdown
 - Relative links to other pages (when within the allowed domain)
@@ -306,6 +319,7 @@ The filename can be configured globally and overridden per site using `enable_me
 Contributions are welcome! Please feel free to open an issue to discuss bugs, suggest features, or propose changes.
 
 **Pull Request Process:**
+
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)

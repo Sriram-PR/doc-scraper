@@ -88,21 +88,18 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 			reqLog.WithFields(logrus.Fields{"attempt": attempt, "max_retries": maxRetries, "delay": finalDelay}).Warn("Retrying request...")
 
 			// Wait for the calculated delay, but respect context cancellation during the wait
-			sleepCtx, sleepCancel := context.WithTimeout(ctx, finalDelay)
 			select {
 			case <-time.After(finalDelay):
 				// Sleep completed normally
-			case <-sleepCtx.Done():
+			case <-ctx.Done():
 				// Context was cancelled *during* the sleep
-				sleepCancel() // Clean up the sleep context timer
-				reqLog.Warnf("Context cancelled during retry sleep: %v", sleepCtx.Err())
+				reqLog.Warnf("Context cancelled during retry sleep: %v", ctx.Err())
 				// Return the error from the *previous* attempt, wrapped with context info
 				if lastErr != nil {
-					return nil, fmt.Errorf("context cancelled (%v) during retry delay after error: %w", sleepCtx.Err(), lastErr)
+					return nil, fmt.Errorf("context cancelled (%v) during retry delay after error: %w", ctx.Err(), lastErr)
 				}
-				return nil, fmt.Errorf("context cancelled during retry delay: %w", sleepCtx.Err())
+				return nil, fmt.Errorf("context cancelled during retry delay: %w", ctx.Err())
 			}
-			sleepCancel() // Clean up sleep context if time.After completed
 		}
 
 		// --- Perform HTTP Request ---
