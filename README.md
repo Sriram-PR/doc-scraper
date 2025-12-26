@@ -39,11 +39,12 @@ The main objective of this tool is to automate the often tedious process of gath
 | **Concurrency** | Configurable worker pools and semaphore-based request limits (global and per-host) |
 | **Rate Limiting** | Configurable per-host delays with jitter |
 | **Robots.txt & Sitemaps** | Respects `robots.txt` and processes discovered sitemaps |
-| **State Persistence** | Uses BadgerDB for state; supports resuming crawls via `-resume` flag |
+| **State Persistence** | Uses BadgerDB for state; supports resuming crawls via `resume` subcommand |
 | **Graceful Shutdown** | Handles `SIGINT`/`SIGTERM` with proper cleanup |
 | **HTTP Retries** | Exponential backoff with jitter for transient errors |
 | **Observability** | Structured logging (`logrus`) and optional `pprof` endpoint |
 | **Modular Code** | Organized into packages for clarity and maintainability |
+| **CLI Utilities** | Built-in `validate` and `list-sites` commands for configuration management |
 
 ## Getting Started
 
@@ -82,7 +83,7 @@ The main objective of this tool is to automate the often tedious process of gath
 2. Run the crawler:
 
    ```bash
-   ./crawler.exe -site your_site_key -loglevel info
+   ./crawler crawl -site your_site_key -loglevel info
    ```
 
 3. Find your crawled documentation in the `./crawled_docs/` directory
@@ -220,44 +221,81 @@ sites:
 Execute the compiled binary from the project root directory:
 
 ```bash
-./crawler -config <path_to_config.yaml> -site <site_key> [flags...]
+./crawler <command> [options]
 ```
 
-### Command-Line Flags
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `crawl` | Start a fresh crawl |
+| `resume` | Resume an interrupted crawl |
+| `validate` | Validate configuration file without crawling |
+| `list-sites` | List available site keys from config |
+| `version` | Show version information |
+
+### Command Options
+
+**crawl / resume:**
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-config <path>` | Path to config file | `config.yaml` |
-| `-site <key>` | **Required.** Key identifying the site config entry | - |
-| `-loglevel <level>` | Logging level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`) | `info` |
-| `-resume` | Attempt to resume using the existing state database | `false` |
-| `-write-visited-log` | Output a list of visited URLs after the crawl | `false` |
-| `-pprof <addr>` | Enable pprof endpoint | `localhost:6060` |
+| `-site <key>` | **Required.** Site key from config | - |
+| `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`, `fatal`) | `info` |
+| `-pprof <addr>` | pprof server address (empty to disable) | `localhost:6060` |
+| `-write-visited-log` | Write visited URLs log on completion | `false` |
+
+**validate:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-config <path>` | Path to config file | `config.yaml` |
+| `-site <key>` | Site key to validate (optional, validates all if empty) | - |
+
+**list-sites:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-config <path>` | Path to config file | `config.yaml` |
 
 ### Example Usage Scenarios
 
 **Basic Crawl:**
 
 ```bash
-./crawler -site tensorflow_docs -loglevel info
+./crawler crawl -site tensorflow_docs -loglevel info
 ```
 
 **Resume a Large Crawl:**
 
 ```bash
-./crawler -site pytorch_docs -resume -loglevel info
+./crawler resume -site pytorch_docs -loglevel info
+```
+
+**Validate Configuration:**
+
+```bash
+./crawler validate -config config.yaml
+./crawler validate -site pytorch_docs  # Validate specific site
+```
+
+**List Available Sites:**
+
+```bash
+./crawler list-sites
 ```
 
 **High Performance Crawl with Profiling:**
 
 ```bash
-./crawler -site small_docs -loglevel warn -pprof localhost:6060
+./crawler crawl -site small_docs -loglevel warn -pprof localhost:6060
 ```
 
 **Debug Mode for Troubleshooting:**
 
 ```bash
-./crawler -site test_site -loglevel debug
+./crawler crawl -site test_site -loglevel debug
 ```
 
 ## Output Structure
