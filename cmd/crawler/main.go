@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -54,7 +55,12 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println(`doc-scraper - Documentation site crawler
+	printUsageTo(os.Stdout)
+}
+
+// printUsageTo writes usage information to the provided writer.
+func printUsageTo(w io.Writer) {
+	fmt.Fprintln(w, `doc-scraper - Documentation site crawler
 
 Usage:
   doc-scraper <command> [options]
@@ -131,34 +137,41 @@ func runValidate(args []string) {
 		os.Exit(1)
 	}
 
-	appCfg, err := loadConfig(*configFile)
+	exitCode := doValidate(*configFile, *siteKey, os.Stdout, os.Stderr)
+	os.Exit(exitCode)
+}
+
+// doValidate performs validation and writes output to provided writers.
+// Returns exit code (0 = success, 1 = error).
+func doValidate(configPath, siteKey string, stdout, stderr io.Writer) int {
+	appCfg, err := loadConfig(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
 	}
 
 	// Validate app config
 	warnings, _ := appCfg.Validate()
 	for _, w := range warnings {
-		fmt.Printf("WARN: %s\n", w)
+		fmt.Fprintf(stdout, "WARN: %s\n", w)
 	}
 
-	if *siteKey != "" {
+	if siteKey != "" {
 		// Validate specific site
-		siteCfg, ok := appCfg.Sites[*siteKey]
+		siteCfg, ok := appCfg.Sites[siteKey]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Error: site '%s' not found in config\n", *siteKey)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "Error: site '%s' not found in config\n", siteKey)
+			return 1
 		}
 		siteWarnings, err := siteCfg.Validate()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: [%s] %v\n", *siteKey, err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "ERROR: [%s] %v\n", siteKey, err)
+			return 1
 		}
 		for _, w := range siteWarnings {
-			fmt.Printf("WARN: [%s] %s\n", *siteKey, w)
+			fmt.Fprintf(stdout, "WARN: [%s] %s\n", siteKey, w)
 		}
-		fmt.Printf("OK: Site '%s' configuration is valid\n", *siteKey)
+		fmt.Fprintf(stdout, "OK: Site '%s' configuration is valid\n", siteKey)
 	} else {
 		// Validate all sites
 		hasError := false
@@ -172,21 +185,22 @@ func runValidate(args []string) {
 			siteCfg := appCfg.Sites[key]
 			siteWarnings, err := siteCfg.Validate()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ERROR: [%s] %v\n", key, err)
+				fmt.Fprintf(stderr, "ERROR: [%s] %v\n", key, err)
 				hasError = true
 				continue
 			}
 			for _, w := range siteWarnings {
-				fmt.Printf("WARN: [%s] %s\n", key, w)
+				fmt.Fprintf(stdout, "WARN: [%s] %s\n", key, w)
 			}
-			fmt.Printf("OK: [%s]\n", key)
+			fmt.Fprintf(stdout, "OK: [%s]\n", key)
 		}
 		if hasError {
-			os.Exit(1)
+			return 1
 		}
 	}
 
-	fmt.Println("\nConfiguration valid.")
+	fmt.Fprintln(stdout, "\nConfiguration valid.")
+	return 0
 }
 
 // runListSites handles the list-sites subcommand
@@ -203,10 +217,17 @@ func runListSites(args []string) {
 		os.Exit(1)
 	}
 
-	appCfg, err := loadConfig(*configFile)
+	exitCode := doListSites(*configFile, os.Stdout, os.Stderr)
+	os.Exit(exitCode)
+}
+
+// doListSites lists sites and writes output to provided writers.
+// Returns exit code (0 = success, 1 = error).
+func doListSites(configPath string, stdout, stderr io.Writer) int {
+	appCfg, err := loadConfig(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
 	}
 
 	// Sort keys for consistent output
@@ -216,17 +237,18 @@ func runListSites(args []string) {
 	}
 	sort.Strings(keys)
 
-	fmt.Printf("Sites in %s:\n\n", *configFile)
+	fmt.Fprintf(stdout, "Sites in %s:\n\n", configPath)
 	for _, key := range keys {
 		site := appCfg.Sites[key]
-		fmt.Printf("  %s\n", key)
-		fmt.Printf("    Domain: %s\n", site.AllowedDomain)
-		fmt.Printf("    Start URLs: %d\n", len(site.StartURLs))
+		fmt.Fprintf(stdout, "  %s\n", key)
+		fmt.Fprintf(stdout, "    Domain: %s\n", site.AllowedDomain)
+		fmt.Fprintf(stdout, "    Start URLs: %d\n", len(site.StartURLs))
 		if site.AllowedPathPrefix != "" && site.AllowedPathPrefix != "/" {
-			fmt.Printf("    Path Prefix: %s\n", site.AllowedPathPrefix)
+			fmt.Fprintf(stdout, "    Path Prefix: %s\n", site.AllowedPathPrefix)
 		}
-		fmt.Println()
+		fmt.Fprintln(stdout)
 	}
+	return 0
 }
 
 // executeCrawl contains the main crawl logic
