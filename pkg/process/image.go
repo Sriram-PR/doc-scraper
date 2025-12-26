@@ -260,7 +260,7 @@ func (ip *ImageProcessor) ProcessImages(
 
 		// --- Determine if Download Task Needs Dispatching ---
 		shouldDispatch := false
-		if dbStatus == "success" {
+		if dbStatus == models.ImageStatusSuccess {
 			if dbEntry != nil && dbEntry.LocalPath != "" {
 				// Successfully downloaded previously, reuse data
 				element.SetAttr("data-crawl-status", "success") // Mark success (cached)
@@ -277,7 +277,7 @@ func (ip *ImageProcessor) ProcessImages(
 				shouldDispatch = true
 				element.SetAttr("data-crawl-status", "pending-download") // Mark for download
 			}
-		} else if dbStatus == "failure" {
+		} else if dbStatus == models.ImageStatusFailure {
 			// Previously failed, try again
 			errMsg := "Unknown reason"
 			if dbEntry != nil {
@@ -286,7 +286,7 @@ func (ip *ImageProcessor) ProcessImages(
 			imgLog.Warnf("Image previously failed download ('%s'). Re-scheduling.", errMsg)
 			shouldDispatch = true
 			element.SetAttr("data-crawl-status", "pending-download") // Mark for download
-		} else { // "not_found" or "db_error" (though we return early on db_error now)
+		} else { // ImageStatusNotFound or ImageStatusDBError (though we return early on db_error now)
 			imgLog.Debugf("Image '%s' new or previously failed check ('%s'). Scheduling download.", imgSrc, dbStatus)
 			shouldDispatch = true
 			element.SetAttr("data-crawl-status", "pending-download") // Mark for download
@@ -401,7 +401,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 		var entryToSave models.ImageDBEntry
 		if imgTaskErr == nil && imgDownloaded { // Success path
 			entryToSave = models.ImageDBEntry{
-				Status:      "success",
+				Status:      models.ImageStatusSuccess,
 				LocalPath:   imgLocalPath,
 				Caption:     task.ExtractedCaption,
 				LastAttempt: now,
@@ -412,7 +412,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 				errorType = utils.CategorizeError(imgTaskErr) // Use utility function
 			}
 			entryToSave = models.ImageDBEntry{
-				Status:      "failure",
+				Status:      models.ImageStatusFailure,
 				ErrorType:   errorType,
 				LastAttempt: now,
 			}

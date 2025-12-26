@@ -107,16 +107,16 @@ func (s *BadgerStore) MarkPageVisited(normalizedPageURL string) (bool, error) {
 }
 
 // CheckPageStatus implements the VisitedStore interface
-func (s *BadgerStore) CheckPageStatus(normalizedPageURL string) (string, *models.PageDBEntry, error) {
-	status := "not_found"
+func (s *BadgerStore) CheckPageStatus(normalizedPageURL string) (models.PageStatus, *models.PageDBEntry, error) {
+	status := models.PageStatusNotFound
 	var entry *models.PageDBEntry = nil
 	key := []byte(pageKeyPrefix + normalizedPageURL)
 
 	errView := s.db.View(func(txn *badger.Txn) error {
 		item, errGet := txn.Get(key)
 		if errors.Is(errGet, badger.ErrKeyNotFound) {
-			status = "not_found" // Explicitly set status
-			return nil           // Key not found is not an error for this function's purpose
+			status = models.PageStatusNotFound // Explicitly set status
+			return nil                         // Key not found is not an error for this function's purpose
 		}
 		if errGet != nil {
 			return fmt.Errorf("%w: failed getting page key '%s': %w", utils.ErrDatabase, string(key), errGet)
@@ -125,8 +125,7 @@ func (s *BadgerStore) CheckPageStatus(normalizedPageURL string) (string, *models
 		// Key found, now get the value
 		return item.Value(func(val []byte) error {
 			if len(val) == 0 {
-				status = "pending" // Key exists but has no data yet
-				// s.log.Debugf("Page key '%s' found with empty value, status: pending", string(key))
+				status = models.PageStatusPending // Key exists but has no data yet
 				return nil
 			}
 
@@ -134,8 +133,8 @@ func (s *BadgerStore) CheckPageStatus(normalizedPageURL string) (string, *models
 			var decodedEntry models.PageDBEntry
 			if errJson := json.Unmarshal(val, &decodedEntry); errJson != nil {
 				s.log.Warnf("Failed to unmarshal PageDBEntry for key '%s': %v. Treating as 'pending'.", string(key), errJson)
-				status = "pending" // Treat unmarshal error as pending state? Or db_error? Let's stick to pending.
-				return nil         // Return nil to continue View, status is set
+				status = models.PageStatusPending // Treat unmarshal error as pending state
+				return nil                        // Return nil to continue View, status is set
 			}
 
 			// Successfully decoded
@@ -148,8 +147,8 @@ func (s *BadgerStore) CheckPageStatus(normalizedPageURL string) (string, *models
 
 	if errView != nil {
 		s.log.Errorf("DB View error in CheckPageStatus for key '%s': %v", string(key), errView)
-		status = "db_error"         // Set status to indicate DB error
-		return status, nil, errView // Return the DB error
+		status = models.PageStatusDBError // Set status to indicate DB error
+		return status, nil, errView       // Return the DB error
 	}
 
 	// No DB error occurred during View/Get/Value
@@ -185,15 +184,15 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 }
 
 // CheckImageStatus implements the VisitedStore interface
-func (s *BadgerStore) CheckImageStatus(normalizedImgURL string) (string, *models.ImageDBEntry, error) {
-	status := "not_found"
+func (s *BadgerStore) CheckImageStatus(normalizedImgURL string) (models.ImageStatus, *models.ImageDBEntry, error) {
+	status := models.ImageStatusNotFound
 	var entry *models.ImageDBEntry = nil
 	key := []byte(imageKeyPrefix + normalizedImgURL)
 
 	errView := s.db.View(func(txn *badger.Txn) error {
 		item, errGet := txn.Get(key)
 		if errors.Is(errGet, badger.ErrKeyNotFound) {
-			status = "not_found"
+			status = models.ImageStatusNotFound
 			return nil
 		}
 		if errGet != nil {
@@ -204,14 +203,14 @@ func (s *BadgerStore) CheckImageStatus(normalizedImgURL string) (string, *models
 			// Image entries should never be empty if written correctly
 			if len(val) == 0 {
 				s.log.Warnf("Image key '%s' found with empty value, invalid state. Treating as 'not_found'.", string(key))
-				status = "not_found"
+				status = models.ImageStatusNotFound
 				return nil
 			}
 
 			var decodedEntry models.ImageDBEntry
 			if errJson := json.Unmarshal(val, &decodedEntry); errJson != nil {
 				s.log.Warnf("Failed to unmarshal ImageDBEntry for key '%s': %v. Treating as 'not_found'.", string(key), errJson)
-				status = "not_found"
+				status = models.ImageStatusNotFound
 				return nil
 			}
 
@@ -223,7 +222,7 @@ func (s *BadgerStore) CheckImageStatus(normalizedImgURL string) (string, *models
 
 	if errView != nil {
 		s.log.Errorf("DB View error in CheckImageStatus for key '%s': %v", string(key), errView)
-		status = "db_error"
+		status = models.ImageStatusDBError
 		return status, nil, errView
 	}
 
@@ -378,7 +377,7 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 						return nil // Continue iteration
 					}
 					// Case 3: Check status
-					if entry.Status == "failure" || entry.Status == "pending" {
+					if entry.Status == models.PageStatusFailure || entry.Status == models.PageStatusPending {
 						s.log.Debugf("Resume Scan: Requeueing '%s' (Status: %s, Depth: %d)", urlToRequeue, entry.Status, entry.Depth)
 						shouldRequeue = true
 						requeueDepth = entry.Depth // Use stored depth

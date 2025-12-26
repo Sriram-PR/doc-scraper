@@ -39,6 +39,7 @@ type AppConfig struct {
 	MaxRetryDelay           time.Duration         `yaml:"max_retry_delay,omitempty"`
 	SemaphoreAcquireTimeout time.Duration         `yaml:"semaphore_acquire_timeout,omitempty"`
 	GlobalCrawlTimeout      time.Duration         `yaml:"global_crawl_timeout,omitempty"`
+	PerPageTimeout          time.Duration         `yaml:"per_page_timeout,omitempty"` // Timeout for processing a single page (0 = no timeout)
 	SkipImages              bool                  `yaml:"skip_images,omitempty"`
 	MaxImageSizeBytes       int64                 `yaml:"max_image_size_bytes,omitempty"`
 	HTTPClientSettings      HTTPClientConfig      `yaml:"http_client_settings,omitempty"`

@@ -643,13 +643,21 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	taskLog := workerLog.WithFields(logrus.Fields{"url": currentURL, "depth": currentDepth})
 	startTime := time.Now()
 
+	// Create per-page timeout context if configured
+	taskCtx := c.crawlCtx
+	if c.appCfg.PerPageTimeout > 0 {
+		var cancel context.CancelFunc
+		taskCtx, cancel = context.WithTimeout(c.crawlCtx, c.appCfg.PerPageTimeout)
+		defer cancel()
+	}
+
 	// Variables to be populated during the task.
 	// pageTitle and savedContentPath are used in defer logging.
 	// normalizedURLString is used for DB updates and YAML metadata.
-	var taskErr error                  // Stores the first critical error encountered in the pipeline.
-	var finalStatus string             // "success", "failure", "skipped"
-	var finalErrorType string = "None" // Categorized error type on failure.
-	var skipped bool = false           // True if task is skipped due to prior processing or policy.
+	var taskErr error                          // Stores the first critical error encountered in the pipeline.
+	var finalStatus models.PageStatus          // PageStatusSuccess or PageStatusFailure (only set for non-skipped tasks)
+	var finalErrorType string = "None"         // Categorized error type on failure.
+	var skipped bool = false                   // True if task is skipped due to prior processing or policy.
 	var pageTitle string               // Populated on successful content extraction.
 	var savedContentPath string        // Absolute path to the saved .md file.
 	var normalizedURLString string     // Populated from handleSetupAndResumeCheck.
@@ -676,17 +684,17 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 		}
 
 		if taskErr != nil { // Task failed
-			finalStatus = "failure"
+			finalStatus = models.PageStatusFailure
 			finalErrorType = utils.CategorizeError(taskErr) // Categorize the error
 			logFields["category"] = finalErrorType
 			if recover() == nil { // Log non-panic errors (panic already logged)
 				taskLog.WithFields(logFields).Warnf("Task failed: %v", taskErr)
 			}
 		} else if skipped { // Task was skipped
-			finalStatus = "skipped"
+			// finalStatus not set for skipped tasks (DB not updated)
 			taskLog.WithFields(logFields).Info("Task skipped")
 		} else { // Task succeeded
-			finalStatus = "success"
+			finalStatus = models.PageStatusSuccess
 			finalErrorType = "None"
 			if savedContentPath != "" { // Add saved path to log if content was saved
 				logFields["saved_path"] = savedContentPath
@@ -702,7 +710,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 				LastAttempt: time.Now(),
 				Depth:       currentDepth,
 			}
-			if finalStatus == "success" { // Mark ProcessedAt only on success
+			if finalStatus == models.PageStatusSuccess { // Mark ProcessedAt only on success
 				pageEntry.ProcessedAt = pageEntry.LastAttempt
 			}
 			// Update page status in the persistent store
@@ -783,7 +791,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	var tempPageTitle, tempSavedPath string // Use temp vars for return values from contentProcessor
 	var contentErr error
 	// pageTitle and savedContentPath (function-scoped) will be set from these if successful.
-	tempPageTitle, tempSavedPath, contentErr = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, c.crawlCtx)
+	tempPageTitle, tempSavedPath, contentErr = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, taskCtx)
 	if handleTaskError(contentErr) { // If content processing/saving fails, set taskErr and exit.
 		return
 	}
@@ -869,16 +877,16 @@ func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *logrus.E
 	if checkErr != nil {
 		taskLog.Errorf("DB error checking status for '%s', proceeding as if not found: %v", normalizedURLStr, checkErr)
 		// Do not return 'err' here; let the crawl attempt proceed if DB check fails.
-		// The error is logged, and status will default to "not_found" effectively.
-	} else if pageStatus == "success" {
+		// The error is logged, and status will default to PageStatusNotFound effectively.
+	} else if pageStatus == models.PageStatusSuccess {
 		taskLog.Info("Skipping already successfully processed page (from DB).")
 		shouldSkip = true
 		return parsedURL, normalizedURLStr, host, shouldSkip, nil // Return to skip
-	} else if pageStatus == "failure" {
+	} else if pageStatus == models.PageStatusFailure {
 		taskLog.Warnf("Retrying previously failed page (from DB).")
-	} else if pageStatus == "pending" {
+	} else if pageStatus == models.PageStatusPending {
 		taskLog.Debug("Processing page previously marked pending (from DB).")
-	} // If "not_found" or any other unexpected status, proceed to crawl normally.
+	} // If PageStatusNotFound or any other unexpected status, proceed to crawl normally.
 
 	return parsedURL, normalizedURLStr, host, false, nil // Proceed with crawling
 }

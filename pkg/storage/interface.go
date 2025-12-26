@@ -14,8 +14,9 @@ type PageStore interface {
 	MarkPageVisited(normalizedPageURL string) (bool, error)
 
 	// CheckPageStatus retrieves the status and details of a page URL
-	// Returns status ("success", "failure", "pending", "not_found", "db_error"), the PageDBEntry if found and parsed, and any error
-	CheckPageStatus(normalizedPageURL string) (status string, entry *models.PageDBEntry, err error)
+	// Returns status (PageStatusSuccess, PageStatusFailure, PageStatusPending, PageStatusNotFound, PageStatusDBError),
+	// the PageDBEntry if found and parsed, and any error
+	CheckPageStatus(normalizedPageURL string) (status models.PageStatus, entry *models.PageDBEntry, err error)
 
 	// UpdatePageStatus updates the status and details for a page URL
 	UpdatePageStatus(normalizedPageURL string, entry *models.PageDBEntry) error
@@ -24,8 +25,9 @@ type PageStore interface {
 // ImageStore handles image processing state
 type ImageStore interface {
 	// CheckImageStatus retrieves the status and details of an image URL
-	// Returns status ("success", "failure", "not_found", "db_error"), the ImageDBEntry if found and parsed, and any error
-	CheckImageStatus(normalizedImgURL string) (status string, entry *models.ImageDBEntry, err error)
+	// Returns status (ImageStatusSuccess, ImageStatusFailure, ImageStatusNotFound, ImageStatusDBError),
+	// the ImageDBEntry if found and parsed, and any error
+	CheckImageStatus(normalizedImgURL string) (status models.ImageStatus, entry *models.ImageDBEntry, err error)
 
 	// UpdateImageStatus updates the status and details for an image URL
 	UpdateImageStatus(normalizedImgURL string, entry *models.ImageDBEntry) error

@@ -300,6 +300,10 @@ func validateAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 		log.Warnf("global_crawl_timeout cannot be negative, disabling timeout")
 		appCfg.GlobalCrawlTimeout = 0 // 0 means disabled
 	}
+	if appCfg.PerPageTimeout < 0 {
+		log.Warnf("per_page_timeout cannot be negative, disabling timeout")
+		appCfg.PerPageTimeout = 0 // 0 means disabled
+	}
 	if appCfg.MaxImageSizeBytes < 0 {
 		log.Warnf("max_image_size_bytes cannot be negative, setting to 0 (unlimited)")
 		appCfg.MaxImageSizeBytes = 0 // 0 means unlimited
@@ -349,8 +353,8 @@ func logAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 		appCfg.DefaultDelayPerHost, appCfg.StateDir, appCfg.OutputBaseDir)
 	log.Infof("Global Config Retries: Max:%d, InitialDelay:%v, MaxDelay:%v",
 		appCfg.MaxRetries, appCfg.InitialRetryDelay, appCfg.MaxRetryDelay)
-	log.Infof("Global Config Timeouts: SemaphoreAcquire:%v, GlobalCrawl:%v",
-		appCfg.SemaphoreAcquireTimeout, appCfg.GlobalCrawlTimeout)
+	log.Infof("Global Config Timeouts: SemaphoreAcquire:%v, GlobalCrawl:%v, PerPage:%v",
+		appCfg.SemaphoreAcquireTimeout, appCfg.GlobalCrawlTimeout, appCfg.PerPageTimeout)
 	log.Infof("Global Config Images: Skip:%t, MaxSize:%d bytes",
 		appCfg.SkipImages, appCfg.MaxImageSizeBytes)
 	log.Infof("Global Config HTTP Client: Timeout:%v, MaxIdle:%d, MaxIdlePerHost:%d, IdleTimeout:%v, TLSTimeout:%v, DialerTimeout:%v",
