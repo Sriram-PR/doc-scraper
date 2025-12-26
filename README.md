@@ -1,10 +1,10 @@
-# 🕸️ LLM Documentation Scraper (`doc-scraper`)
+# LLM Documentation Scraper (`doc-scraper`)
 
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Sriram-PR/doc-scraper)](https://golang.org/)
 
 > A configurable, concurrent, and resumable web crawler written in Go. Specifically designed to scrape technical documentation websites, extract core content, convert it cleanly to Markdown format suitable for ingestion by Large Language Models (LLMs), and save the results locally.
 
-## 📖 Overview
+## Overview
 
 This project provides a powerful command-line tool to crawl documentation sites based on settings defined in a `config.yaml` file. It navigates the site structure, extracts content from specified HTML sections using CSS selectors, and converts it into clean Markdown files.
 
@@ -15,7 +15,7 @@ This project provides a powerful command-line tool to crawl documentation sites 
 - **Production-Ready Features** - Offers resumable crawls, rate limiting, and graceful error handling
 - **High Performance** - Uses Go's concurrency model for efficient parallel processing
 
-## 🎯 Goal: Preparing Documentation for LLMs
+## Goal: Preparing Documentation for LLMs
 
 The main objective of this tool is to automate the often tedious process of gathering and cleaning web-based documentation for use with Large Language Models. By converting structured web content into clean Markdown, it aims to provide a dataset that is:
 
@@ -24,7 +24,7 @@ The main objective of this tool is to automate the often tedious process of gath
 - **Cleaned:** Converts HTML to Markdown, removing web-specific markup and clutter
 - **Locally Accessible:** Provides the content as local files for easier processing and pipeline integration
 
-## ✨ Key Features
+## Key Features
 
 | Feature | Description |
 |---------|-------------|
@@ -45,11 +45,11 @@ The main objective of this tool is to automate the often tedious process of gath
 | **Observability** | Structured logging (`logrus`) and optional `pprof` endpoint |
 | **Modular Code** | Organized into packages for clarity and maintainability |
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
-- **Go:** Version 1.21 or later
+- **Go:** Version 1.24 or later
 - **Git:** For cloning the repository
 - **Disk Space:** Sufficient for storing crawled content and state database
 
@@ -74,11 +74,11 @@ The main objective of this tool is to automate the often tedious process of gath
    go build -o crawler.exe ./cmd/crawler/...
    ```
 
-   This creates an executable file named `crawler` in the project root directory.
+   This creates an executable named `crawler.exe` (Windows) or `crawler` (Linux/macOS) in the project root.
 
 ### Quick Start
 
-1. Create a basic `config.yaml` file (see [Configuration](#-configuration-configyaml) section)
+1. Create a basic `config.yaml` file (see [Configuration](#configuration-configyaml) section)
 2. Run the crawler:
 
    ```bash
@@ -87,7 +87,7 @@ The main objective of this tool is to automate the often tedious process of gath
 
 3. Find your crawled documentation in the `./crawled_docs/` directory
 
-## ⚙️ Configuration (`config.yaml`)
+## Configuration (`config.yaml`)
 
 A `config.yaml` file is **required** to run the crawler. Create this file in the project root or specify its path using the `-config` flag.
 
@@ -215,7 +215,7 @@ sites:
 - `enable_metadata_yaml`: `true` or `false`. Override global YAML metadata output enablement for this site.
 - `metadata_yaml_filename`: String. Override global YAML metadata filename for this site.
 
-## 🛠️ Usage
+## Usage
 
 Execute the compiled binary from the project root directory:
 
@@ -260,7 +260,7 @@ Execute the compiled binary from the project root directory:
 ./crawler -site test_site -loglevel debug
 ```
 
-## 📁 Output Structure
+## Output Structure
 
 Crawled content is saved under the `output_base_dir` defined in the config, organized by domain and preserving the site structure:
 
@@ -290,7 +290,7 @@ Each generated Markdown file contains:
 - Local image references (if images are enabled)
 - A footer with metadata including source URL and crawl timestamp
 
-## 🔍 Directory Structure Output
+## Directory Structure Output
 
 After a successful crawl for a specific site, the crawler automatically generates a text file named `<sanitized_domain>_structure.txt` within the global `output_base_dir` (alongside the site's content folder). This file contains a visual tree representation of the generated directory structure for the crawled site, which can be helpful for verification and analysis.
 
@@ -298,7 +298,7 @@ After a successful crawl for a specific site, the crawler automatically generate
 If `output_base_dir` is `./crawled_docs` and you crawled `docs.example.com`, the structure file will be:
 `./crawled_docs/docs.example.com_structure.txt`
 
-## 🗺️ URL-to-File Mapping Output (URL Map)
+## URL-to-File Mapping Output
 
 When enabled via configuration, the crawler generates a mapping file (typically a `.tsv` or `.txt` file) for each crawled site. This file logs each successfully processed page's final absolute URL and the corresponding local filesystem path where its content was saved.
 
@@ -308,13 +308,13 @@ Each line in the file typically follows a tab-separated format:
 
 This feature is controlled by the `enable_output_mapping` and `output_mapping_filename` settings in `config.yaml`.
 
-## 📋 YAML Metadata Output
+## YAML Metadata Output
 
 In addition to (or instead of) the simple TSV mapping, the crawler can generate a comprehensive YAML file for each crawled site. This file (`metadata.yaml` by default, configurable) contains overall crawl statistics and detailed metadata for every successfully processed page.
 
 The filename can be configured globally and overridden per site using `enable_metadata_yaml` and `metadata_yaml_filename` in `config.yaml`.
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to open an issue to discuss bugs, suggest features, or propose changes.
 
@@ -328,17 +328,13 @@ Contributions are welcome! Please feel free to open an issue to discuss bugs, su
 
 Please ensure code adheres to Go best practices and includes appropriate documentation.
 
-## 📝 License
+## License
 
 This project is licensed under the [Apache-2.0 License](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE.txt).
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
 - [GoQuery](https://github.com/PuerkitoBio/goquery) for HTML parsing
 - [html-to-markdown](https://github.com/JohannesKaufmann/html-to-markdown) for conversion
 - [BadgerDB](https://github.com/dgraph-io/badger) for state persistence
 - [Logrus](https://github.com/sirupsen/logrus) for structured logging
-
----
-
-*Made with ❤️ for the LLM and Machine Learning community*
