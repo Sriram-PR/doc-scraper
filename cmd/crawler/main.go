@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -65,7 +64,10 @@ func main() {
 	}
 
 	// --- Validate Global App Configuration ---
-	validateAppConfig(&appCfg, log) // Pass by pointer to modify defaults
+	appWarnings, _ := appCfg.Validate()
+	for _, w := range appWarnings {
+		log.Warn(w)
+	}
 
 	// Log effective global config
 	logAppConfig(&appCfg, log)
@@ -78,9 +80,13 @@ func main() {
 	if !ok {
 		log.Fatalf("Error: Site key '%s' not found in config file '%s'", *siteKeyFlag, *configFileFlag)
 	}
-	// Validate Site Config (Keep validation here or move to config package)
-	if err := validateSiteConfig(&siteCfg, log); err != nil {
+	// Validate Site Config
+	siteWarnings, err := siteCfg.Validate()
+	if err != nil {
 		log.Fatalf("Site '%s' configuration error: %v", *siteKeyFlag, err)
+	}
+	for _, w := range siteWarnings {
+		log.Warnf("[%s] %s", *siteKeyFlag, w)
 	}
 	log.Infof("Site Config for '%s': Domain: %s, Prefix: %s, ContentSel: '%s', ...",
 		*siteKeyFlag, siteCfg.AllowedDomain, siteCfg.AllowedPathPrefix, siteCfg.ContentSelector)
@@ -244,106 +250,6 @@ func main() {
 	os.Exit(0)
 }
 
-// validateAppConfig checks global config values and sets defaults
-// Operates on a pointer to modify the struct directly
-func validateAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
-	if appCfg.NumWorkers <= 0 {
-		log.Warnf("num_workers should be > 0, defaulting to 4")
-		appCfg.NumWorkers = 4
-	}
-	if appCfg.NumImageWorkers <= 0 {
-		log.Warnf("num_image_workers not specified or invalid, defaulting to num_workers (%d)", appCfg.NumWorkers)
-		appCfg.NumImageWorkers = appCfg.NumWorkers
-	}
-	if appCfg.MaxRequests <= 0 {
-		log.Warnf("max_requests should be > 0, defaulting to 10")
-		appCfg.MaxRequests = 10
-	}
-	if appCfg.MaxRequestsPerHost <= 0 {
-		log.Warnf("max_requests_per_host should be > 0, defaulting to 2")
-		appCfg.MaxRequestsPerHost = 2
-	}
-	if appCfg.OutputBaseDir == "" {
-		log.Warn("output_base_dir is empty, defaulting to './crawled_docs'")
-		appCfg.OutputBaseDir = "./crawled_docs"
-	}
-	if appCfg.StateDir == "" {
-		log.Warn("state_dir is empty, defaulting to './crawler_state'")
-		appCfg.StateDir = "./crawler_state"
-	}
-	if appCfg.MaxRetries < 0 { // Allow 0 retries
-		log.Warnf("max_retries cannot be negative, setting to 0")
-		appCfg.MaxRetries = 0
-	} else if appCfg.MaxRetries == 0 && appCfg.InitialRetryDelay == 0 {
-		// Set default only if not explicitly set
-		appCfg.MaxRetries = 3 // Default from original
-	}
-
-	if appCfg.InitialRetryDelay <= 0 {
-		if appCfg.MaxRetries > 0 { // Only default delay if retries are enabled
-			appCfg.InitialRetryDelay = 1 * time.Second
-		}
-	}
-	if appCfg.MaxRetryDelay <= 0 {
-		if appCfg.MaxRetries > 0 {
-			appCfg.MaxRetryDelay = 30 * time.Second
-		}
-	}
-	if appCfg.InitialRetryDelay > appCfg.MaxRetryDelay && appCfg.MaxRetryDelay > 0 {
-		log.Warnf("initial_retry_delay (%v) > max_retry_delay (%v), using max_retry_delay for initial", appCfg.InitialRetryDelay, appCfg.MaxRetryDelay)
-		appCfg.InitialRetryDelay = appCfg.MaxRetryDelay
-	}
-	if appCfg.SemaphoreAcquireTimeout <= 0 {
-		appCfg.SemaphoreAcquireTimeout = 30 * time.Second
-	}
-	if appCfg.GlobalCrawlTimeout < 0 {
-		log.Warnf("global_crawl_timeout cannot be negative, disabling timeout")
-		appCfg.GlobalCrawlTimeout = 0 // 0 means disabled
-	}
-	if appCfg.PerPageTimeout < 0 {
-		log.Warnf("per_page_timeout cannot be negative, disabling timeout")
-		appCfg.PerPageTimeout = 0 // 0 means disabled
-	}
-	if appCfg.MaxImageSizeBytes < 0 {
-		log.Warnf("max_image_size_bytes cannot be negative, setting to 0 (unlimited)")
-		appCfg.MaxImageSizeBytes = 0 // 0 means unlimited
-	}
-
-	// Validate HTTP Client Settings
-	if appCfg.HTTPClientSettings.Timeout <= 0 {
-		appCfg.HTTPClientSettings.Timeout = 45 * time.Second
-	}
-	if appCfg.HTTPClientSettings.MaxIdleConns <= 0 {
-		appCfg.HTTPClientSettings.MaxIdleConns = 100
-	}
-	if appCfg.HTTPClientSettings.MaxIdleConnsPerHost <= 0 {
-		appCfg.HTTPClientSettings.MaxIdleConnsPerHost = 2
-	}
-	if appCfg.HTTPClientSettings.IdleConnTimeout <= 0 {
-		appCfg.HTTPClientSettings.IdleConnTimeout = 90 * time.Second
-	}
-	if appCfg.HTTPClientSettings.TLSHandshakeTimeout <= 0 {
-		appCfg.HTTPClientSettings.TLSHandshakeTimeout = 10 * time.Second
-	}
-	if appCfg.HTTPClientSettings.ExpectContinueTimeout <= 0 {
-		appCfg.HTTPClientSettings.ExpectContinueTimeout = 1 * time.Second
-	}
-	if appCfg.HTTPClientSettings.DialerTimeout <= 0 {
-		appCfg.HTTPClientSettings.DialerTimeout = 15 * time.Second
-	}
-	if appCfg.HTTPClientSettings.DialerKeepAlive <= 0 {
-		appCfg.HTTPClientSettings.DialerKeepAlive = 30 * time.Second
-	}
-
-	if appCfg.EnableOutputMapping && appCfg.OutputMappingFilename == "" {
-		log.Warnf("Global 'enable_output_mapping' is true but global 'output_mapping_filename' is empty. Defaulting global filename to 'url_to_file_map.tsv'")
-		appCfg.OutputMappingFilename = "url_to_file_map.tsv"
-	}
-	if appCfg.EnableMetadataYAML && appCfg.MetadataYAMLFilename == "" {
-		log.Warnf("Global 'enable_metadata_yaml' is true but global 'metadata_yaml_filename' is empty. Defaulting to 'metadata.yaml'")
-		appCfg.MetadataYAMLFilename = "metadata.yaml"
-	}
-}
 
 // logAppConfig logs the effective global configuration
 func logAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
@@ -366,33 +272,3 @@ func logAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 		appCfg.EnableMetadataYAML, appCfg.MetadataYAMLFilename)
 }
 
-// validateSiteConfig checks site-specific config - Operates on pointer to modify prefix
-func validateSiteConfig(siteCfg *config.SiteConfig, log *logrus.Logger) error {
-	if len(siteCfg.StartURLs) == 0 {
-		return fmt.Errorf("%w: site has no start_urls", utils.ErrConfigValidation)
-	}
-	if siteCfg.AllowedDomain == "" {
-		return fmt.Errorf("%w: site needs allowed_domain", utils.ErrConfigValidation)
-	}
-	// Normalize path prefix
-	if siteCfg.AllowedPathPrefix == "" {
-		siteCfg.AllowedPathPrefix = "/"
-	} else if !strings.HasPrefix(siteCfg.AllowedPathPrefix, "/") {
-		siteCfg.AllowedPathPrefix = "/" + siteCfg.AllowedPathPrefix
-	}
-	if siteCfg.ContentSelector == "" {
-		return fmt.Errorf("%w: site needs content_selector", utils.ErrConfigValidation)
-	}
-	// Check integer/duration fields for sanity if needed
-	if siteCfg.MaxDepth < 0 {
-		log.Warnf("Site MaxDepth cannot be negative, setting to 0 (unlimited)")
-		siteCfg.MaxDepth = 0
-	}
-	if siteCfg.MaxImageSizeBytes != nil && *siteCfg.MaxImageSizeBytes < 0 {
-		log.Warnf("Site MaxImageSizeBytes cannot be negative, setting to 0 (unlimited override)")
-		*siteCfg.MaxImageSizeBytes = 0
-	}
-
-	// Note: Start URL validation (format, scope) happens in Crawler.Run
-	return nil
-}
