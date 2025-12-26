@@ -48,7 +48,7 @@ type ImageDownloadTask struct {
 
 // ImageProcessor handles the orchestration of image downloading and processing
 type ImageProcessor struct {
-	store            storage.VisitedStore           // DB interaction
+	store            storage.ImageStore             // DB interaction
 	fetcher          *fetch.Fetcher                 // HTTP fetching
 	robotsHandler    *fetch.RobotsHandler           // Robots checks
 	rateLimiter      *fetch.RateLimiter             // Rate limiting
@@ -61,7 +61,7 @@ type ImageProcessor struct {
 
 // NewImageProcessor creates a new ImageProcessor
 func NewImageProcessor(
-	store storage.VisitedStore,
+	store storage.ImageStore,
 	fetcher *fetch.Fetcher,
 	robotsHandler *fetch.RobotsHandler,
 	rateLimiter *fetch.RateLimiter,

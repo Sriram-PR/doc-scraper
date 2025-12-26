@@ -7,8 +7,8 @@ import (
 	"doc-scraper/pkg/models"
 )
 
-// VisitedStore defines the interface for storing and retrieving visited status for pages and images
-type VisitedStore interface {
+// PageStore handles page visitation state
+type PageStore interface {
 	// MarkPageVisited marks a page URL as visited (pending state)
 	// Returns true if the URL was newly added, false if it already existed
 	MarkPageVisited(normalizedPageURL string) (bool, error)
@@ -19,14 +19,20 @@ type VisitedStore interface {
 
 	// UpdatePageStatus updates the status and details for a page URL
 	UpdatePageStatus(normalizedPageURL string, entry *models.PageDBEntry) error
+}
 
+// ImageStore handles image processing state
+type ImageStore interface {
 	// CheckImageStatus retrieves the status and details of an image URL
 	// Returns status ("success", "failure", "not_found", "db_error"), the ImageDBEntry if found and parsed, and any error
 	CheckImageStatus(normalizedImgURL string) (status string, entry *models.ImageDBEntry, err error)
 
 	// UpdateImageStatus updates the status and details for an image URL
 	UpdateImageStatus(normalizedImgURL string, entry *models.ImageDBEntry) error
+}
 
+// StoreAdmin handles lifecycle and administrative operations
+type StoreAdmin interface {
 	// GetVisitedCount returns an approximate count of all keys in the store
 	GetVisitedCount() (int, error)
 
@@ -42,4 +48,11 @@ type VisitedStore interface {
 
 	// Close cleanly closes the database connection
 	Close() error
+}
+
+// VisitedStore combines all store interfaces for components that need full access
+type VisitedStore interface {
+	PageStore
+	ImageStore
+	StoreAdmin
 }
