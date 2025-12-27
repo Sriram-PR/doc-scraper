@@ -204,6 +204,9 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 		taskLog.Warnf("Non-fatal error during internal link rewriting: %v", linkRewriteErr)
 	}
 
+	// Clean up HTML before conversion (remove Sphinx headerlinks, etc.)
+	cp.cleanupHTML(mainContent)
+
 	// Convert the processed content to Markdown
 	modifiedHTML, outerHtmlErr := goquery.OuterHtml(mainContent)
 	if outerHtmlErr != nil {
@@ -301,6 +304,31 @@ func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg conf
 
 	fullPath := filepath.Join(outputSubDir, outputFilename)
 	return fullPath, true
+}
+
+// cleanupHTML removes unwanted elements from HTML before markdown conversion
+// This handles framework-specific noise like Sphinx headerlinks (¶ symbols)
+func (cp *ContentProcessor) cleanupHTML(content *goquery.Selection) {
+	// Remove Sphinx/Pallets headerlink anchors (¶ symbols after headings)
+	content.Find("a.headerlink").Remove()
+
+	// Remove ReadTheDocs "Edit on GitHub" links
+	content.Find("a.edit-on-github").Remove()
+
+	// Remove common "permalink" patterns
+	content.Find("a.permalink").Remove()
+	content.Find("a[title='Permalink to this heading']").Remove()
+	content.Find("a[title='Link to this heading']").Remove()
+
+	// Remove empty anchor tags that might remain
+	content.Find("a").Each(func(i int, s *goquery.Selection) {
+		text := strings.TrimSpace(s.Text())
+		href, _ := s.Attr("href")
+		// Remove anchors that only contain ¶ or are empty with fragment-only hrefs
+		if text == "¶" || text == "#" || (text == "" && strings.HasPrefix(href, "#")) {
+			s.Remove()
+		}
+	})
 }
 
 // rewriteInternalLinks modifies href attributes of anchor tags within mainContent
