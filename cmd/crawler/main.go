@@ -26,6 +26,7 @@ import (
 	"doc-scraper/pkg/orchestrate"
 	"doc-scraper/pkg/storage"
 	"doc-scraper/pkg/utils"
+	"doc-scraper/pkg/watch"
 )
 
 const version = "1.0.0"
@@ -41,6 +42,8 @@ func main() {
 		runCrawl(os.Args[2:], false)
 	case "resume":
 		runCrawl(os.Args[2:], true)
+	case "watch":
+		runWatch(os.Args[2:])
 	case "validate":
 		runValidate(os.Args[2:])
 	case "list-sites":
@@ -72,6 +75,7 @@ Usage:
 Commands:
   crawl       Start a fresh crawl
   resume      Resume an interrupted crawl
+  watch       Watch sites and re-crawl on schedule
   validate    Validate configuration file
   list-sites  List available site keys
   mcp-server  Start MCP server for AI tool integration
@@ -235,6 +239,134 @@ func doValidate(configPath, siteKey string, stdout, stderr io.Writer) int {
 
 	fmt.Fprintln(stdout, "\nConfiguration valid.")
 	return 0
+}
+
+// runWatch handles the watch subcommand
+func runWatch(args []string) {
+	fs := flag.NewFlagSet("watch", flag.ExitOnError)
+	configFile := fs.String("config", "config.yaml", "Path to config file")
+	siteKey := fs.String("site", "", "Site key from config (single site)")
+	sites := fs.String("sites", "", "Comma-separated site keys")
+	allSites := fs.Bool("all-sites", false, "Watch all configured sites")
+	interval := fs.String("interval", "24h", "Crawl interval (e.g., 30m, 1h, 24h, 7d)")
+	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: doc-scraper watch [options]\n\nOptions:\n")
+		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  doc-scraper watch -site pytorch_docs --interval 24h\n")
+		fmt.Fprintf(os.Stderr, "  doc-scraper watch -sites pytorch_docs,tensorflow_docs --interval 12h\n")
+		fmt.Fprintf(os.Stderr, "  doc-scraper watch --all-sites --interval 6h\n")
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// Determine which sites to watch
+	var siteKeys []string
+
+	if *allSites {
+		siteKeys = nil // Signal to use all sites
+	} else if *sites != "" {
+		for _, s := range strings.Split(*sites, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				siteKeys = append(siteKeys, s)
+			}
+		}
+	} else if *siteKey != "" {
+		siteKeys = []string{*siteKey}
+	} else {
+		fmt.Fprintln(os.Stderr, "Error: one of -site, -sites, or --all-sites is required")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	executeWatch(*configFile, siteKeys, *allSites, *interval, *logLevel)
+}
+
+// executeWatch runs the watch scheduler
+func executeWatch(configFile string, siteKeys []string, allSites bool, intervalStr, logLevelStr string) {
+	// --- Logger Setup ---
+	log := logrus.New()
+	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true, TimestampFormat: "15:04:05.000"})
+	log.SetLevel(logrus.InfoLevel)
+
+	level, err := logrus.ParseLevel(logLevelStr)
+	if err != nil {
+		log.Warnf("Invalid log level '%s', using default 'info'. Error: %v", logLevelStr, err)
+	} else {
+		log.SetLevel(level)
+	}
+
+	// --- Parse interval ---
+	interval, err := watch.ParseInterval(intervalStr)
+	if err != nil {
+		log.Fatalf("Invalid interval: %v", err)
+	}
+	log.Infof("Watch interval: %v", interval)
+
+	// --- Load Configuration ---
+	log.Infof("Loading configuration from %s", configFile)
+	appCfg, err := loadConfig(configFile)
+	if err != nil {
+		log.Fatalf("Config error: %v", err)
+	}
+
+	// --- Validate App Config ---
+	appWarnings, _ := appCfg.Validate()
+	for _, w := range appWarnings {
+		log.Warn(w)
+	}
+
+	// Enable incremental mode for watch
+	appCfg.EnableIncremental = true
+	log.Info("Incremental mode enabled for watch")
+
+	// --- Determine site keys ---
+	if allSites {
+		siteKeys = orchestrate.GetAllSiteKeys(*appCfg)
+		log.Infof("All sites mode: found %d sites", len(siteKeys))
+	}
+
+	// --- Validate site keys ---
+	if err := orchestrate.ValidateSiteKeys(*appCfg, siteKeys); err != nil {
+		log.Fatalf("Invalid site keys: %v", err)
+	}
+
+	// --- Validate each site config ---
+	for _, key := range siteKeys {
+		siteCfg := appCfg.Sites[key]
+		siteWarnings, err := siteCfg.Validate()
+		if err != nil {
+			log.Fatalf("Site '%s' configuration error: %v", key, err)
+		}
+		for _, w := range siteWarnings {
+			log.Warnf("[%s] %s", key, w)
+		}
+	}
+
+	// --- Create and run scheduler ---
+	scheduler := watch.NewScheduler(*appCfg, siteKeys, interval, log)
+
+	// --- Handle signals for graceful shutdown ---
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		log.Warnf("Received signal %v, stopping watch...", sig)
+		scheduler.Stop()
+	}()
+
+	// --- Run scheduler (blocks until stopped) ---
+	if err := scheduler.Run(); err != nil {
+		log.Fatalf("Watch scheduler error: %v", err)
+	}
+
+	log.Info("Watch mode stopped")
 }
 
 // runListSites handles the list-sites subcommand

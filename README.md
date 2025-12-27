@@ -48,6 +48,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **MCP Server Mode** | Expose as Model Context Protocol server for Claude Code/Cursor integration |
 | **Auto Content Detection** | Automatic framework detection (Docusaurus, MkDocs, Sphinx, GitBook, ReadTheDocs) with readability fallback |
 | **Parallel Site Crawling** | Crawl multiple sites concurrently with shared resource management |
+| **Watch Mode** | Scheduled periodic re-crawling with state persistence |
 
 ## Getting Started
 
@@ -236,6 +237,7 @@ Execute the compiled binary from the project root directory:
 | `validate` | Validate configuration file without crawling |
 | `list-sites` | List available site keys from config |
 | `mcp-server` | Start MCP server for AI tool integration |
+| `watch` | Watch sites and re-crawl on schedule |
 | `version` | Show version information |
 
 ### Command Options
@@ -277,6 +279,19 @@ Execute the compiled binary from the project root directory:
 | `-transport <type>` | Transport type (`stdio`, `sse`) | `stdio` |
 | `-port <num>` | HTTP port (for SSE transport) | `8080` |
 | `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
+
+**watch:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-config <path>` | Path to config file | `config.yaml` |
+| `-site <key>` | Site key to watch (single site) | - |
+| `-sites <keys>` | Comma-separated site keys to watch | - |
+| `--all-sites` | Watch all configured sites | `false` |
+| `-interval <duration>` | Crawl interval (e.g., `1h`, `24h`, `7d`) | `24h` |
+| `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
+
+**Note:** One of `-site`, `-sites`, or `--all-sites` is required.
 
 ### Example Usage Scenarios
 
@@ -470,6 +485,58 @@ Site Results:
 Total: 3 sites (2 success, 1 failed), 3500 pages processed
 ===========================================
 ```
+
+## Watch Mode
+
+Watch mode enables scheduled periodic re-crawling of documentation sites. The scheduler tracks the last run time for each site and automatically triggers crawls when the configured interval has elapsed.
+
+### Usage
+
+```bash
+# Watch a single site with 24-hour interval
+./crawler watch -site pytorch_docs -interval 24h
+
+# Watch multiple sites
+./crawler watch -sites pytorch_docs,tensorflow_docs -interval 12h
+
+# Watch all configured sites weekly
+./crawler watch --all-sites -interval 7d
+```
+
+### Interval Format
+
+The interval supports standard Go duration format plus day units:
+- `30m` - 30 minutes
+- `1h` - 1 hour
+- `24h` - 24 hours
+- `7d` - 7 days
+- `1d12h` - 1 day and 12 hours
+
+### State Persistence
+
+Watch mode persists state to `<state_dir>/watch_state.json`, tracking:
+- Last run time for each site
+- Success/failure status
+- Pages processed
+- Error messages (if any)
+
+This allows the scheduler to resume correctly after restarts, only running sites when their interval has elapsed.
+
+### Example Output
+
+```
+INFO Starting watch mode for 2 sites with interval 24h0m0s
+INFO Watch schedule:
+INFO   pytorch_docs: last run 2024-01-15T10:30:00Z (success, 1500 pages), next run 2024-01-16T10:30:00Z
+INFO   tensorflow_docs: never run, will run immediately
+INFO Running crawl for 1 due sites: [tensorflow_docs]
+...
+INFO Next crawl: pytorch_docs in 23h45m (at 10:30:00)
+```
+
+### Graceful Shutdown
+
+Watch mode handles SIGINT/SIGTERM gracefully, completing any in-progress crawls before exiting.
 
 ## MCP Server Mode
 
