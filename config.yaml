@@ -1,192 +1,150 @@
-# --- Global Application Settings ---
+# doc-scraper Configuration
+# 3 working examples demonstrating all configuration variations
 
-# Default User-Agent string for HTTP requests (used if site doesn't specify).
-# # Also used for fetching robots.txt.
-# default_user_agent: "GoCrawler/1.0 (Your Bot Info)"
-
-# Default minimum time delay between requests to the same host.
-# Format: e.g., "2s", "500ms". "0s" means no default delay.
+# --- Global Settings ---
 default_delay_per_host: 500ms
-
-# Number of concurrent workers processing pages.
 num_workers: 6
-
-# Number of concurrent workers downloading images (optional, defaults to num_workers if omitted).
-num_image_workers: 6
-
-# Global limit for total concurrent outgoing HTTP requests across all workers.
+num_image_workers: 4
 max_requests: 48
-
-# Limit for concurrent outgoing HTTP requests *per host*.
 max_requests_per_host: 4
-
-# Base directory for saving crawled output (Markdown files, images).
-# Each site gets a subdirectory named after its sanitized domain.
 output_base_dir: "./crawled_docs"
-
-# Directory for storing persistent state (e.g., visited URLs database).
-# Each site gets a subdirectory here.
 state_dir: "./crawler_state"
 
-# --- Retry Settings (optional) ---
-# Maximum number of retries for failed requests (network errors, 5xx).
-max_retries: 4
-# Initial delay before the first retry (e.g., "1s", "500ms").
+# Retry settings
+max_retries: 3
 initial_retry_delay: 1s
-# Maximum delay between retries (caps exponential backoff).
 max_retry_delay: 30s
 
-# --- Timeout Settings (optional) ---
-# Maximum time to wait to acquire a semaphore before timing out.
+# Timeout settings
 semaphore_acquire_timeout: 30s
-# Overall maximum duration for the entire crawl run (e.g., "2h", "30m"). "0s" or omitted means no timeout.
-global_crawl_timeout: 0s
+global_crawl_timeout: 0s        # 0 = no timeout
+per_page_timeout: 60s           # Per-page timeout
 
-# --- Global Image Handling Defaults (optional, can be overridden per site) ---
-# Globally skip downloading and processing images.
+# Global image defaults
 skip_images: false
-# Globally limit maximum image size in bytes (0 means unlimited).
-max_image_size_bytes: 10485760 # Example: 10 MiB
+max_image_size_bytes: 10485760  # 10 MiB
 
-# Whether to generate and save the URL-to-file output mapping.
-# Helps in tracking and referencing downloaded content easily.
+# Global output settings
 enable_output_mapping: true
-
-# Filename for output URL-to-file mapping table.
-# Stores a map of original URLs to their corresponding local filenames.
 output_mapping_filename: "url_to_file_map.tsv"
-
-# Whether to generate and save metadata (like crawl timestamp, site info, etc.) in a YAML file.
-# Useful for tracking crawl history and managing data provenance.
 enable_metadata_yaml: true
-
-# Filename for the generated metadata YAML file.
-# This file will contain crawl-related information (e.g., site name, crawl time, total pages/images, errors).
 metadata_yaml_filename: "crawl_meta.yaml"
 
-# --- HTTP Client Settings (optional section, reasonable defaults applied if omitted) ---
+# HTTP client settings
 http_client_settings:
-  # Overall timeout for a single HTTP request.
-  # Covers connection, TLS handshake, sending request, waiting for headers, AND reading the entire response body.
-  # Default in your code: 45s
   timeout: 45s
-
-  # Max total idle connections across all hosts.
-  # Limits the total number of reusable TCP connections kept open waiting for new requests to any server.
-  # Default in your code: 100
   max_idle_conns: 100
-
-  # Max idle connections per host.
-  # Limits the number of reusable TCP connections kept open waiting for new requests to a *specific* server (hostname:port).
-  # Default in your code: 5 (Slightly higher than Go's default of 2)
   max_idle_conns_per_host: 6
-
-  # Max time an idle connection is kept alive.
-  # How long an unused connection can sit in the idle pool before being closed automatically.
-  # Default in your code: 90s
   idle_conn_timeout: 90s
-
-  # Timeout for TLS handshake.
-  # Time limit specifically for completing the secure connection setup (SSL/TLS).
-  # Default in your code: 10s
   tls_handshake_timeout: 10s
-
-  # Timeout waiting for "100 Continue" response.
-  # Relevant for requests like POST/PUT where the client might send headers first and wait for a "100 Continue" status before sending the body.
-  # Default in your code: 1s
-  expect_continue_timeout: 1s
-
-  # Explicitly attempt/disable HTTP/2 (true/false). null uses Go default.
-  # Controls whether the client tries to negotiate HTTP/2 with servers that support it. HTTP/2 can offer performance benefits (e.g., multiplexing).
-  # Default in your code: null (which means 'true' - use Go's default behavior of attempting HTTP/2)
-  force_attempt_http2: null
-
-  # Timeout for establishing TCP connection.
-  # Time limit specifically for the underlying network dialer to connect to the server's IP address and port.
-  # Default in your code: 15s
   dialer_timeout: 15s
-
-  # TCP keep-alive interval.
-  # If non-zero, enables TCP keep-alives, sending small packets on idle connections to check if they are still active and prevent intermediate network devices (firewalls, NATs) from dropping them.
-  # Default in your code: 30s
   dialer_keep_alive: 30s
 
-# --- Site-Specific Configurations ---
-# Define one or more sites to crawl below, using a unique key for each.
+# --- Site Configurations ---
 sites:
-  # Replace 'example_site' with an identifier for your target site (e.g., 'example_docs')
-  example_site:
-    # List of starting URLs for this site.
-    start_urls:
-      - "https://example.com/docs/"
-    # Domain that the crawler is restricted to for this site. (Required)
-    allowed_domain: "example.com"
-    # Path prefix the crawler is restricted to (e.g., "/docs"). Use "/" for the whole domain. (Required)
-    allowed_path_prefix: "/docs"
-    # CSS selector for the main content area to extract. (Required)
-    content_selector: "article.content" # Example: Change to your target selector
 
-    # --- Optional Site Settings ---
-    # CSS selectors to search for links within (defaults to 'body' if omitted).
-    link_extraction_selectors:
-      - "article.content"
-      - "nav.sidebar"
-    # Regex patterns for paths to exclude (paths matching these won't be crawled).
-    disallowed_path_patterns:
-      - "/api/.*"
-      - "/private/"
-      - "\\.pdf$"
-    # Respect rel="nofollow" attribute on links.
+  # ============================================================================
+  # EXAMPLE 1: flask_docs
+  # - Auto content detection (Sphinx framework auto-detected)
+  # - Images enabled with domain filtering
+  # - Full metadata output
+  # - Polite rate limiting
+  # ============================================================================
+  flask_docs:
+    start_urls:
+      - "https://flask.palletsprojects.com/en/stable/"
+    allowed_domain: "flask.palletsprojects.com"
+    allowed_path_prefix: "/en/stable/"
+
+    # AUTO: Detects Sphinx framework automatically
+    content_selector: "auto"
+
+    max_depth: 2                    # Limit depth
+    delay_per_host: 500ms           # Polite crawling
     respect_nofollow: true
-    # Override the default_user_agent for this site.
-    user_agent: "MyCustomBot/1.0 (+http://mybot.info)"
-    # Override the default_delay_per_host for this site.
-    delay_per_host: "1500ms"
-    # Maximum crawl depth relative to start URLs (0 means unlimited).
-    max_depth: 5
-    # Override global 'skip_images' setting (true/false). null uses global.
-    skip_images: null
-    # Override global 'max_image_size_bytes' (0 for unlimited). null uses global.
-    # max_image_size_bytes: 5242880 # Example: 5 MiB override
-    # Only download images from these domain patterns (*.example.com or specific.com).
+
+    # Image handling
+    skip_images: false
+    max_image_size_bytes: 5242880   # 5 MiB limit
     allowed_image_domains:
-      - "cdn.example.com"
-      - "*.static-example.net"
-    # Never download images from these domain patterns.
-    disallowed_image_domains:
-      - "ads.example.com"
-    enable_output_mapping: true
-    # Override global name for this site
-    output_mapping_filename: "example_site_manifest.txt"
+      - "flask.palletsprojects.com"
+      - "*.palletsprojects.com"
 
-  langchain_py:
-    start_urls:
-      - https://python.langchain.com/docs/introduction/
-    allowed_domain: python.langchain.com
-    allowed_path_prefix: /docs/
-    content_selector: article
-    max_depth: 0 # unlimited
-    respect_nofollow: true
+    # Exclude API reference (too large)
     disallowed_path_patterns:
-        - ^/docs/experimental/.*
-        - ^/docs/api/.* # Adjusted pattern
-    output_mapping_filename: "langchain_py_manifest.txt"
-    enable_metadata_yaml: true
-    metadata_yaml_filename: "langchain_metadata.yaml"
+      - "/en/stable/api/.*"
+      - "/en/stable/changes/.*"
 
-  rust_docs:
-    start_urls:
-      - https://rust-cli.github.io/book/tutorial/
-    allowed_domain: rust-cli.github.io
-    allowed_path_prefix: /book/
-    content_selector: div#content.content
-    max_depth: 0 # unlimited
-    respect_nofollow: true
-    link_extraction_selectors:
-     - nav.nav-wrapper
-     - div#menu-bar.menu-bar
-    #  - a.nav-chapeters.previous
+    # Output: all features enabled
     enable_output_mapping: true
-    # Override global name for this site
-    output_mapping_filename: "rust_docs_manifest.txt"
+    output_mapping_filename: "flask_manifest.tsv"
     enable_metadata_yaml: true
+    metadata_yaml_filename: "flask_metadata.yaml"
+
+  # ============================================================================
+  # EXAMPLE 2: click_docs
+  # - Explicit CSS selector for Pallets/Flask-style docs
+  # - No images (text-only for LLM training)
+  # - Minimal output (no metadata yaml)
+  # - Limited depth, fast crawling
+  # ============================================================================
+  click_docs:
+    start_urls:
+      - "https://click.palletsprojects.com/en/stable/"
+    allowed_domain: "click.palletsprojects.com"
+    allowed_path_prefix: "/en/stable/"
+
+    # EXPLICIT: Pallets docs use this structure
+    content_selector: "div.body, article"
+
+    max_depth: 2                    # Limited depth
+    delay_per_host: 300ms           # Faster crawling
+    respect_nofollow: false         # Follow all links
+
+    # No images - text only for LLM ingestion
+    skip_images: true
+
+    # Minimal output - just the TSV mapping
+    enable_output_mapping: true
+    output_mapping_filename: "click_urls.tsv"
+    enable_metadata_yaml: false     # Disabled for this site
+
+  # ============================================================================
+  # EXAMPLE 3: rust_cli_book
+  # - Explicit selector for mdBook framework
+  # - Custom link extraction selectors
+  # - Full output with custom filenames
+  # - Moderate settings
+  # ============================================================================
+  rust_cli_book:
+    start_urls:
+      - "https://rust-cli.github.io/book/index.html"
+    allowed_domain: "rust-cli.github.io"
+    allowed_path_prefix: "/book/"
+
+    # EXPLICIT: mdBook content selector
+    content_selector: "#content, main"
+
+    # mdBook navigation structure
+    link_extraction_selectors:
+      - "nav#sidebar"
+      - "nav.nav-wrapper"
+      - "main#content"
+
+    max_depth: 0                    # Unlimited
+    delay_per_host: 500ms           # Default delay
+    respect_nofollow: true
+
+    # Images enabled, use global settings
+    skip_images: false
+
+    # Exclude print page and non-content
+    disallowed_path_patterns:
+      - "/book/print\\.html$"
+      - "/book/.*\\?.*"
+
+    # Full output
+    enable_output_mapping: true
+    output_mapping_filename: "rust_cli_manifest.tsv"
+    enable_metadata_yaml: true
+    metadata_yaml_filename: "rust_cli_metadata.yaml"
