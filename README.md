@@ -47,6 +47,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **CLI Utilities** | Built-in `validate` and `list-sites` commands for configuration management |
 | **MCP Server Mode** | Expose as Model Context Protocol server for Claude Code/Cursor integration |
 | **Auto Content Detection** | Automatic framework detection (Docusaurus, MkDocs, Sphinx, GitBook, ReadTheDocs) with readability fallback |
+| **Parallel Site Crawling** | Crawl multiple sites concurrently with shared resource management |
 
 ## Getting Started
 
@@ -244,10 +245,16 @@ Execute the compiled binary from the project root directory:
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-config <path>` | Path to config file | `config.yaml` |
-| `-site <key>` | **Required.** Site key from config | - |
+| `-site <key>` | Site key from config (single site) | - |
+| `-sites <keys>` | Comma-separated site keys for parallel crawling | - |
+| `--all-sites` | Crawl all configured sites in parallel | `false` |
 | `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`, `fatal`) | `info` |
 | `-pprof <addr>` | pprof server address (empty to disable) | `localhost:6060` |
 | `-write-visited-log` | Write visited URLs log on completion | `false` |
+| `-incremental` | Enable incremental crawling (skip unchanged pages) | `false` |
+| `-full` | Force full crawl (ignore incremental settings) | `false` |
+
+**Note:** One of `-site`, `-sites`, or `--all-sites` is required.
 
 **validate:**
 
@@ -308,6 +315,18 @@ Execute the compiled binary from the project root directory:
 
 ```bash
 ./crawler crawl -site test_site -loglevel debug
+```
+
+**Parallel Crawl of Multiple Sites:**
+
+```bash
+./crawler crawl -sites pytorch_docs,tensorflow_docs,langchain_docs
+```
+
+**Crawl All Configured Sites:**
+
+```bash
+./crawler crawl --all-sites
 ```
 
 **Start MCP Server for Claude Desktop:**
@@ -405,6 +424,51 @@ sites:
     allowed_path_prefix: "/docs/stable/"
     content_selector: "auto"  # Auto-detect framework
     max_depth: 0
+```
+
+## Parallel Site Crawling
+
+Crawl multiple documentation sites concurrently with shared resource management. The orchestrator coordinates multiple crawlers while respecting global rate limits and semaphores.
+
+### Usage
+
+```bash
+# Crawl specific sites in parallel
+./crawler crawl -sites pytorch_docs,tensorflow_docs,langchain_docs
+
+# Crawl all configured sites
+./crawler crawl --all-sites
+
+# Resume parallel crawl
+./crawler resume -sites pytorch_docs,tensorflow_docs
+```
+
+### Resource Sharing
+
+When running parallel crawls, the following resources are shared across all site crawlers:
+- **Global semaphore**: Limits total concurrent requests across all sites
+- **HTTP client**: Shared connection pooling
+- **Rate limiter**: Respects per-host delays
+
+Each site still maintains its own:
+- BadgerDB store for state persistence
+- Output directory for crawled content
+- Per-host semaphores for domain-specific limiting
+
+### Results Summary
+
+After all sites complete, the orchestrator outputs a summary:
+```
+===========================================
+Parallel crawl completed in 2m30s
+Site Results:
+  pytorch_docs: SUCCESS - 1500 pages in 1m20s
+  tensorflow_docs: SUCCESS - 2000 pages in 2m15s
+  langchain_docs: FAILED - 0 pages in 10s
+    Error: site 'langchain_docs' not found in configuration
+-------------------------------------------
+Total: 3 sites (2 success, 1 failed), 3500 pages processed
+===========================================
 ```
 
 ## MCP Server Mode

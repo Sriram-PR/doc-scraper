@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"doc-scraper/pkg/config"
 	"doc-scraper/pkg/crawler"
 	"doc-scraper/pkg/fetch"
+	"doc-scraper/pkg/orchestrate"
 	"doc-scraper/pkg/storage"
 	"doc-scraper/pkg/utils"
 )
@@ -102,7 +104,9 @@ func runCrawl(args []string, isResume bool) {
 
 	fs := flag.NewFlagSet(cmdName, flag.ExitOnError)
 	configFile := fs.String("config", "config.yaml", "Path to config file")
-	siteKey := fs.String("site", "", "Site key from config (required)")
+	siteKey := fs.String("site", "", "Site key from config (single site)")
+	sites := fs.String("sites", "", "Comma-separated site keys for parallel crawling")
+	allSites := fs.Bool("all-sites", false, "Crawl all configured sites in parallel")
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
 	pprofAddr := fs.String("pprof", "localhost:6060", "pprof address (empty to disable)")
 	writeVisitedLog := fs.Bool("write-visited-log", false, "Write visited URLs log on completion")
@@ -112,19 +116,44 @@ func runCrawl(args []string, isResume bool) {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: doc-scraper %s [options]\n\nOptions:\n", cmdName)
 		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  doc-scraper %s -site pytorch_docs\n", cmdName)
+		fmt.Fprintf(os.Stderr, "  doc-scraper %s -sites pytorch_docs,tensorflow_docs\n", cmdName)
+		fmt.Fprintf(os.Stderr, "  doc-scraper %s --all-sites\n", cmdName)
 	}
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
 
-	if *siteKey == "" {
-		fmt.Fprintln(os.Stderr, "Error: -site flag is required")
+	// Determine which sites to crawl
+	var siteKeys []string
+
+	if *allSites {
+		// Will be populated after loading config
+		siteKeys = nil // Signal to use all sites
+	} else if *sites != "" {
+		// Parse comma-separated site keys
+		for _, s := range strings.Split(*sites, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				siteKeys = append(siteKeys, s)
+			}
+		}
+	} else if *siteKey != "" {
+		siteKeys = []string{*siteKey}
+	} else {
+		fmt.Fprintln(os.Stderr, "Error: one of -site, -sites, or --all-sites is required")
 		fs.Usage()
 		os.Exit(1)
 	}
 
-	executeCrawl(*configFile, *siteKey, *logLevel, *pprofAddr, *writeVisitedLog, isResume, *incrementalMode, *fullMode)
+	// Check for parallel mode (multiple sites or all sites)
+	if *allSites || len(siteKeys) > 1 {
+		executeParallelCrawl(*configFile, siteKeys, *allSites, *logLevel, *pprofAddr, isResume, *incrementalMode, *fullMode)
+	} else {
+		executeCrawl(*configFile, siteKeys[0], *logLevel, *pprofAddr, *writeVisitedLog, isResume, *incrementalMode, *fullMode)
+	}
 }
 
 // runValidate handles the validate subcommand
@@ -257,6 +286,111 @@ func doListSites(configPath string, stdout, stderr io.Writer) int {
 }
 
 // executeCrawl contains the main crawl logic
+// executeParallelCrawl handles crawling multiple sites in parallel
+func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, pprofAddr string, isResume, incrementalMode, fullMode bool) {
+	// --- Set profiling rates ---
+	runtime.SetBlockProfileRate(1000)
+	runtime.SetMutexProfileFraction(1000)
+
+	// --- Logger Setup ---
+	log := logrus.New()
+	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true, TimestampFormat: "15:04:05.000"})
+	log.SetLevel(logrus.InfoLevel)
+
+	level, err := logrus.ParseLevel(logLevelStr)
+	if err != nil {
+		log.Warnf("Invalid log level '%s', using default 'info'. Error: %v", logLevelStr, err)
+	} else {
+		log.SetLevel(level)
+		log.Infof("Setting log level to: %s", level.String())
+	}
+
+	// --- Load Configuration ---
+	log.Infof("Loading configuration from %s", configFile)
+	appCfg, err := loadConfig(configFile)
+	if err != nil {
+		log.Fatalf("Config error: %v", err)
+	}
+
+	// --- Validate App Config ---
+	appWarnings, _ := appCfg.Validate()
+	for _, w := range appWarnings {
+		log.Warn(w)
+	}
+
+	// --- Apply incremental mode override ---
+	if incrementalMode {
+		appCfg.EnableIncremental = true
+		log.Info("Incremental mode enabled via CLI flag")
+	}
+	if fullMode {
+		appCfg.EnableIncremental = false
+		log.Info("Full crawl mode forced via CLI flag")
+	}
+
+	// --- Determine site keys ---
+	if allSites {
+		siteKeys = orchestrate.GetAllSiteKeys(*appCfg)
+		log.Infof("All sites mode: found %d sites", len(siteKeys))
+	}
+
+	// --- Validate site keys ---
+	if err := orchestrate.ValidateSiteKeys(*appCfg, siteKeys); err != nil {
+		log.Fatalf("Invalid site keys: %v", err)
+	}
+
+	// --- Validate each site config ---
+	for _, key := range siteKeys {
+		siteCfg := appCfg.Sites[key]
+		siteWarnings, err := siteCfg.Validate()
+		if err != nil {
+			log.Fatalf("Site '%s' configuration error: %v", key, err)
+		}
+		for _, w := range siteWarnings {
+			log.Warnf("[%s] %s", key, w)
+		}
+	}
+
+	// --- Optional pprof server ---
+	if pprofAddr != "" {
+		go func() {
+			log.Infof("Starting pprof server at http://%s/debug/pprof/", pprofAddr)
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				log.Errorf("pprof server error: %v", err)
+			}
+		}()
+	}
+
+	// --- Create and run orchestrator ---
+	orch := orchestrate.NewOrchestrator(*appCfg, siteKeys, isResume, log)
+
+	// --- Handle signals for graceful shutdown ---
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		log.Warnf("Received signal %v, initiating graceful shutdown...", sig)
+		orch.Cancel()
+	}()
+
+	// --- Run parallel crawl ---
+	results := orch.Run()
+
+	// --- Check for failures ---
+	hasFailure := false
+	for _, r := range results {
+		if !r.Success {
+			hasFailure = true
+			break
+		}
+	}
+
+	if hasFailure {
+		os.Exit(1)
+	}
+}
+
 func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisitedLog, isResume, incrementalMode, fullMode bool) {
 	// --- Set profiling rates ---
 	runtime.SetBlockProfileRate(1000)

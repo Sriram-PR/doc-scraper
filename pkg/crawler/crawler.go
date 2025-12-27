@@ -93,6 +93,13 @@ type Crawler struct {
 	chunksFilePath string     // Full path to the site-specific chunks output file
 }
 
+// CrawlerOptions contains optional parameters for NewCrawler
+type CrawlerOptions struct {
+	// SharedSemaphore allows sharing a global semaphore across multiple crawlers
+	// If nil, the crawler creates its own semaphore based on appCfg.MaxRequests
+	SharedSemaphore *semaphore.Weighted
+}
+
 // NewCrawler creates and initializes a new Crawler instance and its components
 func NewCrawler(
 	appCfg config.AppConfig,
@@ -105,6 +112,23 @@ func NewCrawler(
 	crawlCtx context.Context,
 	cancelCrawl context.CancelFunc,
 	resume bool, // Flag indicating if this is a resumed crawl
+) (*Crawler, error) {
+	return NewCrawlerWithOptions(appCfg, siteCfg, siteKey, baseLogger, store, fetcher, rateLimiter, crawlCtx, cancelCrawl, resume, nil)
+}
+
+// NewCrawlerWithOptions creates a new Crawler with optional configuration
+func NewCrawlerWithOptions(
+	appCfg config.AppConfig,
+	siteCfg config.SiteConfig,
+	siteKey string,
+	baseLogger *logrus.Logger,
+	store storage.VisitedStore,
+	fetcher *fetch.Fetcher,
+	rateLimiter *fetch.RateLimiter,
+	crawlCtx context.Context,
+	cancelCrawl context.CancelFunc,
+	resume bool,
+	opts *CrawlerOptions,
 ) (*Crawler, error) {
 
 	// Contextualize logger for this specific crawler instance
@@ -120,6 +144,15 @@ func NewCrawler(
 
 	siteOutputDir := filepath.Join(appCfg.OutputBaseDir, utils.SanitizeFilename(siteCfg.AllowedDomain))
 
+	// Use shared semaphore if provided, otherwise create a new one
+	var globalSem *semaphore.Weighted
+	if opts != nil && opts.SharedSemaphore != nil {
+		globalSem = opts.SharedSemaphore
+		logger.Debug("Using shared global semaphore")
+	} else {
+		globalSem = semaphore.NewWeighted(int64(appCfg.MaxRequests))
+	}
+
 	c := &Crawler{
 		log:                        logger,
 		appCfg:                     appCfg,
@@ -131,7 +164,7 @@ func NewCrawler(
 		pq:                         queue.NewThreadSafePriorityQueue(logger.Logger), // Pass contextualized logger
 		fetcher:                    fetcher,
 		rateLimiter:                rateLimiter,
-		globalSemaphore:            semaphore.NewWeighted(int64(appCfg.MaxRequests)),
+		globalSemaphore:            globalSem,
 		hostSemaphores:             make(map[string]*semaphore.Weighted),
 		crawlCtx:                   crawlCtx,
 		cancelCrawl:                cancelCrawl,
@@ -257,6 +290,24 @@ func (c *Crawler) FoundSitemap(sitemapURL string) {
 	if isNew {
 		// Use crawler's logger which includes site_key
 		c.log.Debugf("Crawler notified of newly found sitemap: %s", sitemapURL)
+	}
+}
+
+// CrawlerProgress contains progress information for a crawler
+type CrawlerProgress struct {
+	SiteKey        string
+	PagesProcessed int64
+	PagesQueued    int
+	IsRunning      bool
+}
+
+// GetProgress returns the current progress of the crawler
+func (c *Crawler) GetProgress() CrawlerProgress {
+	return CrawlerProgress{
+		SiteKey:        c.siteKey,
+		PagesProcessed: c.processedCounter.Load(),
+		PagesQueued:    c.pq.Len(),
+		IsRunning:      c.crawlCtx.Err() == nil,
 	}
 }
 
