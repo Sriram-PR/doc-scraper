@@ -174,6 +174,11 @@ func NewCrawlerWithOptions(
 		collectedPageMetadata: make([]models.PageMetadata, 0),
 	}
 
+	// --- Ensure output directory exists before creating any output files ---
+	if err := os.MkdirAll(c.siteOutputDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create site output directory '%s': %w", c.siteOutputDir, err)
+	}
+
 	// --- Initialize Simple TSV Mapping File (if enabled) ---
 	effectiveEnableTSVMapping := config.GetEffectiveEnableOutputMapping(c.siteCfg, c.appCfg)
 	if effectiveEnableTSVMapping {
