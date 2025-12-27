@@ -54,7 +54,7 @@ The main objective of this tool is to automate the often tedious process of gath
 
 ### Prerequisites
 
-- **Go:** Version 1.24 or later
+- **Go:** Version 1.25 or later
 - **Git:** For cloning the repository
 - **Disk Space:** Sufficient for storing crawled content and state database
 
