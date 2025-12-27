@@ -45,6 +45,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **Observability** | Structured logging (`logrus`) and optional `pprof` endpoint |
 | **Modular Code** | Organized into packages for clarity and maintainability |
 | **CLI Utilities** | Built-in `validate` and `list-sites` commands for configuration management |
+| **MCP Server Mode** | Expose as Model Context Protocol server for Claude Code/Cursor integration |
 
 ## Getting Started
 
@@ -232,6 +233,7 @@ Execute the compiled binary from the project root directory:
 | `resume` | Resume an interrupted crawl |
 | `validate` | Validate configuration file without crawling |
 | `list-sites` | List available site keys from config |
+| `mcp-server` | Start MCP server for AI tool integration |
 | `version` | Show version information |
 
 ### Command Options
@@ -258,6 +260,15 @@ Execute the compiled binary from the project root directory:
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-config <path>` | Path to config file | `config.yaml` |
+
+**mcp-server:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-config <path>` | Path to config file | `config.yaml` |
+| `-transport <type>` | Transport type (`stdio`, `sse`) | `stdio` |
+| `-port <num>` | HTTP port (for SSE transport) | `8080` |
+| `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
 
 ### Example Usage Scenarios
 
@@ -296,6 +307,18 @@ Execute the compiled binary from the project root directory:
 
 ```bash
 ./crawler crawl -site test_site -loglevel debug
+```
+
+**Start MCP Server for Claude Desktop:**
+
+```bash
+./crawler mcp-server -config config.yaml
+```
+
+**Start MCP Server with SSE Transport:**
+
+```bash
+./crawler mcp-server -config config.yaml -transport sse -port 8080
 ```
 
 ## Output Structure
@@ -352,6 +375,90 @@ In addition to (or instead of) the simple TSV mapping, the crawler can generate 
 
 The filename can be configured globally and overridden per site using `enable_metadata_yaml` and `metadata_yaml_filename` in `config.yaml`.
 
+## MCP Server Mode
+
+The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server, enabling integration with AI assistants like Claude Code and Cursor.
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_sites` | List all configured sites from config file |
+| `get_page` | Fetch a single URL and return content as markdown |
+| `crawl_site` | Start a background crawl for a site (returns job ID) |
+| `get_job_status` | Check the status of a background crawl job |
+| `search_crawled` | Search previously crawled content in JSONL files |
+
+### Usage
+
+**Stdio Transport (for Claude Desktop/Cursor):**
+
+```bash
+./crawler mcp-server -config config.yaml
+```
+
+**SSE Transport (HTTP-based):**
+
+```bash
+./crawler mcp-server -config config.yaml -transport sse -port 8080
+```
+
+### Claude Code Integration
+
+Add to your Claude Code configuration (`claude_code_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "doc-scraper": {
+      "command": "/path/to/crawler",
+      "args": ["mcp-server", "-config", "/path/to/config.yaml"]
+    }
+  }
+}
+```
+
+### Tool Examples
+
+**List available sites:**
+
+```
+Tool: list_sites
+Result: Returns all configured sites with their domains and crawl status
+```
+
+**Fetch a single page:**
+
+```
+Tool: get_page
+Arguments: { "url": "https://docs.example.com/guide", "content_selector": "article" }
+Result: Returns page content as markdown with metadata
+```
+
+**Start a background crawl:**
+
+```
+Tool: crawl_site
+Arguments: { "site_key": "pytorch_docs", "incremental": true }
+Result: Returns job ID for tracking progress
+```
+
+**Check crawl progress:**
+
+```
+Tool: get_job_status
+Arguments: { "job_id": "abc-123-def" }
+Result: Returns status, pages processed, and completion info
+```
+
+**Search crawled content:**
+
+```
+Tool: search_crawled
+Arguments: { "query": "neural network", "site_key": "pytorch_docs", "max_results": 10 }
+Result: Returns matching pages with snippets
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to open an issue to discuss bugs, suggest features, or propose changes.
@@ -376,3 +483,4 @@ This project is licensed under the [Apache-2.0 License](https://github.com/Srira
 - [html-to-markdown](https://github.com/JohannesKaufmann/html-to-markdown) for conversion
 - [BadgerDB](https://github.com/dgraph-io/badger) for state persistence
 - [Logrus](https://github.com/sirupsen/logrus) for structured logging
+- [mcp-go](https://github.com/mark3labs/mcp-go) for MCP server implementation

@@ -43,6 +43,8 @@ func main() {
 		runValidate(os.Args[2:])
 	case "list-sites":
 		runListSites(os.Args[2:])
+	case "mcp-server":
+		runMcpServer(os.Args[2:])
 	case "version":
 		fmt.Printf("doc-scraper %s\n", version)
 	case "-h", "--help", "help":
@@ -70,6 +72,7 @@ Commands:
   resume      Resume an interrupted crawl
   validate    Validate configuration file
   list-sites  List available site keys
+  mcp-server  Start MCP server for AI tool integration
   version     Show version info
 
 Run 'doc-scraper <command> -h' for command-specific help.`)
