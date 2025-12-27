@@ -20,6 +20,10 @@ type PageStore interface {
 
 	// UpdatePageStatus updates the status and details for a page URL
 	UpdatePageStatus(normalizedPageURL string, entry *models.PageDBEntry) error
+
+	// GetPageContentHash retrieves the content hash for a previously crawled page
+	// Returns the hash string, whether it exists, and any error
+	GetPageContentHash(normalizedPageURL string) (hash string, exists bool, err error)
 }
 
 // ImageStore handles image processing state

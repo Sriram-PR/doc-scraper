@@ -183,6 +183,22 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 	return nil
 }
 
+// GetPageContentHash retrieves the content hash for a previously crawled page.
+// Returns the hash string, whether it exists, and any error.
+func (s *BadgerStore) GetPageContentHash(normalizedPageURL string) (hash string, exists bool, err error) {
+	status, entry, checkErr := s.CheckPageStatus(normalizedPageURL)
+	if checkErr != nil {
+		return "", false, checkErr
+	}
+
+	// Only return hash for successfully processed pages
+	if status == models.PageStatusSuccess && entry != nil && entry.ContentHash != "" {
+		return entry.ContentHash, true, nil
+	}
+
+	return "", false, nil
+}
+
 // CheckImageStatus implements the VisitedStore interface
 func (s *BadgerStore) CheckImageStatus(normalizedImgURL string) (models.ImageStatus, *models.ImageDBEntry, error) {
 	status := models.ImageStatusNotFound

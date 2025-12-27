@@ -22,6 +22,8 @@ type SiteConfig struct {
 	OutputMappingFilename   string        `yaml:"output_mapping_filename,omitempty"`
 	EnableMetadataYAML      *bool         `yaml:"enable_metadata_yaml,omitempty"`
 	MetadataYAMLFilename    string        `yaml:"metadata_yaml_filename,omitempty"`
+	EnableJSONLOutput       *bool         `yaml:"enable_jsonl_output,omitempty"`
+	JSONLOutputFilename     string        `yaml:"jsonl_output_filename,omitempty"`
 }
 
 // AppConfig holds the global application configuration
@@ -48,6 +50,11 @@ type AppConfig struct {
 	OutputMappingFilename   string                `yaml:"output_mapping_filename,omitempty"`
 	EnableMetadataYAML      bool                  `yaml:"enable_metadata_yaml,omitempty"`
 	MetadataYAMLFilename    string                `yaml:"metadata_yaml_filename,omitempty"`
+	EnableJSONLOutput       bool                  `yaml:"enable_jsonl_output,omitempty"`
+	JSONLOutputFilename     string                `yaml:"jsonl_output_filename,omitempty"`
+	EnableTokenCounting     bool                  `yaml:"enable_token_counting,omitempty"`
+	TokenizerEncoding       string                `yaml:"tokenizer_encoding,omitempty"` // e.g., "cl100k_base" (GPT-4, Claude default)
+	EnableIncremental       bool                  `yaml:"enable_incremental,omitempty"` // Enable incremental crawling (skip unchanged pages)
 }
 
 // HTTPClientConfig holds settings for the shared HTTP client
@@ -118,4 +125,23 @@ func GetEffectiveMetadataYAMLFilename(siteCfg SiteConfig, appCfg AppConfig) stri
 		return appCfg.MetadataYAMLFilename
 	}
 	return "metadata.yaml"
+}
+
+// GetEffectiveEnableJSONLOutput determines if JSONL output should be generated.
+func GetEffectiveEnableJSONLOutput(siteCfg SiteConfig, appCfg AppConfig) bool {
+	if siteCfg.EnableJSONLOutput != nil {
+		return *siteCfg.EnableJSONLOutput
+	}
+	return appCfg.EnableJSONLOutput
+}
+
+// GetEffectiveJSONLOutputFilename determines the filename for the JSONL output.
+func GetEffectiveJSONLOutputFilename(siteCfg SiteConfig, appCfg AppConfig) string {
+	if siteCfg.JSONLOutputFilename != "" {
+		return siteCfg.JSONLOutputFilename
+	}
+	if appCfg.JSONLOutputFilename != "" {
+		return appCfg.JSONLOutputFilename
+	}
+	return "pages.jsonl"
 }

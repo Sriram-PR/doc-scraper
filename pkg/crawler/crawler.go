@@ -4,6 +4,7 @@ package crawler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 
 	"errors"
 	"fmt"
@@ -80,6 +81,11 @@ type Crawler struct {
 	crawlStartTime        time.Time             // Timestamp when this specific crawl run was initiated
 	collectedPageMetadata []models.PageMetadata // Slice to store metadata for each processed page
 	metadataMutex         sync.Mutex            // Protects concurrent appends to collectedPageMetadata
+
+	// For JSONL Output (RAG pipeline ingestion)
+	jsonlFile     *os.File   // File handle for the JSONL output file
+	jsonlFileMu   sync.Mutex // Protects concurrent writes to jsonlFile
+	jsonlFilePath string     // Full path to the site-specific JSONL output file
 }
 
 // NewCrawler creates and initializes a new Crawler instance and its components
@@ -156,6 +162,45 @@ func NewCrawler(
 		c.log.Info("Simple TSV URL-to-FilePath mapping is disabled.")
 	}
 
+	// --- Initialize JSONL Output File (if enabled) ---
+	effectiveEnableJSONL := config.GetEffectiveEnableJSONLOutput(c.siteCfg, c.appCfg)
+	if effectiveEnableJSONL {
+		jsonlFilename := config.GetEffectiveJSONLOutputFilename(c.siteCfg, c.appCfg)
+		c.jsonlFilePath = filepath.Join(c.siteOutputDir, jsonlFilename)
+		c.log.Infof("JSONL output enabled. Output file: %s", c.jsonlFilePath)
+
+		openFlags := os.O_CREATE | os.O_WRONLY
+		if resume {
+			c.log.Infof("Resume mode: Appending to JSONL file: %s", c.jsonlFilePath)
+			openFlags |= os.O_APPEND
+		} else {
+			c.log.Infof("Non-resume mode: Truncating JSONL file: %s", c.jsonlFilePath)
+			openFlags |= os.O_TRUNC
+		}
+		file, err := os.OpenFile(c.jsonlFilePath, openFlags, 0644)
+		if err != nil {
+			c.log.Errorf("Failed to open/create JSONL file '%s': %v. JSONL output will be disabled.", c.jsonlFilePath, err)
+			c.jsonlFile = nil
+		} else {
+			c.jsonlFile = file
+		}
+	} else {
+		c.log.Info("JSONL output is disabled.")
+	}
+
+	// --- Initialize Tokenizer for Token Counting (if enabled) ---
+	if c.appCfg.EnableTokenCounting {
+		encoding := c.appCfg.TokenizerEncoding
+		if encoding == "" {
+			encoding = "cl100k_base" // Default to GPT-4/Claude encoding
+		}
+		if err := process.InitTokenizer(encoding); err != nil {
+			c.log.Warnf("Failed to initialize tokenizer with encoding '%s': %v. Token counting will use estimates.", encoding, err)
+		} else {
+			c.log.Infof("Token counting enabled with encoding: %s", encoding)
+		}
+	}
+
 	// Initialize components that depend on the crawler or other components
 	// Pass the crawler's contextualized logger to these components
 	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c, appCfg, logger.Logger)
@@ -194,6 +239,7 @@ func (c *Crawler) Run(resume bool) error {
 
 	// --- DEFER CLEANUP ACTIONS ---
 	defer c.closeMappingFile() // Handles nil check internally for TSV file
+	defer c.closeJSONLFile()   // Handles nil check internally for JSONL file
 	defer func() {             // Defer writing YAML metadata at the very end
 		if err := c.writeMetadataYAML(); err != nil {
 			c.log.WithFields(runLogFields).Errorf("Failed to write final metadata YAML: %v", err)
@@ -460,6 +506,20 @@ func (c *Crawler) closeMappingFile() {
 	}
 }
 
+// closeJSONLFile closes the JSONL output file handle if it was opened.
+func (c *Crawler) closeJSONLFile() {
+	c.jsonlFileMu.Lock()
+	defer c.jsonlFileMu.Unlock()
+
+	if c.jsonlFile != nil {
+		c.log.Infof("Closing JSONL output file: %s", c.jsonlFilePath)
+		if err := c.jsonlFile.Close(); err != nil {
+			c.log.Errorf("Error closing JSONL file '%s': %v", c.jsonlFilePath, err)
+		}
+		c.jsonlFile = nil
+	}
+}
+
 // writeToMappingFile writes a line to the simple TSV mapping file (if enabled and open).
 func (c *Crawler) writeToMappingFile(pageURL, absoluteFilePath string, taskLog *logrus.Entry) {
 	c.mappingFileMu.Lock()
@@ -485,6 +545,27 @@ func (c *Crawler) writeToMappingFile(pageURL, absoluteFilePath string, taskLog *
 			"tsv_mapping_file": c.mappingFilePath,
 			"line_content":     strings.TrimSpace(line), // Log line without newline for cleaner logs
 		}).Errorf("Failed to write to TSV mapping file: %v", err)
+	}
+}
+
+// writeToJSONLFile writes a page entry to the JSONL output file (if enabled and open).
+func (c *Crawler) writeToJSONLFile(page models.PageJSONL, taskLog *logrus.Entry) {
+	c.jsonlFileMu.Lock()
+	defer c.jsonlFileMu.Unlock()
+
+	if c.jsonlFile == nil {
+		return
+	}
+
+	jsonBytes, err := json.Marshal(page)
+	if err != nil {
+		taskLog.WithField("jsonl_file", c.jsonlFilePath).Errorf("Failed to marshal page to JSON: %v", err)
+		return
+	}
+
+	// Write JSON line followed by newline
+	if _, err := c.jsonlFile.Write(append(jsonBytes, '\n')); err != nil {
+		taskLog.WithField("jsonl_file", c.jsonlFilePath).Errorf("Failed to write to JSONL file: %v", err)
 	}
 }
 
@@ -661,6 +742,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	var pageTitle string               // Populated on successful content extraction.
 	var savedContentPath string        // Absolute path to the saved .md file.
 	var normalizedURLString string     // Populated from handleSetupAndResumeCheck.
+	var rawHTMLHash string             // Hash of raw HTML for incremental crawling.
 
 	// Deferred function for panic recovery, final status logging, DB update, and WaitGroup decrement.
 	defer func() {
@@ -712,6 +794,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 			}
 			if finalStatus == models.PageStatusSuccess { // Mark ProcessedAt only on success
 				pageEntry.ProcessedAt = pageEntry.LastAttempt
+				pageEntry.ContentHash = rawHTMLHash // Store hash for incremental crawling
 			}
 			// Update page status in the persistent store
 			if dbUpdateErr := c.store.UpdatePageStatus(normalizedURLString, pageEntry); dbUpdateErr != nil {
@@ -776,9 +859,28 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	// If successful, resp.Body is open and passed to the next stage.
 
 	// 5. Read & Parse Body: Read response body into goquery.Document.
-	originalDoc, parseBodyErr := c.readAndParseBody(resp, finalURL, taskLog) // Closes resp.Body
+	var parseBodyErr error
+	var originalDoc *goquery.Document
+	originalDoc, rawHTMLHash, parseBodyErr = c.readAndParseBody(resp, finalURL, taskLog) // Closes resp.Body
 	if handleTaskError(parseBodyErr) {
 		return
+	}
+
+	// 5.5. Incremental Crawling Check: Compare hash with stored hash
+	if c.appCfg.EnableIncremental {
+		existingHash, exists, hashErr := c.store.GetPageContentHash(normalizedURLString)
+		if hashErr != nil {
+			taskLog.Warnf("Failed to check content hash for incremental crawl: %v", hashErr)
+			// Continue processing despite hash check error
+		} else if exists && existingHash == rawHTMLHash {
+			taskLog.Info("Page unchanged (hash match) - skipping processing")
+			skipped = true
+			return
+		} else if exists {
+			taskLog.Debug("Page content changed - will reprocess")
+		} else {
+			taskLog.Debug("New page (no previous hash) - will process")
+		}
 	}
 
 	// 6. Extract & Queue Links: Find new links on the page and add to priority queue.
@@ -807,23 +909,35 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 			c.writeToMappingFile(finalURL.String(), savedContentPath, taskLog)
 		}
 
+		// Check if we need to read the markdown file for metadata or JSONL output
+		enableYAML := config.GetEffectiveEnableMetadataYAML(c.siteCfg, c.appCfg)
+		enableJSONL := config.GetEffectiveEnableJSONLOutput(c.siteCfg, c.appCfg)
+
+		var markdownBytes []byte
+		var contentHash string
+		var tokenCount int
+		if enableYAML || enableJSONL {
+			var readErr error
+			markdownBytes, readErr = os.ReadFile(savedContentPath)
+			if readErr != nil {
+				taskLog.Warnf("Failed to read saved markdown file '%s': %v", savedContentPath, readErr)
+			} else {
+				contentHash = utils.CalculateStringMD5(string(markdownBytes))
+				// Calculate token count if enabled
+				if c.appCfg.EnableTokenCounting {
+					tokenCount = process.CountTokens(string(markdownBytes))
+				}
+			}
+		}
+
 		// Collect YAML Page Metadata (if YAML metadata is enabled for this site)
-		if config.GetEffectiveEnableMetadataYAML(c.siteCfg, c.appCfg) {
+		if enableYAML {
 			// Calculate path relative to the site's output directory for portability in metadata.yaml
 			relativeLocalPath, relErr := filepath.Rel(c.siteOutputDir, savedContentPath)
 			if relErr != nil {
 				taskLog.Warnf("Could not make path relative for metadata.yaml (Base: '%s', Target: '%s'): %v",
 					c.siteOutputDir, savedContentPath, relErr)
 				relativeLocalPath = savedContentPath // Fallback to absolute path if error
-			}
-
-			// Calculate content hash of the saved Markdown file
-			contentHash := ""
-			markdownBytes, readErr := os.ReadFile(savedContentPath)
-			if readErr != nil {
-				taskLog.Warnf("Failed to read saved markdown file '%s' for hashing: %v", savedContentPath, readErr)
-			} else {
-				contentHash = utils.CalculateStringMD5(string(markdownBytes)) // Hash the string content
 			}
 
 			// Image count: Placeholder. A more accurate count would require ContentProcessor
@@ -840,12 +954,36 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 				ProcessedAt:   time.Now(),                          // Timestamp of this successful processing
 				ContentHash:   contentHash,                         // MD5 hash of the Markdown content
 				ImageCount:    imageCountOnPage,                    // Placeholder for image count
+				TokenCount:    tokenCount,                          // Token count for LLM context planning
 			}
 
 			// Add to the collected metadata slice (thread-safe)
 			c.metadataMutex.Lock()
 			c.collectedPageMetadata = append(c.collectedPageMetadata, pageMeta)
 			c.metadataMutex.Unlock()
+		}
+
+		// Write JSONL output (if enabled)
+		if enableJSONL && c.jsonlFile != nil && markdownBytes != nil {
+			// Extract headings from markdown content
+			headings := process.ExtractHeadings(markdownBytes)
+
+			// Extract links and images from markdown (simple regex extraction)
+			links, images := extractLinksAndImages(string(markdownBytes))
+
+			pageJSONL := models.PageJSONL{
+				URL:         finalURL.String(),
+				Title:       pageTitle,
+				Content:     string(markdownBytes),
+				Headings:    headings,
+				Links:       links,
+				Images:      images,
+				ContentHash: contentHash,
+				CrawledAt:   time.Now().Format(time.RFC3339),
+				Depth:       currentDepth,
+				TokenCount:  tokenCount,
+			}
+			c.writeToJSONLFile(pageJSONL, taskLog)
 		}
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
@@ -1063,23 +1201,58 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 
 // readAndParseBody reads the HTTP response body and parses it into a goquery.Document.
 // It ensures resp.Body is closed after reading.
-func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskLog *logrus.Entry) (doc *goquery.Document, err error) {
+// Returns the goquery document and the raw HTML hash for incremental crawling.
+func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskLog *logrus.Entry) (doc *goquery.Document, rawHTMLHash string, err error) {
 	taskLog.Debugf("Reading response body from: %s", finalURL.String())
 	defer resp.Body.Close() // Ensure response body is closed when this function returns
 
 	// Read the entire response body. For very large pages, consider alternatives if memory becomes an issue.
 	bodyBytes, readErr := io.ReadAll(resp.Body) // Go 1.16+ can use io.ReadAll directly
 	if readErr != nil {
-		return nil, fmt.Errorf("%w: reading body from '%s': %w", utils.ErrResponseBodyRead, finalURL.String(), readErr)
+		return nil, "", fmt.Errorf("%w: reading body from '%s': %w", utils.ErrResponseBodyRead, finalURL.String(), readErr)
 	}
 	taskLog.Debugf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String())
+
+	// Calculate hash of raw HTML for incremental crawling
+	rawHTMLHash = utils.CalculateStringMD5(string(bodyBytes))
 
 	// Parse the HTML content using goquery
 	doc, parseErr := goquery.NewDocumentFromReader(bytes.NewReader(bodyBytes))
 	if parseErr != nil {
-		return nil, fmt.Errorf("%w: parsing HTML from '%s': %w", utils.ErrParsing, finalURL.String(), parseErr)
+		return nil, rawHTMLHash, fmt.Errorf("%w: parsing HTML from '%s': %w", utils.ErrParsing, finalURL.String(), parseErr)
 	}
 
 	taskLog.Debug("Successfully parsed HTML into goquery document.")
-	return doc, nil
+	return doc, rawHTMLHash, nil
+}
+
+// extractLinksAndImages extracts markdown links and image references from markdown content.
+// Returns two slices: links (from [text](url)) and images (from ![alt](url)).
+func extractLinksAndImages(markdown string) (links []string, images []string) {
+	// Regex for markdown links: [text](url)
+	// Negative lookbehind for ! to exclude image syntax
+	linkRe := regexp.MustCompile(`(?:^|[^!])\[([^\]]*)\]\(([^)]+)\)`)
+	linkMatches := linkRe.FindAllStringSubmatch(markdown, -1)
+	for _, match := range linkMatches {
+		if len(match) >= 3 {
+			linkURL := strings.TrimSpace(match[2])
+			if linkURL != "" {
+				links = append(links, linkURL)
+			}
+		}
+	}
+
+	// Regex for markdown images: ![alt](url)
+	imageRe := regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+	imageMatches := imageRe.FindAllStringSubmatch(markdown, -1)
+	for _, match := range imageMatches {
+		if len(match) >= 3 {
+			imageURL := strings.TrimSpace(match[2])
+			if imageURL != "" {
+				images = append(images, imageURL)
+			}
+		}
+	}
+
+	return links, images
 }

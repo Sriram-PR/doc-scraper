@@ -15,6 +15,7 @@ type PageDBEntry struct {
 	ProcessedAt time.Time  `json:"processed_at,omitempty"` // Timestamp of successful processing
 	LastAttempt time.Time  `json:"last_attempt"`           // Timestamp of the last processing attempt
 	Depth       int        `json:"depth"`                  // Depth at which this page was processed/attempted
+	ContentHash string     `json:"content_hash,omitempty"` // Content hash for incremental crawling
 }
 
 // ImageDBEntry stores the result of processing an image URL in the database
@@ -54,5 +55,20 @@ type PageMetadata struct {
 	ProcessedAt   time.Time `yaml:"processed_at"`
 	ContentHash   string    `yaml:"content_hash,omitempty"` // MD5 or SHA256 hex string
 	ImageCount    int       `yaml:"image_count,omitempty"`  // Count of images processed for this page
+	TokenCount    int       `yaml:"token_count,omitempty"`  // Token count for LLM context planning
 	// LinkedFrom    []string  `yaml:"linked_from,omitempty"` // Deferring for now
+}
+
+// PageJSONL represents a single page for JSONL output (RAG pipeline ingestion).
+type PageJSONL struct {
+	URL         string   `json:"url"`
+	Title       string   `json:"title"`
+	Content     string   `json:"content"`
+	Headings    []string `json:"headings"`
+	Links       []string `json:"links"`
+	Images      []string `json:"images"`
+	ContentHash string   `json:"content_hash"`
+	CrawledAt   string   `json:"crawled_at"`
+	Depth       int      `json:"depth"`
+	TokenCount  int      `json:"token_count,omitempty"`
 }

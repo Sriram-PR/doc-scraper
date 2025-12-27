@@ -103,6 +103,8 @@ func runCrawl(args []string, isResume bool) {
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
 	pprofAddr := fs.String("pprof", "localhost:6060", "pprof address (empty to disable)")
 	writeVisitedLog := fs.Bool("write-visited-log", false, "Write visited URLs log on completion")
+	incrementalMode := fs.Bool("incremental", false, "Enable incremental crawling (skip unchanged pages)")
+	fullMode := fs.Bool("full", false, "Force full crawl (ignore incremental settings)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: doc-scraper %s [options]\n\nOptions:\n", cmdName)
@@ -119,7 +121,7 @@ func runCrawl(args []string, isResume bool) {
 		os.Exit(1)
 	}
 
-	executeCrawl(*configFile, *siteKey, *logLevel, *pprofAddr, *writeVisitedLog, isResume)
+	executeCrawl(*configFile, *siteKey, *logLevel, *pprofAddr, *writeVisitedLog, isResume, *incrementalMode, *fullMode)
 }
 
 // runValidate handles the validate subcommand
@@ -252,7 +254,7 @@ func doListSites(configPath string, stdout, stderr io.Writer) int {
 }
 
 // executeCrawl contains the main crawl logic
-func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisitedLog, isResume bool) {
+func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisitedLog, isResume, incrementalMode, fullMode bool) {
 	// --- Set profiling rates ---
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
@@ -300,6 +302,24 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisit
 	}
 	log.Infof("Site Config for '%s': Domain: %s, Prefix: %s, ContentSel: '%s', ...",
 		siteKey, siteCfg.AllowedDomain, siteCfg.AllowedPathPrefix, siteCfg.ContentSelector)
+
+	// --- Apply Incremental Mode Override ---
+	// CLI flags override config file settings
+	if incrementalMode {
+		appCfg.EnableIncremental = true
+		log.Info("Incremental crawling enabled via CLI flag")
+	}
+	if fullMode {
+		appCfg.EnableIncremental = false
+		log.Info("Full crawl mode enabled via CLI flag (incremental disabled)")
+	}
+
+	// Log the effective incremental mode
+	if appCfg.EnableIncremental {
+		log.Info("Incremental crawling: ENABLED - will skip unchanged pages")
+	} else {
+		log.Info("Incremental crawling: DISABLED - will process all pages")
+	}
 
 	// --- Start pprof HTTP Server (Optional) ---
 	if pprofAddr != "" {
