@@ -46,6 +46,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **Modular Code** | Organized into packages for clarity and maintainability |
 | **CLI Utilities** | Built-in `validate` and `list-sites` commands for configuration management |
 | **MCP Server Mode** | Expose as Model Context Protocol server for Claude Code/Cursor integration |
+| **Auto Content Detection** | Automatic framework detection (Docusaurus, MkDocs, Sphinx, GitBook, ReadTheDocs) with readability fallback |
 
 ## Getting Started
 
@@ -206,7 +207,7 @@ sites:
 - `start_urls`: Array of starting URLs for crawling (Required)
 - `allowed_domain`: Restrict crawling to this domain (Required)
 - `allowed_path_prefix`: Further restrict crawling to URLs with this prefix (Required)
-- `content_selector`: CSS selector for main content extraction (Required)
+- `content_selector`: CSS selector for main content extraction, or `"auto"` for automatic detection (Required)
 - `max_depth`: Maximum crawl depth from start URLs (0 = unlimited)
 - `delay_per_host`: Override global delay setting for this site
 - `disallowed_path_patterns`: Array of regex patterns for URLs to skip
@@ -375,6 +376,37 @@ In addition to (or instead of) the simple TSV mapping, the crawler can generate 
 
 The filename can be configured globally and overridden per site using `enable_metadata_yaml` and `metadata_yaml_filename` in `config.yaml`.
 
+## Auto Content Detection
+
+When you set `content_selector: "auto"` for a site, the crawler automatically detects the documentation framework and applies the appropriate content selector.
+
+### Supported Frameworks
+
+| Framework | Detection Method | Default Selector |
+|-----------|------------------|------------------|
+| Docusaurus | `data-docusaurus` attribute, `__docusaurus` marker | `article[class*='theme-doc']` |
+| MkDocs Material | `data-md-component` attribute, `.md-content` class | `article.md-content__inner` |
+| Sphinx | `searchindex.js`, `sphinxsidebar` class | `div.document, div.body` |
+| ReadTheDocs | `readthedocs` scripts, `.rst-content` class | `.rst-content` |
+| GitBook | `gitbook` class patterns, `markdown-section` | `section.normal.markdown-section` |
+
+### Fallback Behavior
+
+If no known framework is detected, the crawler uses Mozilla's Readability algorithm to automatically extract the main content from the page. This provides reliable content extraction for most documentation sites without manual configuration.
+
+### Example Usage
+
+```yaml
+sites:
+  pytorch_docs:
+    start_urls:
+      - "https://pytorch.org/docs/stable/"
+    allowed_domain: "pytorch.org"
+    allowed_path_prefix: "/docs/stable/"
+    content_selector: "auto"  # Auto-detect framework
+    max_depth: 0
+```
+
 ## MCP Server Mode
 
 The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server, enabling integration with AI assistants like Claude Code and Cursor.
@@ -484,3 +516,4 @@ This project is licensed under the [Apache-2.0 License](https://github.com/Srira
 - [BadgerDB](https://github.com/dgraph-io/badger) for state persistence
 - [Logrus](https://github.com/sirupsen/logrus) for structured logging
 - [mcp-go](https://github.com/mark3labs/mcp-go) for MCP server implementation
+- [go-readability](https://github.com/go-shiori/go-readability) for content extraction fallback

@@ -14,22 +14,27 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"doc-scraper/pkg/config"
+	"doc-scraper/pkg/detect"
 	"doc-scraper/pkg/utils"
 )
 
 // ContentProcessor handles extracting, cleaning, processing (images, links), converting to Markdown, and saving of page content
 type ContentProcessor struct {
-	imgProcessor *ImageProcessor
-	log          *logrus.Logger
-	appCfg       config.AppConfig
+	imgProcessor        *ImageProcessor
+	log                 *logrus.Logger
+	appCfg              config.AppConfig
+	detector            *detect.ContentDetector
+	readabilityExtractor *detect.ReadabilityExtractor
 }
 
 // NewContentProcessor creates a ContentProcessor
 func NewContentProcessor(imgProcessor *ImageProcessor, appCfg config.AppConfig, log *logrus.Logger) *ContentProcessor {
 	return &ContentProcessor{
-		imgProcessor: imgProcessor,
-		appCfg:       appCfg,
-		log:          log,
+		imgProcessor:        imgProcessor,
+		appCfg:              appCfg,
+		log:                 log,
+		detector:            detect.NewContentDetector(log),
+		readabilityExtractor: detect.NewReadabilityExtractor(),
 	}
 }
 
@@ -51,15 +56,64 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	}
 	taskLog = taskLog.WithField("page_title", pageTitle)
 
-	mainContentSelection := doc.Find(siteCfg.ContentSelector)
-	if mainContentSelection.Length() == 0 {
-		err = fmt.Errorf("%w: selector '%s' not found on page '%s'", utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String())
-		taskLog.Warn(err.Error())
-		return pageTitle, "", err
+	var mainContent *goquery.Selection
+	actualSelector := siteCfg.ContentSelector
+
+	// Handle auto content selector detection
+	if detect.IsAutoSelector(siteCfg.ContentSelector) {
+		result := cp.detector.Detect(doc, finalURL)
+
+		if result.Fallback {
+			// Use readability extraction
+			taskLog.Debug("Using readability extraction for content")
+			extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
+			if extractErr != nil {
+				err = fmt.Errorf("%w: readability extraction failed for '%s': %v", utils.ErrContentSelector, finalURL.String(), extractErr)
+				taskLog.Warn(err.Error())
+				return pageTitle, "", err
+			}
+			mainContent = extractedContent
+			if extractedTitle != "" {
+				pageTitle = extractedTitle
+				taskLog = taskLog.WithField("page_title", pageTitle)
+			}
+			taskLog.Debugf("Extracted content using readability (framework: %s)", result.Framework)
+		} else {
+			// Use detected framework selector
+			actualSelector = result.Selector
+			taskLog.Debugf("Auto-detected selector for %s: %s", result.Framework, actualSelector)
+
+			mainContentSelection := doc.Find(actualSelector)
+			if mainContentSelection.Length() == 0 {
+				// Fallback to readability if detected selector fails
+				taskLog.Warnf("Detected selector '%s' not found, falling back to readability", actualSelector)
+				extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
+				if extractErr != nil {
+					err = fmt.Errorf("%w: selector '%s' not found and readability failed for '%s': %v", utils.ErrContentSelector, actualSelector, finalURL.String(), extractErr)
+					taskLog.Warn(err.Error())
+					return pageTitle, "", err
+				}
+				mainContent = extractedContent
+				if extractedTitle != "" {
+					pageTitle = extractedTitle
+					taskLog = taskLog.WithField("page_title", pageTitle)
+				}
+			} else {
+				mainContent = mainContentSelection.First().Clone()
+			}
+		}
+	} else {
+		// Use explicitly configured selector
+		mainContentSelection := doc.Find(siteCfg.ContentSelector)
+		if mainContentSelection.Length() == 0 {
+			err = fmt.Errorf("%w: selector '%s' not found on page '%s'", utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String())
+			taskLog.Warn(err.Error())
+			return pageTitle, "", err
+		}
+		// Clone selection to modify images/links without affecting original doc needed for link extraction
+		mainContent = mainContentSelection.First().Clone()
+		taskLog.Debugf("Found main content using selector '%s'", siteCfg.ContentSelector)
 	}
-	// Clone selection to modify images/links without affecting original doc needed for link extraction
-	mainContent := mainContentSelection.First().Clone()
-	taskLog.Debugf("Found main content using selector '%s'", siteCfg.ContentSelector)
 
 	currentPageFullOutputPath, pageInScope := cp.getOutputPathForURL(finalURL, siteCfg, siteOutputDir)
 	if !pageInScope {
