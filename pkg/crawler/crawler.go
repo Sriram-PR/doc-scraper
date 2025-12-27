@@ -86,6 +86,11 @@ type Crawler struct {
 	jsonlFile     *os.File   // File handle for the JSONL output file
 	jsonlFileMu   sync.Mutex // Protects concurrent writes to jsonlFile
 	jsonlFilePath string     // Full path to the site-specific JSONL output file
+
+	// For Chunks Output (RAG vector ingestion)
+	chunksFile     *os.File   // File handle for the chunks output file
+	chunksFileMu   sync.Mutex // Protects concurrent writes to chunksFile
+	chunksFilePath string     // Full path to the site-specific chunks output file
 }
 
 // NewCrawler creates and initializes a new Crawler instance and its components
@@ -188,6 +193,32 @@ func NewCrawler(
 		c.log.Info("JSONL output is disabled.")
 	}
 
+	// --- Initialize Chunks Output File (if chunking enabled) ---
+	effectiveEnableChunking := config.GetEffectiveChunkingEnabled(c.siteCfg, c.appCfg)
+	if effectiveEnableChunking {
+		chunksFilename := config.GetEffectiveChunkingOutputFilename(c.siteCfg, c.appCfg)
+		c.chunksFilePath = filepath.Join(c.siteOutputDir, chunksFilename)
+		c.log.Infof("Chunking enabled. Output file: %s", c.chunksFilePath)
+
+		openFlags := os.O_CREATE | os.O_WRONLY
+		if resume {
+			c.log.Infof("Resume mode: Appending to chunks file: %s", c.chunksFilePath)
+			openFlags |= os.O_APPEND
+		} else {
+			c.log.Infof("Non-resume mode: Truncating chunks file: %s", c.chunksFilePath)
+			openFlags |= os.O_TRUNC
+		}
+		file, err := os.OpenFile(c.chunksFilePath, openFlags, 0644)
+		if err != nil {
+			c.log.Errorf("Failed to open/create chunks file '%s': %v. Chunking output will be disabled.", c.chunksFilePath, err)
+			c.chunksFile = nil
+		} else {
+			c.chunksFile = file
+		}
+	} else {
+		c.log.Info("Chunking output is disabled.")
+	}
+
 	// --- Initialize Tokenizer for Token Counting (if enabled) ---
 	if c.appCfg.EnableTokenCounting {
 		encoding := c.appCfg.TokenizerEncoding
@@ -240,6 +271,7 @@ func (c *Crawler) Run(resume bool) error {
 	// --- DEFER CLEANUP ACTIONS ---
 	defer c.closeMappingFile() // Handles nil check internally for TSV file
 	defer c.closeJSONLFile()   // Handles nil check internally for JSONL file
+	defer c.closeChunksFile()  // Handles nil check internally for chunks file
 	defer func() {             // Defer writing YAML metadata at the very end
 		if err := c.writeMetadataYAML(); err != nil {
 			c.log.WithFields(runLogFields).Errorf("Failed to write final metadata YAML: %v", err)
@@ -520,6 +552,20 @@ func (c *Crawler) closeJSONLFile() {
 	}
 }
 
+// closeChunksFile closes the chunks output file handle if it was opened.
+func (c *Crawler) closeChunksFile() {
+	c.chunksFileMu.Lock()
+	defer c.chunksFileMu.Unlock()
+
+	if c.chunksFile != nil {
+		c.log.Infof("Closing chunks output file: %s", c.chunksFilePath)
+		if err := c.chunksFile.Close(); err != nil {
+			c.log.Errorf("Error closing chunks file '%s': %v", c.chunksFilePath, err)
+		}
+		c.chunksFile = nil
+	}
+}
+
 // writeToMappingFile writes a line to the simple TSV mapping file (if enabled and open).
 func (c *Crawler) writeToMappingFile(pageURL, absoluteFilePath string, taskLog *logrus.Entry) {
 	c.mappingFileMu.Lock()
@@ -566,6 +612,29 @@ func (c *Crawler) writeToJSONLFile(page models.PageJSONL, taskLog *logrus.Entry)
 	// Write JSON line followed by newline
 	if _, err := c.jsonlFile.Write(append(jsonBytes, '\n')); err != nil {
 		taskLog.WithField("jsonl_file", c.jsonlFilePath).Errorf("Failed to write to JSONL file: %v", err)
+	}
+}
+
+// writeToChunksFile writes chunk entries to the chunks output file (if enabled and open).
+func (c *Crawler) writeToChunksFile(chunks []models.ChunkJSONL, taskLog *logrus.Entry) {
+	c.chunksFileMu.Lock()
+	defer c.chunksFileMu.Unlock()
+
+	if c.chunksFile == nil {
+		return
+	}
+
+	for _, chunk := range chunks {
+		jsonBytes, err := json.Marshal(chunk)
+		if err != nil {
+			taskLog.WithField("chunks_file", c.chunksFilePath).Errorf("Failed to marshal chunk to JSON: %v", err)
+			continue
+		}
+
+		// Write JSON line followed by newline
+		if _, err := c.chunksFile.Write(append(jsonBytes, '\n')); err != nil {
+			taskLog.WithField("chunks_file", c.chunksFilePath).Errorf("Failed to write to chunks file: %v", err)
+		}
 	}
 }
 
@@ -984,6 +1053,39 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 				TokenCount:  tokenCount,
 			}
 			c.writeToJSONLFile(pageJSONL, taskLog)
+		}
+
+		// Write chunks output (if chunking enabled)
+		enableChunking := config.GetEffectiveChunkingEnabled(c.siteCfg, c.appCfg)
+		if enableChunking && c.chunksFile != nil && markdownBytes != nil {
+			// Get chunking configuration
+			chunkCfg := process.ChunkerConfig{
+				MaxChunkSize: config.GetEffectiveChunkingMaxSize(c.siteCfg, c.appCfg),
+				ChunkOverlap: config.GetEffectiveChunkingOverlap(c.siteCfg, c.appCfg),
+			}
+
+			// Chunk the markdown content
+			chunks, chunkErr := process.ChunkMarkdown(string(markdownBytes), chunkCfg)
+			if chunkErr != nil {
+				taskLog.Warnf("Failed to chunk markdown content: %v", chunkErr)
+			} else if len(chunks) > 0 {
+				// Convert to ChunkJSONL format
+				crawledAt := time.Now().Format(time.RFC3339)
+				chunkJSONLs := make([]models.ChunkJSONL, len(chunks))
+				for i, chunk := range chunks {
+					chunkJSONLs[i] = models.ChunkJSONL{
+						URL:              finalURL.String(),
+						ChunkIndex:       i,
+						Content:          chunk.Content,
+						HeadingHierarchy: chunk.HeadingHierarchy,
+						TokenCount:       chunk.TokenCount,
+						PageTitle:        pageTitle,
+						CrawledAt:        crawledAt,
+					}
+				}
+				c.writeToChunksFile(chunkJSONLs, taskLog)
+				taskLog.Debugf("Wrote %d chunks for page", len(chunks))
+			}
 		}
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.

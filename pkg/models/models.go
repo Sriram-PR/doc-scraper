@@ -72,3 +72,14 @@ type PageJSONL struct {
 	Depth       int      `json:"depth"`
 	TokenCount  int      `json:"token_count,omitempty"`
 }
+
+// ChunkJSONL represents a single chunk for JSONL output (RAG vector ingestion).
+type ChunkJSONL struct {
+	URL              string   `json:"url"`                // Source page URL
+	ChunkIndex       int      `json:"chunk_index"`        // Index of this chunk within the page
+	Content          string   `json:"content"`            // Chunk content (includes heading context)
+	HeadingHierarchy []string `json:"heading_hierarchy"`  // Extracted heading hierarchy
+	TokenCount       int      `json:"token_count"`        // Token count for this chunk
+	PageTitle        string   `json:"page_title"`         // Title of the source page
+	CrawledAt        string   `json:"crawled_at"`         // Timestamp of crawl
+}

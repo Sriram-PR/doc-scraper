@@ -22,8 +22,9 @@ type SiteConfig struct {
 	OutputMappingFilename   string        `yaml:"output_mapping_filename,omitempty"`
 	EnableMetadataYAML      *bool         `yaml:"enable_metadata_yaml,omitempty"`
 	MetadataYAMLFilename    string        `yaml:"metadata_yaml_filename,omitempty"`
-	EnableJSONLOutput       *bool         `yaml:"enable_jsonl_output,omitempty"`
-	JSONLOutputFilename     string        `yaml:"jsonl_output_filename,omitempty"`
+	EnableJSONLOutput       *bool              `yaml:"enable_jsonl_output,omitempty"`
+	JSONLOutputFilename     string             `yaml:"jsonl_output_filename,omitempty"`
+	Chunking                SiteChunkingConfig `yaml:"chunking,omitempty"`
 }
 
 // AppConfig holds the global application configuration
@@ -55,6 +56,23 @@ type AppConfig struct {
 	EnableTokenCounting     bool                  `yaml:"enable_token_counting,omitempty"`
 	TokenizerEncoding       string                `yaml:"tokenizer_encoding,omitempty"` // e.g., "cl100k_base" (GPT-4, Claude default)
 	EnableIncremental       bool                  `yaml:"enable_incremental,omitempty"` // Enable incremental crawling (skip unchanged pages)
+	Chunking                ChunkingConfig        `yaml:"chunking,omitempty"`
+}
+
+// ChunkingConfig holds configuration for content chunking.
+type ChunkingConfig struct {
+	Enabled        bool   `yaml:"enabled,omitempty"`         // Enable chunking output
+	MaxChunkSize   int    `yaml:"max_chunk_size,omitempty"`  // Max chunk size in tokens (default: 512)
+	ChunkOverlap   int    `yaml:"chunk_overlap,omitempty"`   // Overlap between chunks in tokens (default: 50)
+	OutputFilename string `yaml:"output_filename,omitempty"` // Output filename (default: chunks.jsonl)
+}
+
+// SiteChunkingConfig holds site-specific chunking overrides (uses pointers for tri-state).
+type SiteChunkingConfig struct {
+	Enabled        *bool  `yaml:"enabled,omitempty"`
+	MaxChunkSize   *int   `yaml:"max_chunk_size,omitempty"`
+	ChunkOverlap   *int   `yaml:"chunk_overlap,omitempty"`
+	OutputFilename string `yaml:"output_filename,omitempty"`
 }
 
 // HTTPClientConfig holds settings for the shared HTTP client
@@ -144,4 +162,45 @@ func GetEffectiveJSONLOutputFilename(siteCfg SiteConfig, appCfg AppConfig) strin
 		return appCfg.JSONLOutputFilename
 	}
 	return "pages.jsonl"
+}
+
+// GetEffectiveChunkingEnabled determines if chunking should be enabled.
+func GetEffectiveChunkingEnabled(siteCfg SiteConfig, appCfg AppConfig) bool {
+	if siteCfg.Chunking.Enabled != nil {
+		return *siteCfg.Chunking.Enabled
+	}
+	return appCfg.Chunking.Enabled
+}
+
+// GetEffectiveChunkingMaxSize returns the effective max chunk size in tokens.
+func GetEffectiveChunkingMaxSize(siteCfg SiteConfig, appCfg AppConfig) int {
+	if siteCfg.Chunking.MaxChunkSize != nil {
+		return *siteCfg.Chunking.MaxChunkSize
+	}
+	if appCfg.Chunking.MaxChunkSize > 0 {
+		return appCfg.Chunking.MaxChunkSize
+	}
+	return 512 // Default: 512 tokens
+}
+
+// GetEffectiveChunkingOverlap returns the effective chunk overlap in tokens.
+func GetEffectiveChunkingOverlap(siteCfg SiteConfig, appCfg AppConfig) int {
+	if siteCfg.Chunking.ChunkOverlap != nil {
+		return *siteCfg.Chunking.ChunkOverlap
+	}
+	if appCfg.Chunking.ChunkOverlap > 0 {
+		return appCfg.Chunking.ChunkOverlap
+	}
+	return 50 // Default: 50 tokens (10% of 512)
+}
+
+// GetEffectiveChunkingOutputFilename returns the effective chunks output filename.
+func GetEffectiveChunkingOutputFilename(siteCfg SiteConfig, appCfg AppConfig) string {
+	if siteCfg.Chunking.OutputFilename != "" {
+		return siteCfg.Chunking.OutputFilename
+	}
+	if appCfg.Chunking.OutputFilename != "" {
+		return appCfg.Chunking.OutputFilename
+	}
+	return "chunks.jsonl"
 }
