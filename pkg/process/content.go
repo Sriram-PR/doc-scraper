@@ -13,9 +13,9 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/sirupsen/logrus"
 
-	"github.com/piratf/doc-scraper/pkg/config"
-	"github.com/piratf/doc-scraper/pkg/detect"
-	"github.com/piratf/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/detect"
+	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
 // ContentProcessor handles extracting, cleaning, processing (images, links), converting to Markdown, and saving of page content

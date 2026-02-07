@@ -16,12 +16,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/piratf/doc-scraper/pkg/config"
-	"github.com/piratf/doc-scraper/pkg/fetch"
-	"github.com/piratf/doc-scraper/pkg/models"
-	"github.com/piratf/doc-scraper/pkg/parse"
-	"github.com/piratf/doc-scraper/pkg/queue"
-	"github.com/piratf/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/pkg/parse"
+	"github.com/Sriram-PR/doc-scraper/pkg/queue"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage"
 )
 
 // SitemapProcessor handles fetching, parsing, and processing sitemaps

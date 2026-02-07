@@ -10,12 +10,12 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/sirupsen/logrus"
 
-	"github.com/piratf/doc-scraper/pkg/config"
-	"github.com/piratf/doc-scraper/pkg/models"
-	"github.com/piratf/doc-scraper/pkg/parse"
-	"github.com/piratf/doc-scraper/pkg/queue"
-	"github.com/piratf/doc-scraper/pkg/storage"
-	"github.com/piratf/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/pkg/parse"
+	"github.com/Sriram-PR/doc-scraper/pkg/queue"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
 // LinkProcessor handles extracting and queueing links found on a page

@@ -11,7 +11,7 @@ import (
 	"github.com/temoto/robotstxt"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/piratf/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
 )
 
 // SitemapDiscoverer defines the callback interface for handling discovered sitemap URLs

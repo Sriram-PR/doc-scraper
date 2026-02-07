@@ -9,10 +9,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/piratf/doc-scraper/pkg/config"
-	"github.com/piratf/doc-scraper/pkg/crawler"
-	"github.com/piratf/doc-scraper/pkg/fetch"
-	"github.com/piratf/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
+	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage"
 )
 
 // SiteResult contains the result of crawling a single site

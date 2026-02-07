@@ -8,7 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/sirupsen/logrus"
 
-	"github.com/piratf/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
 )
 
 const (

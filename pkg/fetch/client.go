@@ -5,7 +5,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/piratf/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
 
 	"github.com/sirupsen/logrus"
 )

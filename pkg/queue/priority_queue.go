@@ -4,7 +4,7 @@ import (
 	"container/heap"
 	"sync"
 
-	"github.com/piratf/doc-scraper/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/pkg/models"
 
 	"github.com/sirupsen/logrus"
 )
