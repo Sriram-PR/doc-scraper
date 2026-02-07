@@ -13,8 +13,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"doc-scraper/pkg/config"
-	"doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
 // Fetcher handles making HTTP requests with configured retry logic, using an underlying http.Client

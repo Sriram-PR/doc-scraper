@@ -25,15 +25,15 @@ import (
 	"golang.org/x/sync/semaphore"
 	"gopkg.in/yaml.v3"
 
-	"doc-scraper/pkg/config"
-	"doc-scraper/pkg/fetch"
-	"doc-scraper/pkg/models"
-	"doc-scraper/pkg/parse"
-	"doc-scraper/pkg/process"
-	"doc-scraper/pkg/queue"
-	"doc-scraper/pkg/sitemap"
-	"doc-scraper/pkg/storage"
-	"doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/pkg/parse"
+	"github.com/Sriram-PR/doc-scraper/pkg/process"
+	"github.com/Sriram-PR/doc-scraper/pkg/queue"
+	"github.com/Sriram-PR/doc-scraper/pkg/sitemap"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
 // Crawler orchestrates the web crawling process for a single configured site

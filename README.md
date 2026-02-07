@@ -60,6 +60,18 @@ The main objective of this tool is to automate the often tedious process of gath
 
 ### Installation
 
+**Option 1: Direct Installation (Recommended)**
+
+Install the latest version directly from GitHub:
+
+```bash
+go install github.com/Sriram-PR/doc-scraper/cmd/crawler@latest
+```
+
+This installs the `crawler` binary to your `GOPATH/bin` directory (usually `~/go/bin` or `%USERPROFILE%\go\bin`). Make sure this directory is in your `PATH`.
+
+**Option 2: Clone and Build**
+
 1. **Clone the repository:**
 
    ```bash

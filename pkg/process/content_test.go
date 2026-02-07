@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
 )
 
 // testContentProcessor returns a minimal ContentProcessor for testing

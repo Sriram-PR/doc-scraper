@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"doc-scraper/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/pkg/models"
 )
 
 // PageStore handles page visitation state

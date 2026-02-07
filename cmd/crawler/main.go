@@ -20,13 +20,13 @@ import (
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 
-	"doc-scraper/pkg/config"
-	"doc-scraper/pkg/crawler"
-	"doc-scraper/pkg/fetch"
-	"doc-scraper/pkg/orchestrate"
-	"doc-scraper/pkg/storage"
-	"doc-scraper/pkg/utils"
-	"doc-scraper/pkg/watch"
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
+	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/pkg/watch"
 )
 
 const version = "1.1.0"

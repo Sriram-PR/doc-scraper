@@ -8,7 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"doc-scraper/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/pkg/models"
 )
 
 // testLogger returns a logger that discards output
