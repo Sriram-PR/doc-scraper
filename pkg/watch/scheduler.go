@@ -9,8 +9,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"doc-scraper/pkg/config"
-	"doc-scraper/pkg/orchestrate"
+	"github.com/piratf/doc-scraper/pkg/config"
+	"github.com/piratf/doc-scraper/pkg/orchestrate"
 )
 
 // Scheduler manages periodic crawling of sites

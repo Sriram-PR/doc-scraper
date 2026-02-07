@@ -8,7 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"doc-scraper/pkg/mcp"
+	"github.com/piratf/doc-scraper/pkg/mcp"
 )
 
 // runMcpServer handles the mcp-server subcommand

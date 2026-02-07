@@ -21,12 +21,12 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/sirupsen/logrus"
 
-	"doc-scraper/pkg/config"
-	"doc-scraper/pkg/fetch"
-	"doc-scraper/pkg/models"
-	"doc-scraper/pkg/parse"
-	"doc-scraper/pkg/storage"
-	"doc-scraper/pkg/utils"
+	"github.com/piratf/doc-scraper/pkg/config"
+	"github.com/piratf/doc-scraper/pkg/fetch"
+	"github.com/piratf/doc-scraper/pkg/models"
+	"github.com/piratf/doc-scraper/pkg/parse"
+	"github.com/piratf/doc-scraper/pkg/storage"
+	"github.com/piratf/doc-scraper/pkg/utils"
 
 	"golang.org/x/sync/semaphore"
 )

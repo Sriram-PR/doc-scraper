@@ -12,8 +12,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"doc-scraper/pkg/config"
-	"doc-scraper/pkg/utils"
+	"github.com/piratf/doc-scraper/pkg/config"
+	"github.com/piratf/doc-scraper/pkg/utils"
 )
 
 // testConfig returns an AppConfig with fast retry delays for testing

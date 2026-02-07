@@ -1,4 +1,4 @@
-module doc-scraper
+module github.com/piratf/doc-scraper
 
 go 1.25
 

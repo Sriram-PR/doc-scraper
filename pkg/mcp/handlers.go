@@ -18,11 +18,11 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
 
-	"doc-scraper/pkg/config"
-	"doc-scraper/pkg/crawler"
-	"doc-scraper/pkg/fetch"
-	"doc-scraper/pkg/models"
-	"doc-scraper/pkg/storage"
+	"github.com/piratf/doc-scraper/pkg/config"
+	"github.com/piratf/doc-scraper/pkg/crawler"
+	"github.com/piratf/doc-scraper/pkg/fetch"
+	"github.com/piratf/doc-scraper/pkg/models"
+	"github.com/piratf/doc-scraper/pkg/storage"
 )
 
 // handleListSites handles the list_sites tool
@@ -95,7 +95,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 
 	userAgent := s.cfg.AppConfig.DefaultUserAgent
 	if userAgent == "" {
-		userAgent = "doc-scraper/1.0"
+		userAgent = "github.com/piratf/doc-scraper/1.0"
 	}
 	req.Header.Set("User-Agent", userAgent)
 

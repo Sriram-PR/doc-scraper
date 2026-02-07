@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"doc-scraper/pkg/utils"
+	"github.com/piratf/doc-scraper/pkg/utils"
 )
 
 // Validate checks AppConfig fields and applies sensible defaults.

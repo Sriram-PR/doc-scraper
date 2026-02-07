@@ -15,9 +15,9 @@ import (
 	badger "github.com/dgraph-io/badger/v4"
 	"github.com/sirupsen/logrus"
 
-	"doc-scraper/pkg/log"
-	"doc-scraper/pkg/models"
-	"doc-scraper/pkg/utils"
+	"github.com/piratf/doc-scraper/pkg/log"
+	"github.com/piratf/doc-scraper/pkg/models"
+	"github.com/piratf/doc-scraper/pkg/utils"
 )
 
 const (
