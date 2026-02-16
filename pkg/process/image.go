@@ -386,7 +386,9 @@ func (ip *ImageProcessor) processSingleImageTask(
 	// --- Defer DB update, panic recovery, and WaitGroup decrement ---
 	defer func() {
 		// --- Panic Recovery ---
+		panicked := false
 		if r := recover(); r != nil {
+			panicked = true
 			imgTaskErr = fmt.Errorf("panic processing img '%s': %v", task.AbsImgURL, r)
 			stackTrace := string(debug.Stack())
 			imgLogEntry.WithFields(logrus.Fields{"panic_info": r, "stack_trace": stackTrace}).Error("PANIC Recovered in processSingleImageTask")
@@ -417,7 +419,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 				LastAttempt: now,
 			}
 			// Log & Collect the primary error if it wasn't a panic
-			if imgTaskErr != nil && recover() == nil { // Avoid double-collecting/logging panic errors
+			if imgTaskErr != nil && !panicked { // Avoid double-collecting/logging panic errors
 				imgLogEntry.Warnf("Image download/save failed: %v", imgTaskErr)
 				imgErrMu.Lock()
 				*imageErrs = append(*imageErrs, imgTaskErr)

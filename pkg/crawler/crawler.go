@@ -871,7 +871,9 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 
 	// Deferred function for panic recovery, final status logging, DB update, and WaitGroup decrement.
 	defer func() {
+		panicked := false
 		if r := recover(); r != nil { // Panic recovery
+			panicked = true
 			skipped = false                      // Panic overrides any prior skip status
 			taskErr = fmt.Errorf("panic: %v", r) // Capture panic as the task error
 			stackTrace := string(debug.Stack())
@@ -894,7 +896,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 			finalStatus = models.PageStatusFailure
 			finalErrorType = utils.CategorizeError(taskErr) // Categorize the error
 			logFields["category"] = finalErrorType
-			if recover() == nil { // Log non-panic errors (panic already logged)
+			if !panicked { // Log non-panic errors (panic already logged above)
 				taskLog.WithFields(logFields).Warnf("Task failed: %v", taskErr)
 			}
 		} else if skipped { // Task was skipped
