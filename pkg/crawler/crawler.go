@@ -1024,9 +1024,10 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 
 	// 7. Process & Save Content: Extract content, process images/links, convert to MD, save.
 	var tempPageTitle, tempSavedPath string // Use temp vars for return values from contentProcessor
+	var tempImageCount int
 	var contentErr error
 	// pageTitle and savedContentPath (function-scoped) will be set from these if successful.
-	tempPageTitle, tempSavedPath, contentErr = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, taskCtx)
+	tempPageTitle, tempSavedPath, tempImageCount, contentErr = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, taskCtx)
 	if handleTaskError(contentErr) { // If content processing/saving fails, set taskErr and exit.
 		return
 	}
@@ -1073,10 +1074,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 				relativeLocalPath = savedContentPath // Fallback to absolute path if error
 			}
 
-			// Image count: Placeholder. A more accurate count would require ContentProcessor
-			// to return this information, which involves deeper changes to ImageProcessor.
-			imageCountOnPage := 0
-
 			// Create PageMetadata entry
 			pageMeta := models.PageMetadata{
 				OriginalURL:   finalURL.String(),                   // Final URL after redirects
@@ -1086,7 +1083,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 				Depth:         currentDepth,                        // Crawl depth
 				ProcessedAt:   time.Now(),                          // Timestamp of this successful processing
 				ContentHash:   contentHash,                         // SHA-256 hash of the Markdown content
-				ImageCount:    imageCountOnPage,                    // Placeholder for image count
+				ImageCount:    tempImageCount,                       // Count of successfully rewritten images
 				TokenCount:    tokenCount,                          // Token count for LLM context planning
 			}
 
