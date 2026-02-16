@@ -1242,7 +1242,7 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 	taskLog.Debugf("Attempting to acquire host semaphore for: %s (timeout: %v)", host, semTimeout)
 	if semErr := hostSem.Acquire(ctxHost, 1); semErr != nil {
 		// Wrap error for better context (e.g., distinguish timeout from other errors)
-		return cleanupFunc, utils.WrapErrorf(semErr, "acquire host semaphore for '%s'", host)
+		return cleanupFunc, fmt.Errorf("%w: acquire host semaphore for '%s': %w", utils.ErrSemaphoreTimeout, host, semErr)
 	}
 	acquiredHostSem = true
 	taskLog.Debugf("Acquired host semaphore for: %s", host)
@@ -1253,7 +1253,7 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 	taskLog.Debugf("Attempting to acquire global semaphore (timeout: %v)", semTimeout)
 	if semErr := c.globalSemaphore.Acquire(ctxGlobal, 1); semErr != nil {
 		// If global semaphore fails, host semaphore (if acquired) will be released by defer cleanupFunc.
-		return cleanupFunc, utils.WrapErrorf(semErr, "acquire global semaphore")
+		return cleanupFunc, fmt.Errorf("%w: acquire global semaphore: %w", utils.ErrSemaphoreTimeout, semErr)
 	}
 	acquiredGlobalSem = true
 	taskLog.Debug("Acquired global semaphore.")

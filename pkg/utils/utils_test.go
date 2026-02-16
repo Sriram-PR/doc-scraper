@@ -413,28 +413,3 @@ func TestCalculateFileSHA256_EmptyFile(t *testing.T) {
 		t.Errorf("CalculateFileSHA256(empty) = %q, want %q", result, expected)
 	}
 }
-
-// --- WrapErrorf Tests ---
-
-func TestWrapErrorf_NilError(t *testing.T) {
-	result := WrapErrorf(nil, "some context")
-	if result != nil {
-		t.Errorf("WrapErrorf(nil, ...) = %v, want nil", result)
-	}
-}
-
-func TestWrapErrorf_WrapsError(t *testing.T) {
-	original := errors.New("original error")
-	wrapped := WrapErrorf(original, "context %s", "value")
-
-	if wrapped == nil {
-		t.Fatal("WrapErrorf() returned nil, want error")
-	}
-	if !errors.Is(wrapped, original) {
-		t.Error("WrapErrorf() result should wrap original error")
-	}
-	expectedMsg := "context value: original error"
-	if wrapped.Error() != expectedMsg {
-		t.Errorf("WrapErrorf() message = %q, want %q", wrapped.Error(), expectedMsg)
-	}
-}

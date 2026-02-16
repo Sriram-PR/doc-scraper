@@ -56,7 +56,6 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 			reqLog.Warnf("Context cancelled before attempt %d: %v", attempt, ctx.Err())
 			// If context cancelled, wrap the last known error (if any) or return the context error
 			if lastErr != nil {
-				// Use utils.WrapErrorf if you want a consistent wrapping style
 				return nil, fmt.Errorf("context cancelled (%v) during retry backoff after error: %w", ctx.Err(), lastErr)
 			}
 			return nil, fmt.Errorf("context cancelled before first attempt: %w", ctx.Err())

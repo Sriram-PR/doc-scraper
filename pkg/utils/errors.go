@@ -3,7 +3,6 @@ package utils
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -184,14 +183,4 @@ func CategorizeError(err error) string {
 	}
 
 	return "Unknown"
-}
-
-// Helper function to wrap an error with context if it's not nil.
-func WrapErrorf(err error, format string, args ...interface{}) error {
-	if err == nil {
-		return nil
-	}
-	// Append the original error to the args for %w
-	args = append(args, err)
-	return fmt.Errorf(format+": %w", args...)
 }
