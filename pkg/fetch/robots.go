@@ -28,7 +28,7 @@ type RobotsHandler struct {
 	globalSemaphore *semaphore.Weighted
 	sitemapNotifier SitemapDiscoverer // Component to notify about found sitemaps
 	cfg             config.AppConfig
-	log             *logrus.Logger
+	log             *logrus.Entry
 }
 
 // NewRobotsHandler creates a RobotsHandler
@@ -38,7 +38,7 @@ func NewRobotsHandler(
 	globalSemaphore *semaphore.Weighted,
 	sitemapNotifier SitemapDiscoverer,
 	cfg config.AppConfig,
-	log *logrus.Logger,
+	log *logrus.Entry,
 ) *RobotsHandler {
 	return &RobotsHandler{
 		fetcher:         fetcher,

@@ -29,11 +29,11 @@ type DetectionResult struct {
 // ContentDetector detects the appropriate content selector for a page
 type ContentDetector struct {
 	cache *SelectorCache
-	log   *logrus.Logger
+	log   *logrus.Entry
 }
 
 // NewContentDetector creates a new content detector with caching
-func NewContentDetector(log *logrus.Logger) *ContentDetector {
+func NewContentDetector(log *logrus.Entry) *ContentDetector {
 	return &ContentDetector{
 		cache: NewSelectorCache(),
 		log:   log,

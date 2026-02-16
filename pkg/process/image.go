@@ -56,7 +56,7 @@ type ImageProcessor struct {
 	hostSemaphores   map[string]*semaphore.Weighted // Per-host limits
 	hostSemaphoresMu sync.Mutex                     // Mutex for hostSemaphores map
 	appCfg           config.AppConfig               // Global config
-	log              *logrus.Logger
+	log              *logrus.Entry
 }
 
 // NewImageProcessor creates a new ImageProcessor
@@ -67,7 +67,7 @@ func NewImageProcessor(
 	rateLimiter *fetch.RateLimiter,
 	globalSemaphore *semaphore.Weighted,
 	appCfg config.AppConfig,
-	log *logrus.Logger,
+	log *logrus.Entry,
 ) *ImageProcessor {
 	return &ImageProcessor{
 		store:           store,

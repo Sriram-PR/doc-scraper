@@ -23,7 +23,7 @@ type LinkProcessor struct {
 	store                      storage.PageStore              // To check/mark visited status
 	pq                         *queue.ThreadSafePriorityQueue // To queue new work items
 	compiledDisallowedPatterns []*regexp.Regexp               // Pre-compiled patterns
-	log                        *logrus.Logger
+	log                        *logrus.Entry
 }
 
 // NewLinkProcessor creates a LinkProcessor
@@ -31,7 +31,7 @@ func NewLinkProcessor(
 	store storage.PageStore,
 	pq *queue.ThreadSafePriorityQueue,
 	compiledDisallowedPatterns []*regexp.Regexp,
-	log *logrus.Logger,
+	log *logrus.Entry,
 ) *LinkProcessor {
 	return &LinkProcessor{
 		store:                      store,

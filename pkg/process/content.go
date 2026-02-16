@@ -21,14 +21,14 @@ import (
 // ContentProcessor handles extracting, cleaning, processing (images, links), converting to Markdown, and saving of page content
 type ContentProcessor struct {
 	imgProcessor        *ImageProcessor
-	log                 *logrus.Logger
+	log                 *logrus.Entry
 	appCfg              config.AppConfig
 	detector            *detect.ContentDetector
 	readabilityExtractor *detect.ReadabilityExtractor
 }
 
 // NewContentProcessor creates a ContentProcessor
-func NewContentProcessor(imgProcessor *ImageProcessor, appCfg config.AppConfig, log *logrus.Logger) *ContentProcessor {
+func NewContentProcessor(imgProcessor *ImageProcessor, appCfg config.AppConfig, log *logrus.Entry) *ContentProcessor {
 	return &ContentProcessor{
 		imgProcessor:        imgProcessor,
 		appCfg:              appCfg,

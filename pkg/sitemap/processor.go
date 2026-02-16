@@ -52,7 +52,7 @@ func NewSitemapProcessor(
 	compiledDisallowedPatterns []*regexp.Regexp,
 	siteCfg config.SiteConfig,
 	appCfg config.AppConfig,
-	log *logrus.Logger,
+	log *logrus.Entry,
 	wg *sync.WaitGroup,
 ) *SitemapProcessor {
 	return &SitemapProcessor{

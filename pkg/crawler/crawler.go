@@ -278,11 +278,11 @@ func NewCrawlerWithOptions(
 
 	// Initialize components that depend on the crawler or other components
 	// Pass the crawler's contextualized logger to these components
-	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c, appCfg, logger.Logger)
-	c.sitemapProcessor = sitemap.NewSitemapProcessor(c.sitemapQueue, c.pq, c.store, c.fetcher, c.rateLimiter, c.globalSemaphore, c.compiledDisallowedPatterns, c.siteCfg, c.appCfg, logger.Logger, &c.wg)
-	c.imageProcessor = process.NewImageProcessor(c.store, c.fetcher, c.robotsHandler, c.rateLimiter, c.globalSemaphore, c.appCfg, logger.Logger)
-	c.contentProcessor = process.NewContentProcessor(c.imageProcessor, c.appCfg, logger.Logger)
-	c.linkProcessor = process.NewLinkProcessor(c.store, c.pq, c.compiledDisallowedPatterns, logger.Logger)
+	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c, appCfg, logger)
+	c.sitemapProcessor = sitemap.NewSitemapProcessor(c.sitemapQueue, c.pq, c.store, c.fetcher, c.rateLimiter, c.globalSemaphore, c.compiledDisallowedPatterns, c.siteCfg, c.appCfg, logger, &c.wg)
+	c.imageProcessor = process.NewImageProcessor(c.store, c.fetcher, c.robotsHandler, c.rateLimiter, c.globalSemaphore, c.appCfg, logger)
+	c.contentProcessor = process.NewContentProcessor(c.imageProcessor, c.appCfg, logger)
+	c.linkProcessor = process.NewLinkProcessor(c.store, c.pq, c.compiledDisallowedPatterns, logger)
 
 	return c, nil
 }
