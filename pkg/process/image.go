@@ -612,11 +612,13 @@ func (ip *ImageProcessor) processSingleImageTask(
 	// because LimitReader might have stopped reading *exactly* at the limit
 	// The check needs to see if the limit was *reached*.
 	if effectiveMaxBytes > 0 && copiedBytes >= effectiveMaxBytes {
-		// Check if the original Content-Length was also above the limit
+		// Check if the original Content-Length indicated the file was actually within bounds.
+		// LimitReader may copy exactly effectiveMaxBytes even if the actual size equals the limit.
 		sizeExceeded := true
 		if headerSizeStr != "" {
 			if headerSize, _ := strconv.ParseInt(headerSizeStr, 10, 64); headerSize <= effectiveMaxBytes {
-				imgLogEntry.Warnf("Copied bytes (%d) >= limit (%d), but Content-Length (%d) was <= limit.", copiedBytes, effectiveMaxBytes, headerSize)
+				imgLogEntry.Warnf("Copied bytes (%d) >= limit (%d), but Content-Length (%d) was <= limit. Keeping file.", copiedBytes, effectiveMaxBytes, headerSize)
+				sizeExceeded = false
 			}
 		}
 
