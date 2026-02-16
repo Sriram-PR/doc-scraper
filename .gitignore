@@ -18,6 +18,7 @@ crawler_state/
 
 archive/
 tuning.md
+todo.md
 
 # Visited log file (if -write-visited-log is used)
 *-visited.txt
