@@ -1184,10 +1184,7 @@ func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *logrus
 	}
 
 	// Robots.txt Check
-	userAgent := c.siteCfg.UserAgent
-	if userAgent == "" { // Fallback to global default User-Agent if site-specific one is not set
-		userAgent = c.appCfg.DefaultUserAgent
-	}
+	userAgent := config.GetEffectiveUserAgent(c.siteCfg, c.appCfg)
 	if !c.robotsHandler.TestAgent(parsedURL, userAgent, c.crawlCtx) { // TestAgent handles fetching/caching robots.txt
 		err := fmt.Errorf("%w: URL '%s' disallowed for agent '%s'", utils.ErrRobotsDisallowed, parsedURL.RequestURI(), userAgent)
 		taskLog.Warn(err.Error()) // Log warning
@@ -1259,10 +1256,7 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 // On error, it ensures resp.Body is closed if resp is not nil.
 func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *url.URL, taskLog *logrus.Entry) (finalURL *url.URL, resp *http.Response, err error) {
 	taskLog.Debugf("Fetching page: %s", reqURLString)
-	userAgent := c.siteCfg.UserAgent
-	if userAgent == "" { // Fallback to global default User-Agent
-		userAgent = c.appCfg.DefaultUserAgent
-	}
+	userAgent := config.GetEffectiveUserAgent(c.siteCfg, c.appCfg)
 
 	// Create HTTP request with context for cancellation
 	req, reqErr := http.NewRequestWithContext(c.crawlCtx, "GET", reqURLString, nil)

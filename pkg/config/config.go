@@ -88,6 +88,14 @@ type HTTPClientConfig struct {
 	DialerKeepAlive       time.Duration `yaml:"dialer_keep_alive,omitempty"`       // TCP keep-alive interval
 }
 
+// GetEffectiveUserAgent returns the site-specific user agent if set, otherwise the global default.
+func GetEffectiveUserAgent(siteCfg *SiteConfig, appCfg *AppConfig) string {
+	if siteCfg.UserAgent != "" {
+		return siteCfg.UserAgent
+	}
+	return appCfg.DefaultUserAgent
+}
+
 // GetEffectiveSkipImages determines the effective skip setting
 func GetEffectiveSkipImages(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.SkipImages != nil {

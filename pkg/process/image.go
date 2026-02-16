@@ -190,11 +190,7 @@ func (ip *ImageProcessor) ProcessImages(
 		}
 
 		// Robots Check (uses the robots handler passed to ImageProcessor)
-		// Determine user agent for robots check
-		userAgent := siteCfg.UserAgent
-		if userAgent == "" {
-			userAgent = ip.appCfg.DefaultUserAgent
-		}
+		userAgent := config.GetEffectiveUserAgent(siteCfg, ip.appCfg)
 		if !ip.robotsHandler.TestAgent(imgURL, userAgent, ctx) {
 			element.SetAttr("data-crawl-status", "skipped-robots")
 			return
@@ -420,10 +416,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 	}() // --- End Defer ---
 
 	// --- Determine Effective Settings ---
-	userAgent := siteCfg.UserAgent
-	if userAgent == "" {
-		userAgent = ip.appCfg.DefaultUserAgent
-	}
+	userAgent := config.GetEffectiveUserAgent(siteCfg, ip.appCfg)
 	imgHostDelay := siteCfg.DelayPerHost
 	if imgHostDelay <= 0 {
 		imgHostDelay = ip.appCfg.DefaultDelayPerHost

@@ -10,6 +10,41 @@ func boolPtr(b bool) *bool {
 	return &b
 }
 
+func TestGetEffectiveUserAgent(t *testing.T) {
+	tests := []struct {
+		name     string
+		siteCfg  SiteConfig
+		appCfg   AppConfig
+		expected string
+	}{
+		{
+			name:     "site UA overrides global",
+			siteCfg:  SiteConfig{UserAgent: "SiteBot/1.0"},
+			appCfg:   AppConfig{DefaultUserAgent: "GlobalBot/1.0"},
+			expected: "SiteBot/1.0",
+		},
+		{
+			name:     "empty site UA falls back to global",
+			siteCfg:  SiteConfig{UserAgent: ""},
+			appCfg:   AppConfig{DefaultUserAgent: "GlobalBot/1.0"},
+			expected: "GlobalBot/1.0",
+		},
+		{
+			name:     "both empty returns empty",
+			siteCfg:  SiteConfig{UserAgent: ""},
+			appCfg:   AppConfig{DefaultUserAgent: ""},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GetEffectiveUserAgent(&tt.siteCfg, &tt.appCfg)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestGetEffectiveEnableJSONLOutput(t *testing.T) {
 	tests := []struct {
 		name     string
