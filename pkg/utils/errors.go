@@ -10,10 +10,10 @@ import (
 
 // --- Sentinel Errors for Categorization ---
 var (
-	ErrRetryFailed        = errors.New("request failed after all retries") // Wraps the last underlying error
-	ErrClientHTTPError    = errors.New("client HTTP error (4xx)")          // Wraps original error/status
-	ErrServerHTTPError    = errors.New("server HTTP error (5xx)")          // Wraps original error/status
-	ErrOtherHTTPError     = errors.New("non-2xx HTTP status")              // Wraps original error/status
+	ErrRetryFailed     = errors.New("request failed after all retries") // Wraps the last underlying error
+	ErrClientHTTPError = errors.New("client HTTP error (4xx)")          // Wraps original error/status
+	ErrServerHTTPError = errors.New("server HTTP error (5xx)")          // Wraps original error/status
+	ErrOtherHTTPError  = errors.New("other HTTP error (non-2xx)")       // Wraps original error/status
 	ErrRobotsDisallowed   = errors.New("disallowed by robots.txt")
 	ErrScopeViolation     = errors.New("URL out of scope (domain/prefix/pattern)")
 	ErrMaxDepthExceeded   = errors.New("maximum crawl depth exceeded")
