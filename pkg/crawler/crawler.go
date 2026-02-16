@@ -63,9 +63,8 @@ type Crawler struct {
 	linkProcessor    *process.LinkProcessor
 
 	// Concurrency control
-	globalSemaphore  *semaphore.Weighted
-	hostSemaphores   map[string]*semaphore.Weighted
-	hostSemaphoresMu sync.Mutex
+	globalSemaphore *semaphore.Weighted
+	hostSemPool     *fetch.HostSemaphorePool
 
 	// Tracking and coordination
 	wg               sync.WaitGroup     // Main WaitGroup for all active tasks (pages, sitemaps)
@@ -159,6 +158,8 @@ func NewCrawlerWithOptions(
 		globalSem = semaphore.NewWeighted(int64(appCfg.MaxRequests))
 	}
 
+	hostSemPool := fetch.NewHostSemaphorePool(appCfg.MaxRequestsPerHost, logger)
+
 	c := &Crawler{
 		log:                        logger,
 		appCfg:                     appCfg,
@@ -171,7 +172,7 @@ func NewCrawlerWithOptions(
 		fetcher:                    fetcher,
 		rateLimiter:                rateLimiter,
 		globalSemaphore:            globalSem,
-		hostSemaphores:             make(map[string]*semaphore.Weighted),
+		hostSemPool:                hostSemPool,
 		crawlCtx:                   crawlCtx,
 		cancelCrawl:                cancelCrawl,
 		sitemapQueue:               make(chan string, 100), // Buffer size can be configured if needed
@@ -280,7 +281,7 @@ func NewCrawlerWithOptions(
 	// Pass the crawler's contextualized logger to these components
 	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c, appCfg, logger)
 	c.sitemapProcessor = sitemap.NewSitemapProcessor(c.sitemapQueue, c.pq, c.store, c.fetcher, c.rateLimiter, c.globalSemaphore, c.compiledDisallowedPatterns, c.siteCfg, c.appCfg, logger, &c.wg)
-	c.imageProcessor = process.NewImageProcessor(c.store, c.fetcher, c.robotsHandler, c.rateLimiter, c.globalSemaphore, c.appCfg, logger)
+	c.imageProcessor = process.NewImageProcessor(c.store, c.fetcher, c.robotsHandler, c.rateLimiter, c.globalSemaphore, c.hostSemPool, c.appCfg, logger)
 	c.contentProcessor = process.NewContentProcessor(c.imageProcessor, c.appCfg, logger)
 	c.linkProcessor = process.NewLinkProcessor(c.store, c.pq, c.compiledDisallowedPatterns, logger)
 
@@ -373,8 +374,7 @@ func (c *Crawler) Run(resume bool) error {
 	if len(validStartURLs) == 0 {
 		return fmt.Errorf("no valid start_urls found for site '%s' matching scope", c.siteKey)
 	}
-	c.siteCfg.StartURLs = validStartURLs // Update SiteConfig to use only validated URLs
-	c.log.WithFields(runLogFields).Infof("Using %d valid StartURLs: %v", len(c.siteCfg.StartURLs), c.siteCfg.StartURLs)
+	c.log.WithFields(runLogFields).Infof("Using %d valid StartURLs: %v", len(validStartURLs), validStartURLs)
 
 	// --- Clean/Prepare Output Directory ---
 	c.log.WithFields(runLogFields).Infof("Site output target directory: %s", c.siteOutputDir)
@@ -537,7 +537,7 @@ func (c *Crawler) Run(resume bool) error {
 	// --- Seed Queue with Initial Start URLs ---
 	c.log.WithFields(runLogFields).Info("Seeding priority queue with validated start URLs...")
 	initialURLsAddedFromSeed := 0
-	for _, startURLStr := range c.siteCfg.StartURLs { // Use the validated list
+	for _, startURLStr := range validStartURLs {
 		c.log.WithFields(runLogFields).Infof("Adding start URL '%s' to queue (Depth 0).", startURLStr)
 		c.wg.Add(1) // Increment main WaitGroup for each initial URL
 		c.pq.Add(&models.WorkItem{URL: startURLStr, Depth: 0})
@@ -758,25 +758,6 @@ func (c *Crawler) writeMetadataYAML() error {
 
 	c.log.Infof("Successfully wrote crawl metadata (%d pages) to %s", metadata.TotalPagesSaved, yamlFilePath)
 	return nil
-}
-
-// getHostSemaphore retrieves or creates a host-specific semaphore.
-func (c *Crawler) getHostSemaphore(host string) *semaphore.Weighted {
-	c.hostSemaphoresMu.Lock()
-	defer c.hostSemaphoresMu.Unlock()
-
-	sem, exists := c.hostSemaphores[host]
-	if !exists {
-		limit := int64(c.appCfg.MaxRequestsPerHost)
-		if limit <= 0 { // Ensure limit is positive
-			limit = 2 // Default if invalid config from appCfg
-			c.log.Warnf("max_requests_per_host invalid or zero for host '%s', defaulting to %d", host, limit)
-		}
-		sem = semaphore.NewWeighted(limit)
-		c.hostSemaphores[host] = sem
-		c.log.WithFields(logrus.Fields{"host": host, "limit": limit}).Debug("Created new host semaphore")
-	}
-	return sem
 }
 
 // worker runs the loop for a single worker goroutine, processing tasks from the priority queue.
@@ -1224,7 +1205,7 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 	// Cleanup function will release acquired semaphores.
 	cleanupFunc = func() {
 		if acquiredHostSem {
-			c.getHostSemaphore(host).Release(1)
+			c.hostSemPool.Get(host).Release(1)
 			taskLog.Debugf("Released host semaphore for: %s", host)
 		}
 		if acquiredGlobalSem {
@@ -1236,7 +1217,7 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 	semTimeout := c.appCfg.SemaphoreAcquireTimeout // Get timeout from app config
 
 	// 1. Acquire Host-Specific Semaphore
-	hostSem := c.getHostSemaphore(host)
+	hostSem := c.hostSemPool.Get(host)
 	ctxHost, cancelHost := context.WithTimeout(c.crawlCtx, semTimeout) // Context for acquiring host semaphore
 	defer cancelHost()                                                 // Ensure timer is cleaned up
 	taskLog.Debugf("Attempting to acquire host semaphore for: %s (timeout: %v)", host, semTimeout)

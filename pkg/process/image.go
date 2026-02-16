@@ -48,15 +48,14 @@ type ImageDownloadTask struct {
 
 // ImageProcessor handles the orchestration of image downloading and processing
 type ImageProcessor struct {
-	store            storage.ImageStore             // DB interaction
-	fetcher          *fetch.Fetcher                 // HTTP fetching
-	robotsHandler    *fetch.RobotsHandler           // Robots checks
-	rateLimiter      *fetch.RateLimiter             // Rate limiting
-	globalSemaphore  *semaphore.Weighted            // Global concurrency limit
-	hostSemaphores   map[string]*semaphore.Weighted // Per-host limits
-	hostSemaphoresMu sync.Mutex                     // Mutex for hostSemaphores map
-	appCfg           config.AppConfig               // Global config
-	log              *logrus.Entry
+	store           storage.ImageStore          // DB interaction
+	fetcher         *fetch.Fetcher              // HTTP fetching
+	robotsHandler   *fetch.RobotsHandler        // Robots checks
+	rateLimiter     *fetch.RateLimiter          // Rate limiting
+	globalSemaphore *semaphore.Weighted         // Global concurrency limit
+	hostSemPool     *fetch.HostSemaphorePool    // Shared per-host semaphore pool
+	appCfg          config.AppConfig            // Global config
+	log             *logrus.Entry
 }
 
 // NewImageProcessor creates a new ImageProcessor
@@ -66,6 +65,7 @@ func NewImageProcessor(
 	robotsHandler *fetch.RobotsHandler,
 	rateLimiter *fetch.RateLimiter,
 	globalSemaphore *semaphore.Weighted,
+	hostSemPool *fetch.HostSemaphorePool,
 	appCfg config.AppConfig,
 	log *logrus.Entry,
 ) *ImageProcessor {
@@ -75,31 +75,10 @@ func NewImageProcessor(
 		robotsHandler:   robotsHandler,
 		rateLimiter:     rateLimiter,
 		globalSemaphore: globalSemaphore,
-		hostSemaphores:  make(map[string]*semaphore.Weighted),
+		hostSemPool:     hostSemPool,
 		appCfg:          appCfg,
 		log:             log,
 	}
-}
-
-// getHostSemaphore retrieves or creates a semaphore for rate limiting requests to a specific image host
-// This is specific to the image processor as it uses its own map
-func (ip *ImageProcessor) getHostSemaphore(host string) *semaphore.Weighted {
-	ip.hostSemaphoresMu.Lock()
-	defer ip.hostSemaphoresMu.Unlock()
-
-	sem, exists := ip.hostSemaphores[host]
-	if !exists {
-		// Get limit from config, use a default if invalid
-		limit := int64(ip.appCfg.MaxRequestsPerHost)
-		if limit <= 0 {
-			limit = 2 // Sensible default if config is 0 or negative
-			ip.log.Warnf("max_requests_per_host invalid or zero for image host %s, defaulting to %d", host, limit)
-		}
-		sem = semaphore.NewWeighted(limit)
-		ip.hostSemaphores[host] = sem
-		ip.log.WithFields(logrus.Fields{"host": host, "limit": limit}).Debug("Created new image host semaphore")
-	}
-	return sem
 }
 
 // ProcessImages finds images within the main content, checks status, dispatches downloads to a worker pool, and returns a map of successfully processed images and any errors
@@ -457,7 +436,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 	// Use a closure to manage semaphore release with scoped defer
 	semAcquireErr := func() error {
 		// 1. Acquire Host Semaphore
-		imgHostSem := ip.getHostSemaphore(imgHost) // Use processor's method
+		imgHostSem := ip.hostSemPool.Get(imgHost) // Use processor's method
 		ctxIH, cancelIH := context.WithTimeout(ctx, semTimeout)
 		defer cancelIH()
 		semErr := imgHostSem.Acquire(ctxIH, 1)
