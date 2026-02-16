@@ -45,8 +45,8 @@ var (
 // Crawler orchestrates the web crawling process for a single configured site
 type Crawler struct {
 	log                        *logrus.Entry // Logger contextualized with site_key
-	appCfg                     config.AppConfig
-	siteCfg                    config.SiteConfig
+	appCfg                     *config.AppConfig
+	siteCfg                    *config.SiteConfig
 	siteKey                    string // Site identifier from config
 	siteOutputDir              string // Base output directory for *this specific site's* files
 	compiledDisallowedPatterns []*regexp.Regexp
@@ -107,8 +107,8 @@ type CrawlerOptions struct {
 
 // NewCrawler creates and initializes a new Crawler instance and its components
 func NewCrawler(
-	appCfg config.AppConfig,
-	siteCfg config.SiteConfig,
+	appCfg *config.AppConfig,
+	siteCfg *config.SiteConfig,
 	siteKey string, // The key for this site from the config map
 	baseLogger *logrus.Logger, // Base logger from main
 	store storage.VisitedStore,
@@ -123,8 +123,8 @@ func NewCrawler(
 
 // NewCrawlerWithOptions creates a new Crawler with optional configuration
 func NewCrawlerWithOptions(
-	appCfg config.AppConfig,
-	siteCfg config.SiteConfig,
+	appCfg *config.AppConfig,
+	siteCfg *config.SiteConfig,
 	siteKey string,
 	baseLogger *logrus.Logger,
 	store storage.VisitedStore,

@@ -46,7 +46,7 @@ type AppConfig struct {
 	SkipImages              bool                  `yaml:"skip_images,omitempty"`
 	MaxImageSizeBytes       int64                 `yaml:"max_image_size_bytes,omitempty"`
 	HTTPClientSettings      HTTPClientConfig      `yaml:"http_client_settings,omitempty"`
-	Sites                   map[string]SiteConfig `yaml:"sites"`
+	Sites                   map[string]*SiteConfig `yaml:"sites"`
 	EnableOutputMapping     bool                  `yaml:"enable_output_mapping,omitempty"`
 	OutputMappingFilename   string                `yaml:"output_mapping_filename,omitempty"`
 	EnableMetadataYAML      bool                  `yaml:"enable_metadata_yaml,omitempty"`
@@ -89,7 +89,7 @@ type HTTPClientConfig struct {
 }
 
 // GetEffectiveSkipImages determines the effective skip setting
-func GetEffectiveSkipImages(siteCfg SiteConfig, appCfg AppConfig) bool {
+func GetEffectiveSkipImages(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.SkipImages != nil {
 		return *siteCfg.SkipImages
 	}
@@ -97,7 +97,7 @@ func GetEffectiveSkipImages(siteCfg SiteConfig, appCfg AppConfig) bool {
 }
 
 // GetEffectiveMaxImageSize determines the effective max image size
-func GetEffectiveMaxImageSize(siteCfg SiteConfig, appCfg AppConfig) int64 {
+func GetEffectiveMaxImageSize(siteCfg *SiteConfig, appCfg *AppConfig) int64 {
 	if siteCfg.MaxImageSizeBytes != nil {
 		return *siteCfg.MaxImageSizeBytes
 	}
@@ -105,7 +105,7 @@ func GetEffectiveMaxImageSize(siteCfg SiteConfig, appCfg AppConfig) int64 {
 }
 
 // GetEffectiveEnableOutputMapping determines the effective setting for enabling the mapping file
-func GetEffectiveEnableOutputMapping(siteCfg SiteConfig, appCfg AppConfig) bool {
+func GetEffectiveEnableOutputMapping(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.EnableOutputMapping != nil {
 		return *siteCfg.EnableOutputMapping
 	}
@@ -115,7 +115,7 @@ func GetEffectiveEnableOutputMapping(siteCfg SiteConfig, appCfg AppConfig) bool 
 // GetEffectiveOutputMappingFilename determines the effective filename for the mapping file
 // Site config (if non-empty) overrides global
 // If both site and global are empty, a hardcoded default is returned
-func GetEffectiveOutputMappingFilename(siteCfg SiteConfig, appCfg AppConfig) string {
+func GetEffectiveOutputMappingFilename(siteCfg *SiteConfig, appCfg *AppConfig) string {
 	if siteCfg.OutputMappingFilename != "" {
 		return siteCfg.OutputMappingFilename
 	}
@@ -127,7 +127,7 @@ func GetEffectiveOutputMappingFilename(siteCfg SiteConfig, appCfg AppConfig) str
 }
 
 // GetEffectiveEnableMetadataYAML determines if YAML metadata should be generated.
-func GetEffectiveEnableMetadataYAML(siteCfg SiteConfig, appCfg AppConfig) bool {
+func GetEffectiveEnableMetadataYAML(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.EnableMetadataYAML != nil {
 		return *siteCfg.EnableMetadataYAML
 	}
@@ -135,7 +135,7 @@ func GetEffectiveEnableMetadataYAML(siteCfg SiteConfig, appCfg AppConfig) bool {
 }
 
 // GetEffectiveMetadataYAMLFilename determines the filename for the YAML metadata.
-func GetEffectiveMetadataYAMLFilename(siteCfg SiteConfig, appCfg AppConfig) string {
+func GetEffectiveMetadataYAMLFilename(siteCfg *SiteConfig, appCfg *AppConfig) string {
 	if siteCfg.MetadataYAMLFilename != "" {
 		return siteCfg.MetadataYAMLFilename
 	}
@@ -146,7 +146,7 @@ func GetEffectiveMetadataYAMLFilename(siteCfg SiteConfig, appCfg AppConfig) stri
 }
 
 // GetEffectiveEnableJSONLOutput determines if JSONL output should be generated.
-func GetEffectiveEnableJSONLOutput(siteCfg SiteConfig, appCfg AppConfig) bool {
+func GetEffectiveEnableJSONLOutput(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.EnableJSONLOutput != nil {
 		return *siteCfg.EnableJSONLOutput
 	}
@@ -154,7 +154,7 @@ func GetEffectiveEnableJSONLOutput(siteCfg SiteConfig, appCfg AppConfig) bool {
 }
 
 // GetEffectiveJSONLOutputFilename determines the filename for the JSONL output.
-func GetEffectiveJSONLOutputFilename(siteCfg SiteConfig, appCfg AppConfig) string {
+func GetEffectiveJSONLOutputFilename(siteCfg *SiteConfig, appCfg *AppConfig) string {
 	if siteCfg.JSONLOutputFilename != "" {
 		return siteCfg.JSONLOutputFilename
 	}
@@ -165,7 +165,7 @@ func GetEffectiveJSONLOutputFilename(siteCfg SiteConfig, appCfg AppConfig) strin
 }
 
 // GetEffectiveChunkingEnabled determines if chunking should be enabled.
-func GetEffectiveChunkingEnabled(siteCfg SiteConfig, appCfg AppConfig) bool {
+func GetEffectiveChunkingEnabled(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.Chunking.Enabled != nil {
 		return *siteCfg.Chunking.Enabled
 	}
@@ -173,7 +173,7 @@ func GetEffectiveChunkingEnabled(siteCfg SiteConfig, appCfg AppConfig) bool {
 }
 
 // GetEffectiveChunkingMaxSize returns the effective max chunk size in tokens.
-func GetEffectiveChunkingMaxSize(siteCfg SiteConfig, appCfg AppConfig) int {
+func GetEffectiveChunkingMaxSize(siteCfg *SiteConfig, appCfg *AppConfig) int {
 	if siteCfg.Chunking.MaxChunkSize != nil {
 		return *siteCfg.Chunking.MaxChunkSize
 	}
@@ -184,7 +184,7 @@ func GetEffectiveChunkingMaxSize(siteCfg SiteConfig, appCfg AppConfig) int {
 }
 
 // GetEffectiveChunkingOverlap returns the effective chunk overlap in tokens.
-func GetEffectiveChunkingOverlap(siteCfg SiteConfig, appCfg AppConfig) int {
+func GetEffectiveChunkingOverlap(siteCfg *SiteConfig, appCfg *AppConfig) int {
 	if siteCfg.Chunking.ChunkOverlap != nil {
 		return *siteCfg.Chunking.ChunkOverlap
 	}
@@ -195,7 +195,7 @@ func GetEffectiveChunkingOverlap(siteCfg SiteConfig, appCfg AppConfig) int {
 }
 
 // GetEffectiveChunkingOutputFilename returns the effective chunks output filename.
-func GetEffectiveChunkingOutputFilename(siteCfg SiteConfig, appCfg AppConfig) string {
+func GetEffectiveChunkingOutputFilename(siteCfg *SiteConfig, appCfg *AppConfig) string {
 	if siteCfg.Chunking.OutputFilename != "" {
 		return siteCfg.Chunking.OutputFilename
 	}

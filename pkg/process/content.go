@@ -22,13 +22,13 @@ import (
 type ContentProcessor struct {
 	imgProcessor        *ImageProcessor
 	log                 *logrus.Entry
-	appCfg              config.AppConfig
+	appCfg              *config.AppConfig
 	detector            *detect.ContentDetector
 	readabilityExtractor *detect.ReadabilityExtractor
 }
 
 // NewContentProcessor creates a ContentProcessor
-func NewContentProcessor(imgProcessor *ImageProcessor, appCfg config.AppConfig, log *logrus.Entry) *ContentProcessor {
+func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig, log *logrus.Entry) *ContentProcessor {
 	return &ContentProcessor{
 		imgProcessor:        imgProcessor,
 		appCfg:              appCfg,
@@ -43,7 +43,7 @@ func NewContentProcessor(imgProcessor *ImageProcessor, appCfg config.AppConfig, 
 func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	doc *goquery.Document, // Parsed document of the fetched page
 	finalURL *url.URL, // Final URL after redirects
-	siteCfg config.SiteConfig, // Site-specific configuration
+	siteCfg *config.SiteConfig, // Site-specific configuration
 	siteOutputDir string, // Base output directory for this site
 	taskLog *logrus.Entry, // Logger with task-specific context
 	ctx context.Context, // Context for cancellation propagation
@@ -245,7 +245,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 
 // getOutputPathForURL calculates the local filesystem path for a crawled URL, performing scope checks and mapping URLs to sanitized file/directory structures
 // Returns the absolute output path and true if the URL is in scope, otherwise empty path and false
-func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg config.SiteConfig, siteOutputDir string) (string, bool) {
+func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *config.SiteConfig, siteOutputDir string) (string, bool) {
 	// Scope checks: scheme, domain, path prefix
 	if (targetURL.Scheme != "http" && targetURL.Scheme != "https") ||
 		targetURL.Hostname() != siteCfg.AllowedDomain {
@@ -338,7 +338,7 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 	mainContent *goquery.Selection, // The content selection to modify
 	finalURL *url.URL, // Base URL for resolving relative hrefs
 	currentPageFullOutputPath string, // Filesystem path of the current MD file
-	siteCfg config.SiteConfig, // For scope checking linked URLs
+	siteCfg *config.SiteConfig, // For scope checking linked URLs
 	siteOutputDir string, // For calculating target MD paths
 	taskLog *logrus.Entry,
 ) (rewriteCount int, err error) {

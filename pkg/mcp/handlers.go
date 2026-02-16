@@ -253,7 +253,7 @@ func (s *Server) handleSearchCrawled(ctx context.Context, request mcp.CallToolRe
 	}
 
 	// Determine which sites to search
-	sitesToSearch := make(map[string]config.SiteConfig)
+	sitesToSearch := make(map[string]*config.SiteConfig)
 	if siteKey != "" {
 		if siteCfg, exists := s.cfg.AppConfig.Sites[siteKey]; exists {
 			sitesToSearch[siteKey] = siteCfg
@@ -281,14 +281,14 @@ func (s *Server) handleSearchCrawled(ctx context.Context, request mcp.CallToolRe
 }
 
 // runCrawlJob runs a crawl job in the background
-func (s *Server) runCrawlJob(job *Job, siteCfg config.SiteConfig, siteKey string) {
+func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string) {
 	s.jobManager.UpdateStatus(job.ID, JobStatusRunning, "")
 
 	jobCtx := s.jobManager.GetContext(job.ID)
 
 	// Create crawler components
 	httpClient := fetch.NewClient(s.cfg.AppConfig.HTTPClientSettings, s.log)
-	fetcher := fetch.NewFetcher(httpClient, *s.cfg.AppConfig, s.log)
+	fetcher := fetch.NewFetcher(httpClient, s.cfg.AppConfig, s.log)
 	rateLimiter := fetch.NewRateLimiter(time.Second, s.log)
 
 	// Open store
@@ -310,7 +310,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg config.SiteConfig, siteKey string
 	defer cancelCrawl()
 
 	crawlerInstance, err := crawler.NewCrawler(
-		appCfgCopy,
+		&appCfgCopy,
 		siteCfg,
 		siteKey,
 		s.log,
@@ -340,13 +340,13 @@ func (s *Server) runCrawlJob(job *Job, siteCfg config.SiteConfig, siteKey string
 }
 
 // searchJSONL searches JSONL files for matching content
-func (s *Server) searchJSONL(query string, sites map[string]config.SiteConfig, maxResults int) []map[string]interface{} {
+func (s *Server) searchJSONL(query string, sites map[string]*config.SiteConfig, maxResults int) []map[string]interface{} {
 	results := make([]map[string]interface{}, 0)
 	queryLower := strings.ToLower(query)
 
 	for siteKey, siteCfg := range sites {
 		siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
-		jsonlPath := filepath.Join(siteOutputDir, config.GetEffectiveJSONLOutputFilename(siteCfg, *s.cfg.AppConfig))
+		jsonlPath := filepath.Join(siteOutputDir, config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig))
 
 		// Read JSONL file
 		data, err := os.ReadFile(jsonlPath)
@@ -416,9 +416,9 @@ func (s *Server) searchJSONL(query string, sites map[string]config.SiteConfig, m
 }
 
 // getLastCrawledTime gets the last crawl time from metadata file
-func (s *Server) getLastCrawledTime(siteKey string, siteCfg config.SiteConfig) time.Time {
+func (s *Server) getLastCrawledTime(siteKey string, siteCfg *config.SiteConfig) time.Time {
 	siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
-	metadataPath := filepath.Join(siteOutputDir, config.GetEffectiveMetadataYAMLFilename(siteCfg, *s.cfg.AppConfig))
+	metadataPath := filepath.Join(siteOutputDir, config.GetEffectiveMetadataYAMLFilename(siteCfg, s.cfg.AppConfig))
 
 	data, err := os.ReadFile(metadataPath)
 	if err != nil {

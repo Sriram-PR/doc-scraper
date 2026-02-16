@@ -47,7 +47,7 @@ func (lp *LinkProcessor) ExtractAndQueueLinks(
 	originalDoc *goquery.Document, // Use the original, unmodified document
 	finalURL *url.URL, // The final URL of the page (after redirects) to use as base
 	currentDepth int, // The depth of the current page
-	siteCfg config.SiteConfig, // Need site config for rules (nofollow, selectors, scope)
+	siteCfg *config.SiteConfig, // Need site config for rules (nofollow, selectors, scope)
 	wg *sync.WaitGroup, // Need WaitGroup to increment for queued items
 	taskLog *logrus.Entry,
 ) (queuedCount int, err error) { // Return non-fatal error for DB issues

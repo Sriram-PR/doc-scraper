@@ -33,8 +33,8 @@ type SitemapProcessor struct {
 	rateLimiter                *fetch.RateLimiter             // For rate limiting fetches
 	globalSemaphore            *semaphore.Weighted            // Global request limit
 	compiledDisallowedPatterns []*regexp.Regexp               // For filtering URLs found in sitemaps
-	siteCfg                    config.SiteConfig              // Need for scope checks
-	appCfg                     config.AppConfig               // Need for UA, timeouts
+	siteCfg                    *config.SiteConfig             // Need for scope checks
+	appCfg                     *config.AppConfig              // Need for UA, timeouts
 	log                        *logrus.Entry
 	wg                         *sync.WaitGroup // Main crawler waitgroup
 	sitemapsProcessed          map[string]bool // Track sitemaps submitted to this processor
@@ -50,8 +50,8 @@ func NewSitemapProcessor(
 	rateLimiter *fetch.RateLimiter,
 	globalSemaphore *semaphore.Weighted,
 	compiledDisallowedPatterns []*regexp.Regexp,
-	siteCfg config.SiteConfig,
-	appCfg config.AppConfig,
+	siteCfg *config.SiteConfig,
+	appCfg *config.AppConfig,
 	log *logrus.Entry,
 	wg *sync.WaitGroup,
 ) *SitemapProcessor {

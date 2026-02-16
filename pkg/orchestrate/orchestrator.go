@@ -26,7 +26,7 @@ type SiteResult struct {
 
 // Orchestrator manages parallel crawling of multiple sites
 type Orchestrator struct {
-	appCfg      config.AppConfig
+	appCfg      *config.AppConfig
 	log         *logrus.Logger
 	siteKeys    []string
 	resume      bool
@@ -46,7 +46,7 @@ type Orchestrator struct {
 }
 
 // NewOrchestrator creates a new orchestrator for parallel site crawling
-func NewOrchestrator(appCfg config.AppConfig, siteKeys []string, resume bool, log *logrus.Logger) *Orchestrator {
+func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, log *logrus.Logger) *Orchestrator {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create shared HTTP client
@@ -230,7 +230,7 @@ func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 }
 
 // ValidateSiteKeys checks that all provided site keys exist in the config
-func ValidateSiteKeys(appCfg config.AppConfig, siteKeys []string) error {
+func ValidateSiteKeys(appCfg *config.AppConfig, siteKeys []string) error {
 	for _, key := range siteKeys {
 		if _, exists := appCfg.Sites[key]; !exists {
 			available := make([]string, 0, len(appCfg.Sites))
@@ -244,7 +244,7 @@ func ValidateSiteKeys(appCfg config.AppConfig, siteKeys []string) error {
 }
 
 // GetAllSiteKeys returns all site keys from the config
-func GetAllSiteKeys(appCfg config.AppConfig) []string {
+func GetAllSiteKeys(appCfg *config.AppConfig) []string {
 	keys := make([]string, 0, len(appCfg.Sites))
 	for k := range appCfg.Sites {
 		keys = append(keys, k)

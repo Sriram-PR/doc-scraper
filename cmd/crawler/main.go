@@ -327,12 +327,12 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 
 	// --- Determine site keys ---
 	if allSites {
-		siteKeys = orchestrate.GetAllSiteKeys(*appCfg)
+		siteKeys = orchestrate.GetAllSiteKeys(appCfg)
 		log.Infof("All sites mode: found %d sites", len(siteKeys))
 	}
 
 	// --- Validate site keys ---
-	if err := orchestrate.ValidateSiteKeys(*appCfg, siteKeys); err != nil {
+	if err := orchestrate.ValidateSiteKeys(appCfg, siteKeys); err != nil {
 		log.Fatalf("Invalid site keys: %v", err)
 	}
 
@@ -349,7 +349,7 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 	}
 
 	// --- Create and run scheduler ---
-	scheduler := watch.NewScheduler(*appCfg, siteKeys, interval, log)
+	scheduler := watch.NewScheduler(appCfg, siteKeys, interval, log)
 
 	// --- Handle signals for graceful shutdown ---
 	sigChan := make(chan os.Signal, 1)
@@ -462,12 +462,12 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 
 	// --- Determine site keys ---
 	if allSites {
-		siteKeys = orchestrate.GetAllSiteKeys(*appCfg)
+		siteKeys = orchestrate.GetAllSiteKeys(appCfg)
 		log.Infof("All sites mode: found %d sites", len(siteKeys))
 	}
 
 	// --- Validate site keys ---
-	if err := orchestrate.ValidateSiteKeys(*appCfg, siteKeys); err != nil {
+	if err := orchestrate.ValidateSiteKeys(appCfg, siteKeys); err != nil {
 		log.Fatalf("Invalid site keys: %v", err)
 	}
 
@@ -494,7 +494,7 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	}
 
 	// --- Create and run orchestrator ---
-	orch := orchestrate.NewOrchestrator(*appCfg, siteKeys, isResume, log)
+	orch := orchestrate.NewOrchestrator(appCfg, siteKeys, isResume, log)
 
 	// --- Handle signals for graceful shutdown ---
 	sigChan := make(chan os.Signal, 1)
@@ -664,12 +664,12 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisit
 
 	// --- HTTP Fetching Components ---
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, log)
-	fetcher := fetch.NewFetcher(httpClient, *appCfg, log)
+	fetcher := fetch.NewFetcher(httpClient, appCfg, log)
 	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, log)
 
 	// --- Crawler Instance ---
 	crawlerInstance, err := crawler.NewCrawler(
-		*appCfg,
+		appCfg,
 		siteCfg,
 		siteKey,
 		log,

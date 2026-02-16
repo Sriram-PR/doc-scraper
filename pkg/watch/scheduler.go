@@ -15,7 +15,7 @@ import (
 
 // Scheduler manages periodic crawling of sites
 type Scheduler struct {
-	appCfg       config.AppConfig
+	appCfg       *config.AppConfig
 	siteKeys     []string
 	interval     time.Duration
 	log          *logrus.Logger
@@ -27,7 +27,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new watch scheduler
-func NewScheduler(appCfg config.AppConfig, siteKeys []string, interval time.Duration, log *logrus.Logger) *Scheduler {
+func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Duration, log *logrus.Logger) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Scheduler{

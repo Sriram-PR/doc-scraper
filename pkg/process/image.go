@@ -54,7 +54,7 @@ type ImageProcessor struct {
 	rateLimiter     *fetch.RateLimiter          // Rate limiting
 	globalSemaphore *semaphore.Weighted         // Global concurrency limit
 	hostSemPool     *fetch.HostSemaphorePool    // Shared per-host semaphore pool
-	appCfg          config.AppConfig            // Global config
+	appCfg          *config.AppConfig           // Global config
 	log             *logrus.Entry
 }
 
@@ -66,7 +66,7 @@ func NewImageProcessor(
 	rateLimiter *fetch.RateLimiter,
 	globalSemaphore *semaphore.Weighted,
 	hostSemPool *fetch.HostSemaphorePool,
-	appCfg config.AppConfig,
+	appCfg *config.AppConfig,
 	log *logrus.Entry,
 ) *ImageProcessor {
 	return &ImageProcessor{
@@ -86,7 +86,7 @@ func NewImageProcessor(
 func (ip *ImageProcessor) ProcessImages(
 	mainContent *goquery.Selection, // Operate on the selection
 	finalURL *url.URL, // Base URL of the page containing the images
-	siteCfg config.SiteConfig, // Need site-specific image settings
+	siteCfg *config.SiteConfig, // Need site-specific image settings
 	siteOutputDir string, // Need for calculating local paths
 	taskLog *logrus.Entry, // Logger for the parent page task
 	ctx context.Context, // Parent context
@@ -318,7 +318,7 @@ func (ip *ImageProcessor) ProcessImages(
 func (ip *ImageProcessor) imageWorker(
 	id int, // Worker ID for logging
 	taskChan <-chan ImageDownloadTask, // Channel to receive tasks
-	siteCfg config.SiteConfig, // Pass siteCfg for UA, delay etc.
+	siteCfg *config.SiteConfig, // Pass siteCfg for UA, delay etc.
 	siteOutputDir string, // Pass output dir base
 	imageMap map[string]models.ImageData, // Shared map for results (needs mutex)
 	imageErrs *[]error, // Shared slice for errors (needs mutex)
@@ -341,7 +341,7 @@ func (ip *ImageProcessor) imageWorker(
 // processSingleImageTask handles the download, saving, and DB update for one image
 func (ip *ImageProcessor) processSingleImageTask(
 	task ImageDownloadTask, // The specific task data
-	siteCfg config.SiteConfig, // Need site specific settings
+	siteCfg *config.SiteConfig, // Need site specific settings
 	siteOutputDir string, // Need output base
 	imageMap map[string]models.ImageData, // Shared map
 	imageErrs *[]error, // Shared slice

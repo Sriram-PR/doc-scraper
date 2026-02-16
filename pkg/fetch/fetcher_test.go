@@ -17,8 +17,8 @@ import (
 )
 
 // testConfig returns an AppConfig with fast retry delays for testing
-func testConfig(maxRetries int) config.AppConfig {
-	return config.AppConfig{
+func testConfig(maxRetries int) *config.AppConfig {
+	return &config.AppConfig{
 		MaxRetries:        maxRetries,
 		InitialRetryDelay: 10 * time.Millisecond,
 		MaxRetryDelay:     50 * time.Millisecond,

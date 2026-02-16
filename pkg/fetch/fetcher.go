@@ -20,12 +20,12 @@ import (
 // Fetcher handles making HTTP requests with configured retry logic, using an underlying http.Client
 type Fetcher struct {
 	client *http.Client     // The configured HTTP client to use for requests
-	cfg    config.AppConfig // Application config, needed primarily for retry settings
+	cfg    *config.AppConfig // Application config, needed primarily for retry settings
 	log    *logrus.Logger
 }
 
 // NewFetcher creates a new Fetcher instance
-func NewFetcher(client *http.Client, cfg config.AppConfig, log *logrus.Logger) *Fetcher {
+func NewFetcher(client *http.Client, cfg *config.AppConfig, log *logrus.Logger) *Fetcher {
 	return &Fetcher{
 		client: client,
 		cfg:    cfg,

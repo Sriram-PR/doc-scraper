@@ -27,7 +27,7 @@ type RobotsHandler struct {
 	robotsCacheMu   sync.Mutex
 	globalSemaphore *semaphore.Weighted
 	sitemapNotifier SitemapDiscoverer // Component to notify about found sitemaps
-	cfg             config.AppConfig
+	cfg             *config.AppConfig
 	log             *logrus.Entry
 }
 
@@ -37,7 +37,7 @@ func NewRobotsHandler(
 	rateLimiter *RateLimiter,
 	globalSemaphore *semaphore.Weighted,
 	sitemapNotifier SitemapDiscoverer,
-	cfg config.AppConfig,
+	cfg *config.AppConfig,
 	log *logrus.Entry,
 ) *RobotsHandler {
 	return &RobotsHandler{

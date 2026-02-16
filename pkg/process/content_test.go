@@ -46,7 +46,7 @@ func TestGetOutputPathForURL_RootURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, siteCfg, siteOutputDir)
+			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
 			if ok != tt.expectedOK {
 				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
 			}
@@ -100,7 +100,7 @@ func TestGetOutputPathForURL_FileLikeURLs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, siteCfg, siteOutputDir)
+			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
 			if ok != tt.expectedOK {
 				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
 			}
@@ -154,7 +154,7 @@ func TestGetOutputPathForURL_DirectoryLikeURLs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, siteCfg, siteOutputDir)
+			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
 			if ok != tt.expectedOK {
 				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
 			}
@@ -208,7 +208,7 @@ func TestGetOutputPathForURL_ScopeViolations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, siteCfg, siteOutputDir)
+			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
 			if ok != tt.expectedOK {
 				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
 			}
@@ -250,7 +250,7 @@ func TestGetOutputPathForURL_HTTPScheme(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, siteCfg, siteOutputDir)
+			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
 			if ok != tt.expectedOK {
 				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
 			}
@@ -294,7 +294,7 @@ func TestGetOutputPathForURL_PathPrefixVariations(t *testing.T) {
 				AllowedPathPrefix: tt.allowedPathPrefix,
 			}
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, siteCfg, "/output")
+			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, "/output")
 			if ok != tt.expectedOK {
 				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
 			}

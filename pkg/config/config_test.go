@@ -45,7 +45,7 @@ func TestGetEffectiveEnableJSONLOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := GetEffectiveEnableJSONLOutput(tt.siteCfg, tt.appCfg)
+			result := GetEffectiveEnableJSONLOutput(&tt.siteCfg, &tt.appCfg)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -80,7 +80,7 @@ func TestGetEffectiveJSONLOutputFilename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := GetEffectiveJSONLOutputFilename(tt.siteCfg, tt.appCfg)
+			result := GetEffectiveJSONLOutputFilename(&tt.siteCfg, &tt.appCfg)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
