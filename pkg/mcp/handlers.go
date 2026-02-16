@@ -110,7 +110,8 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	}
 
 	// Read body
-	bodyBytes, err := io.ReadAll(resp.Body)
+	const maxPageSize = 50 * 1024 * 1024 // 50 MB
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxPageSize))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to read response: %v", err)), nil
 	}

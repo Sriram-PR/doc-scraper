@@ -1344,10 +1344,15 @@ func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskL
 	taskLog.Debugf("Reading response body from: %s", finalURL.String())
 	defer resp.Body.Close() // Ensure response body is closed when this function returns
 
-	// Read the entire response body. For very large pages, consider alternatives if memory becomes an issue.
-	bodyBytes, readErr := io.ReadAll(resp.Body) // Go 1.16+ can use io.ReadAll directly
+	// Read response body with size limit to prevent OOM on oversized pages
+	maxPageSize := config.GetEffectiveMaxPageSize(c.appCfg)
+	limitedReader := io.LimitReader(resp.Body, maxPageSize+1) // +1 to detect exceeding the limit
+	bodyBytes, readErr := io.ReadAll(limitedReader)
 	if readErr != nil {
 		return nil, "", fmt.Errorf("%w: reading body from '%s': %w", utils.ErrResponseBodyRead, finalURL.String(), readErr)
+	}
+	if int64(len(bodyBytes)) > maxPageSize {
+		return nil, "", fmt.Errorf("%w: page '%s' exceeds max size (%d > %d bytes)", utils.ErrResponseBodyRead, finalURL.String(), len(bodyBytes), maxPageSize)
 	}
 	taskLog.Debugf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String())
 

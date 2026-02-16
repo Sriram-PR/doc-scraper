@@ -45,6 +45,7 @@ type AppConfig struct {
 	PerPageTimeout          time.Duration         `yaml:"per_page_timeout,omitempty"` // Timeout for processing a single page (0 = no timeout)
 	SkipImages              bool                  `yaml:"skip_images,omitempty"`
 	MaxImageSizeBytes       int64                 `yaml:"max_image_size_bytes,omitempty"`
+	MaxPageSizeBytes        int64                 `yaml:"max_page_size_bytes,omitempty"` // Max HTML page body size in bytes (0 = 50MB default)
 	HTTPClientSettings      HTTPClientConfig      `yaml:"http_client_settings,omitempty"`
 	Sites                   map[string]*SiteConfig `yaml:"sites"`
 	EnableOutputMapping     bool                  `yaml:"enable_output_mapping,omitempty"`
@@ -86,6 +87,19 @@ type HTTPClientConfig struct {
 	ForceAttemptHTTP2     *bool         `yaml:"force_attempt_http2,omitempty"`     // Explicitly enable/disable HTTP/2 attempt (use pointer for tri-state: nil=default, true=force, false=disable)
 	DialerTimeout         time.Duration `yaml:"dialer_timeout,omitempty"`          // Connection dial timeout
 	DialerKeepAlive       time.Duration `yaml:"dialer_keep_alive,omitempty"`       // TCP keep-alive interval
+}
+
+const (
+	// DefaultMaxPageSizeBytes is the default maximum page body size (50 MB).
+	DefaultMaxPageSizeBytes int64 = 50 * 1024 * 1024
+)
+
+// GetEffectiveMaxPageSize returns the configured max page size, or the default if unset.
+func GetEffectiveMaxPageSize(appCfg *AppConfig) int64 {
+	if appCfg.MaxPageSizeBytes > 0 {
+		return appCfg.MaxPageSizeBytes
+	}
+	return DefaultMaxPageSizeBytes
 }
 
 // GetEffectiveUserAgent returns the site-specific user agent if set, otherwise the global default.

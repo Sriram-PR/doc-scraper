@@ -142,7 +142,8 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	defer resp.Body.Close()
 
 	// 7. Read and Parse Body.
-	bodyBytes, err := io.ReadAll(resp.Body)
+	const maxRobotsSize = 1 * 1024 * 1024 // 1 MB
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxRobotsSize))
 	if err != nil {
 		robotsLog.Errorf("Error reading body: %v", err)
 		rh.robotsCacheMu.Lock()

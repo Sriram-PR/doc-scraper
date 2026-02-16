@@ -190,7 +190,8 @@ func (sp *SitemapProcessor) run(ctx context.Context) {
 				defer resp.Body.Close() // Ensure body is closed eventually
 
 				// --- Read & Parse XML ---
-				sitemapBytes, readErr := io.ReadAll(resp.Body)
+				const maxSitemapSize = 10 * 1024 * 1024 // 10 MB
+				sitemapBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxSitemapSize))
 				if readErr != nil {
 					sitemapLog.Errorf("Read body error: %v", readErr)
 					return
