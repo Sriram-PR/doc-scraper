@@ -4,8 +4,6 @@ package crawler
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-
 	"errors"
 	"fmt"
 	"io"
@@ -23,7 +21,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
-	"gopkg.in/yaml.v3"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
@@ -77,25 +74,8 @@ type Crawler struct {
 	foundSitemaps   map[string]bool // Tracks sitemaps discovered by robots.txt
 	foundSitemapsMu sync.Mutex      // Protects foundSitemaps
 
-	// For simple TSV mapping
-	mappingFile     *os.File   // File handle for the TSV mapping file
-	mappingFileMu   sync.Mutex // Protects concurrent writes to mappingFile
-	mappingFilePath string     // Full path to the site-specific TSV mapping file
-
-	// For YAML Metadata Output
-	crawlStartTime        time.Time             // Timestamp when this specific crawl run was initiated
-	collectedPageMetadata []models.PageMetadata // Slice to store metadata for each processed page
-	metadataMutex         sync.Mutex            // Protects concurrent appends to collectedPageMetadata
-
-	// For JSONL Output (RAG pipeline ingestion)
-	jsonlFile     *os.File   // File handle for the JSONL output file
-	jsonlFileMu   sync.Mutex // Protects concurrent writes to jsonlFile
-	jsonlFilePath string     // Full path to the site-specific JSONL output file
-
-	// For Chunks Output (RAG vector ingestion)
-	chunksFile     *os.File   // File handle for the chunks output file
-	chunksFileMu   sync.Mutex // Protects concurrent writes to chunksFile
-	chunksFilePath string     // Full path to the site-specific chunks output file
+	// Output file management (TSV, JSONL, chunks, YAML metadata)
+	output *OutputManager
 }
 
 // CrawlerOptions contains optional parameters for NewCrawler
@@ -177,8 +157,6 @@ func NewCrawlerWithOptions(
 		cancelCrawl:                cancelCrawl,
 		sitemapQueue:               make(chan string, 100), // Buffer size can be configured if needed
 		foundSitemaps:              make(map[string]bool),
-		// Initialize YAML metadata collection
-		collectedPageMetadata: make([]models.PageMetadata, 0),
 	}
 
 	// --- Ensure output directory exists before creating any output files ---
@@ -186,83 +164,8 @@ func NewCrawlerWithOptions(
 		return nil, fmt.Errorf("failed to create site output directory '%s': %w", c.siteOutputDir, err)
 	}
 
-	// --- Initialize Simple TSV Mapping File (if enabled) ---
-	effectiveEnableTSVMapping := config.GetEffectiveEnableOutputMapping(c.siteCfg, c.appCfg)
-	if effectiveEnableTSVMapping {
-		tsvMappingFilename := config.GetEffectiveOutputMappingFilename(c.siteCfg, c.appCfg)
-		c.mappingFilePath = filepath.Join(c.siteOutputDir, tsvMappingFilename)
-		c.log.Infof("Simple TSV URL-to-FilePath mapping enabled. Output file: %s", c.mappingFilePath)
-
-		openFlags := os.O_CREATE | os.O_WRONLY
-		if resume {
-			c.log.Infof("Resume mode: Appending to TSV mapping file: %s", c.mappingFilePath)
-			openFlags |= os.O_APPEND
-		} else {
-			c.log.Infof("Non-resume mode: Truncating TSV mapping file: %s", c.mappingFilePath)
-			openFlags |= os.O_TRUNC
-		}
-		file, err := os.OpenFile(c.mappingFilePath, openFlags, 0644)
-		if err != nil {
-			c.log.Errorf("Failed to open/create TSV mapping file '%s': %v. TSV Mapping will be disabled.", c.mappingFilePath, err)
-			c.mappingFile = nil // Ensure it's nil so writes are skipped
-		} else {
-			c.mappingFile = file
-		}
-	} else {
-		c.log.Info("Simple TSV URL-to-FilePath mapping is disabled.")
-	}
-
-	// --- Initialize JSONL Output File (if enabled) ---
-	effectiveEnableJSONL := config.GetEffectiveEnableJSONLOutput(c.siteCfg, c.appCfg)
-	if effectiveEnableJSONL {
-		jsonlFilename := config.GetEffectiveJSONLOutputFilename(c.siteCfg, c.appCfg)
-		c.jsonlFilePath = filepath.Join(c.siteOutputDir, jsonlFilename)
-		c.log.Infof("JSONL output enabled. Output file: %s", c.jsonlFilePath)
-
-		openFlags := os.O_CREATE | os.O_WRONLY
-		if resume {
-			c.log.Infof("Resume mode: Appending to JSONL file: %s", c.jsonlFilePath)
-			openFlags |= os.O_APPEND
-		} else {
-			c.log.Infof("Non-resume mode: Truncating JSONL file: %s", c.jsonlFilePath)
-			openFlags |= os.O_TRUNC
-		}
-		file, err := os.OpenFile(c.jsonlFilePath, openFlags, 0644)
-		if err != nil {
-			c.log.Errorf("Failed to open/create JSONL file '%s': %v. JSONL output will be disabled.", c.jsonlFilePath, err)
-			c.jsonlFile = nil
-		} else {
-			c.jsonlFile = file
-		}
-	} else {
-		c.log.Info("JSONL output is disabled.")
-	}
-
-	// --- Initialize Chunks Output File (if chunking enabled) ---
-	effectiveEnableChunking := config.GetEffectiveChunkingEnabled(c.siteCfg, c.appCfg)
-	if effectiveEnableChunking {
-		chunksFilename := config.GetEffectiveChunkingOutputFilename(c.siteCfg, c.appCfg)
-		c.chunksFilePath = filepath.Join(c.siteOutputDir, chunksFilename)
-		c.log.Infof("Chunking enabled. Output file: %s", c.chunksFilePath)
-
-		openFlags := os.O_CREATE | os.O_WRONLY
-		if resume {
-			c.log.Infof("Resume mode: Appending to chunks file: %s", c.chunksFilePath)
-			openFlags |= os.O_APPEND
-		} else {
-			c.log.Infof("Non-resume mode: Truncating chunks file: %s", c.chunksFilePath)
-			openFlags |= os.O_TRUNC
-		}
-		file, err := os.OpenFile(c.chunksFilePath, openFlags, 0644)
-		if err != nil {
-			c.log.Errorf("Failed to open/create chunks file '%s': %v. Chunking output will be disabled.", c.chunksFilePath, err)
-			c.chunksFile = nil
-		} else {
-			c.chunksFile = file
-		}
-	} else {
-		c.log.Info("Chunking output is disabled.")
-	}
+	// --- Initialize all output files (TSV, JSONL, chunks, YAML metadata) ---
+	c.output = NewOutputManager(logger, appCfg, siteCfg, siteKey, siteOutputDir, resume)
 
 	// --- Initialize Tokenizer for Token Counting (if enabled) ---
 	if c.appCfg.EnableTokenCounting {
@@ -325,18 +228,15 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 
 // Run starts the crawling process for the configured site and blocks until completion or cancellation.
 func (c *Crawler) Run(resume bool) error {
-	c.crawlStartTime = time.Now() // Record CRAWL START TIME for metadata
+	c.output.crawlStartTime = time.Now() // Record CRAWL START TIME for metadata
 	// logFields already part of c.log (site_key). Add resume-specific info.
 	runLogFields := logrus.Fields{"domain": c.siteCfg.AllowedDomain, "resume": resume}
 	c.log.WithFields(runLogFields).Infof("Crawl starting with %d worker(s)...", c.appCfg.NumWorkers)
 	overallCrawlStartTimeForDuration := time.Now() // For calculating overall duration visible in final log
 
 	// --- DEFER CLEANUP ACTIONS ---
-	defer c.closeMappingFile() // Handles nil check internally for TSV file
-	defer c.closeJSONLFile()   // Handles nil check internally for JSONL file
-	defer c.closeChunksFile()  // Handles nil check internally for chunks file
-	defer func() {             // Defer writing YAML metadata at the very end
-		if err := c.writeMetadataYAML(); err != nil {
+	defer func() {
+		if err := c.output.Close(); err != nil {
 			c.log.WithFields(runLogFields).Errorf("Failed to write final metadata YAML: %v", err)
 		}
 	}()
@@ -575,198 +475,13 @@ func (c *Crawler) Run(resume bool) error {
 	summaryLog.Info("========================================================================")
 	summaryLog.Info("CRAWL FINISHED")
 	summaryLog.Infof("Duration:         %v", duration)
-	c.metadataMutex.Lock() // Safely read length for final log
-	totalPagesSavedForYAML := len(c.collectedPageMetadata)
-	c.metadataMutex.Unlock()
 	summaryLog.Infof("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Pages Saved (for YAML): %d",
-		finalVisitedCount, finalProcessedCount, totalPagesSavedForYAML)
+		finalVisitedCount, finalProcessedCount, c.output.PagesSaved())
 	summaryLog.Info("========================================================================")
 
 	return c.crawlCtx.Err() // Return error from context (nil if completed normally, Canceled/DeadlineExceeded otherwise)
 }
 
-// closeMappingFile closes the simple TSV mapping file, if it was opened.
-func (c *Crawler) closeMappingFile() {
-	c.mappingFileMu.Lock()
-	defer c.mappingFileMu.Unlock()
-
-	if c.mappingFile != nil {
-		c.log.Infof("Syncing and closing TSV mapping file: %s", c.mappingFilePath)
-		if err := c.mappingFile.Sync(); err != nil {
-			c.log.Errorf("Error syncing TSV mapping file '%s': %v", c.mappingFilePath, err)
-		}
-		if err := c.mappingFile.Close(); err != nil {
-			c.log.Errorf("Error closing TSV mapping file '%s': %v", c.mappingFilePath, err)
-		}
-		c.mappingFile = nil // Mark as closed to prevent further writes
-	}
-}
-
-// closeJSONLFile closes the JSONL output file handle if it was opened.
-func (c *Crawler) closeJSONLFile() {
-	c.jsonlFileMu.Lock()
-	defer c.jsonlFileMu.Unlock()
-
-	if c.jsonlFile != nil {
-		c.log.Infof("Syncing and closing JSONL output file: %s", c.jsonlFilePath)
-		if err := c.jsonlFile.Sync(); err != nil {
-			c.log.Errorf("Error syncing JSONL file '%s': %v", c.jsonlFilePath, err)
-		}
-		if err := c.jsonlFile.Close(); err != nil {
-			c.log.Errorf("Error closing JSONL file '%s': %v", c.jsonlFilePath, err)
-		}
-		c.jsonlFile = nil
-	}
-}
-
-// closeChunksFile closes the chunks output file handle if it was opened.
-func (c *Crawler) closeChunksFile() {
-	c.chunksFileMu.Lock()
-	defer c.chunksFileMu.Unlock()
-
-	if c.chunksFile != nil {
-		c.log.Infof("Syncing and closing chunks output file: %s", c.chunksFilePath)
-		if err := c.chunksFile.Sync(); err != nil {
-			c.log.Errorf("Error syncing chunks file '%s': %v", c.chunksFilePath, err)
-		}
-		if err := c.chunksFile.Close(); err != nil {
-			c.log.Errorf("Error closing chunks file '%s': %v", c.chunksFilePath, err)
-		}
-		c.chunksFile = nil
-	}
-}
-
-// writeToMappingFile writes a line to the simple TSV mapping file (if enabled and open).
-func (c *Crawler) writeToMappingFile(pageURL, absoluteFilePath string, taskLog *logrus.Entry) {
-	c.mappingFileMu.Lock()
-	defer c.mappingFileMu.Unlock()
-
-	if c.mappingFile == nil { // File wasn't opened or was closed due to an error
-		return
-	}
-
-	// For TSV, absolute path is generally fine.
-	// If relative path is desired:
-	// relativePath, err := filepath.Rel(c.siteOutputDir, absoluteFilePath) // Relative to site's output dir
-	// if err != nil {
-	//    taskLog.Warnf("Could not make path relative for TSV mapping file (%s to %s): %v", c.siteOutputDir, absoluteFilePath, err)
-	//    relativePath = absoluteFilePath // Fallback
-	// }
-	// line := fmt.Sprintf("%s\t%s\n", pageURL, filepath.ToSlash(relativePath))
-
-	line := fmt.Sprintf("%s\t%s\n", pageURL, absoluteFilePath)
-	if _, err := c.mappingFile.WriteString(line); err != nil {
-		// taskLog already contains URL, depth, site_key, worker_id. Add file-specific info.
-		taskLog.WithFields(logrus.Fields{
-			"tsv_mapping_file": c.mappingFilePath,
-			"line_content":     strings.TrimSpace(line), // Log line without newline for cleaner logs
-		}).Errorf("Failed to write to TSV mapping file: %v", err)
-	}
-}
-
-// writeToJSONLFile writes a page entry to the JSONL output file (if enabled and open).
-func (c *Crawler) writeToJSONLFile(page models.PageJSONL, taskLog *logrus.Entry) {
-	c.jsonlFileMu.Lock()
-	defer c.jsonlFileMu.Unlock()
-
-	if c.jsonlFile == nil {
-		return
-	}
-
-	jsonBytes, err := json.Marshal(page)
-	if err != nil {
-		taskLog.WithField("jsonl_file", c.jsonlFilePath).Errorf("Failed to marshal page to JSON: %v", err)
-		return
-	}
-
-	// Write JSON line followed by newline
-	if _, err := c.jsonlFile.Write(append(jsonBytes, '\n')); err != nil {
-		taskLog.WithField("jsonl_file", c.jsonlFilePath).Errorf("Failed to write to JSONL file: %v", err)
-	}
-}
-
-// writeToChunksFile writes chunk entries to the chunks output file (if enabled and open).
-func (c *Crawler) writeToChunksFile(chunks []models.ChunkJSONL, taskLog *logrus.Entry) {
-	c.chunksFileMu.Lock()
-	defer c.chunksFileMu.Unlock()
-
-	if c.chunksFile == nil {
-		return
-	}
-
-	for _, chunk := range chunks {
-		jsonBytes, err := json.Marshal(chunk)
-		if err != nil {
-			taskLog.WithField("chunks_file", c.chunksFilePath).Errorf("Failed to marshal chunk to JSON: %v", err)
-			continue
-		}
-
-		// Write JSON line followed by newline
-		if _, err := c.chunksFile.Write(append(jsonBytes, '\n')); err != nil {
-			taskLog.WithField("chunks_file", c.chunksFilePath).Errorf("Failed to write to chunks file: %v", err)
-		}
-	}
-}
-
-// writeMetadataYAML is called at the end of the crawl to write all collected page metadata to a YAML file.
-func (c *Crawler) writeMetadataYAML() error {
-	effectiveEnableYAML := config.GetEffectiveEnableMetadataYAML(c.siteCfg, c.appCfg)
-	if !effectiveEnableYAML {
-		c.log.Info("YAML metadata output is disabled.") // Logger includes site_key
-		return nil
-	}
-
-	filename := config.GetEffectiveMetadataYAMLFilename(c.siteCfg, c.appCfg)
-	yamlFilePath := filepath.Join(c.siteOutputDir, filename)
-
-	c.log.Infof("Preparing to write crawl metadata to: %s", yamlFilePath)
-
-	// Create a serializable representation of SiteConfig.
-	// Marshalling to YAML and then unmarshalling to map[string]interface{} is a robust way.
-	var siteConfigMap map[string]interface{}
-	siteConfigBytes, errCfgMarshal := yaml.Marshal(c.siteCfg) // Marshal original SiteConfig
-	if errCfgMarshal != nil {
-		c.log.Warnf("Could not marshal site_configuration for YAML metadata: %v", errCfgMarshal)
-	} else {
-		if errCfgUnmarshal := yaml.Unmarshal(siteConfigBytes, &siteConfigMap); errCfgUnmarshal != nil {
-			c.log.Warnf("Could not unmarshal site_configuration into map for YAML metadata: %v", errCfgUnmarshal)
-			siteConfigMap = nil // Ensure it's nil if unmarshalling fails
-		}
-	}
-
-	c.metadataMutex.Lock() // Lock before accessing collectedPageMetadata
-	// Create a deep copy of collectedPageMetadata for marshalling.
-	// This avoids holding the lock during the potentially time-consuming YAML marshalling.
-	pagesToMarshal := make([]models.PageMetadata, len(c.collectedPageMetadata))
-	copy(pagesToMarshal, c.collectedPageMetadata)
-	c.metadataMutex.Unlock() // Release lock as soon as copy is done
-
-	metadata := models.CrawlMetadata{
-		SiteKey:           c.siteKey,
-		AllowedDomain:     c.siteCfg.AllowedDomain,
-		CrawlStartTime:    c.crawlStartTime, // Recorded at the start of Run()
-		CrawlEndTime:      time.Now(),       // Current time as crawl is ending
-		TotalPagesSaved:   len(pagesToMarshal),
-		SiteConfiguration: siteConfigMap, // Use the map representation
-		Pages:             pagesToMarshal,
-	}
-
-	yamlData, errMarshal := yaml.Marshal(&metadata)
-	if errMarshal != nil {
-		// Log error using crawler's logger (includes site_key)
-		c.log.Errorf("Failed to marshal crawl metadata to YAML: %v", errMarshal)
-		return fmt.Errorf("failed to marshal crawl metadata to YAML for site '%s': %w", c.siteKey, errMarshal)
-	}
-
-	errWrite := os.WriteFile(yamlFilePath, yamlData, 0644)
-	if errWrite != nil {
-		c.log.Errorf("Failed to write metadata YAML file '%s': %v", yamlFilePath, errWrite)
-		return fmt.Errorf("failed to write metadata YAML file '%s' for site '%s': %w", yamlFilePath, c.siteKey, errWrite)
-	}
-
-	c.log.Infof("Successfully wrote crawl metadata (%d pages) to %s", metadata.TotalPagesSaved, yamlFilePath)
-	return nil
-}
 
 // worker runs the loop for a single worker goroutine, processing tasks from the priority queue.
 func (c *Crawler) worker(workerLog *logrus.Entry) { // workerLog already has site_key and worker_id
@@ -1024,119 +739,9 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	pageTitle = tempPageTitle
 	savedContentPath = tempSavedPath // This is the ABSOLUTE path to the saved .md file.
 
-	// --- After successful content saving (taskErr is still nil here) ---
-	// This block executes only if all prior critical stages succeeded.
-	if savedContentPath != "" { // Ensure a file path was actually returned (i.e., save was successful)
-		// Write to simple TSV mapping file (if enabled and file is open)
-		if c.mappingFile != nil {
-			c.writeToMappingFile(finalURL.String(), savedContentPath, taskLog)
-		}
-
-		// Check if we need to read the markdown file for metadata or JSONL output
-		enableYAML := config.GetEffectiveEnableMetadataYAML(c.siteCfg, c.appCfg)
-		enableJSONL := config.GetEffectiveEnableJSONLOutput(c.siteCfg, c.appCfg)
-
-		var markdownBytes []byte
-		var contentHash string
-		var tokenCount int
-		if enableYAML || enableJSONL {
-			var readErr error
-			markdownBytes, readErr = os.ReadFile(savedContentPath)
-			if readErr != nil {
-				taskLog.Warnf("Failed to read saved markdown file '%s': %v", savedContentPath, readErr)
-			} else {
-				contentHash = utils.CalculateStringSHA256(string(markdownBytes))
-				// Calculate token count if enabled
-				if c.appCfg.EnableTokenCounting {
-					tokenCount = process.CountTokens(string(markdownBytes))
-				}
-			}
-		}
-
-		// Collect YAML Page Metadata (if YAML metadata is enabled for this site)
-		if enableYAML {
-			// Calculate path relative to the site's output directory for portability in metadata.yaml
-			relativeLocalPath, relErr := filepath.Rel(c.siteOutputDir, savedContentPath)
-			if relErr != nil {
-				taskLog.Warnf("Could not make path relative for metadata.yaml (Base: '%s', Target: '%s'): %v",
-					c.siteOutputDir, savedContentPath, relErr)
-				relativeLocalPath = savedContentPath // Fallback to absolute path if error
-			}
-
-			// Create PageMetadata entry
-			pageMeta := models.PageMetadata{
-				OriginalURL:   finalURL.String(),                   // Final URL after redirects
-				NormalizedURL: normalizedURLString,                 // Normalized URL used for DB keys, etc.
-				LocalFilePath: filepath.ToSlash(relativeLocalPath), // Store relative path with forward slashes
-				Title:         pageTitle,                           // Extracted page title
-				Depth:         currentDepth,                        // Crawl depth
-				ProcessedAt:   time.Now(),                          // Timestamp of this successful processing
-				ContentHash:   contentHash,                         // SHA-256 hash of the Markdown content
-				ImageCount:    tempImageCount,                       // Count of successfully rewritten images
-				TokenCount:    tokenCount,                          // Token count for LLM context planning
-			}
-
-			// Add to the collected metadata slice (thread-safe)
-			c.metadataMutex.Lock()
-			c.collectedPageMetadata = append(c.collectedPageMetadata, pageMeta)
-			c.metadataMutex.Unlock()
-		}
-
-		// Write JSONL output (if enabled)
-		if enableJSONL && c.jsonlFile != nil && markdownBytes != nil {
-			// Extract headings from markdown content
-			headings := process.ExtractHeadings(markdownBytes)
-
-			// Extract links and images from markdown (simple regex extraction)
-			links, images := extractLinksAndImages(string(markdownBytes))
-
-			pageJSONL := models.PageJSONL{
-				URL:         finalURL.String(),
-				Title:       pageTitle,
-				Content:     string(markdownBytes),
-				Headings:    headings,
-				Links:       links,
-				Images:      images,
-				ContentHash: contentHash,
-				CrawledAt:   time.Now().Format(time.RFC3339),
-				Depth:       currentDepth,
-				TokenCount:  tokenCount,
-			}
-			c.writeToJSONLFile(pageJSONL, taskLog)
-		}
-
-		// Write chunks output (if chunking enabled)
-		enableChunking := config.GetEffectiveChunkingEnabled(c.siteCfg, c.appCfg)
-		if enableChunking && c.chunksFile != nil && markdownBytes != nil {
-			// Get chunking configuration
-			chunkCfg := process.ChunkerConfig{
-				MaxChunkSize: config.GetEffectiveChunkingMaxSize(c.siteCfg, c.appCfg),
-				ChunkOverlap: config.GetEffectiveChunkingOverlap(c.siteCfg, c.appCfg),
-			}
-
-			// Chunk the markdown content
-			chunks, chunkErr := process.ChunkMarkdown(string(markdownBytes), chunkCfg)
-			if chunkErr != nil {
-				taskLog.Warnf("Failed to chunk markdown content: %v", chunkErr)
-			} else if len(chunks) > 0 {
-				// Convert to ChunkJSONL format
-				crawledAt := time.Now().Format(time.RFC3339)
-				chunkJSONLs := make([]models.ChunkJSONL, len(chunks))
-				for i, chunk := range chunks {
-					chunkJSONLs[i] = models.ChunkJSONL{
-						URL:              finalURL.String(),
-						ChunkIndex:       i,
-						Content:          chunk.Content,
-						HeadingHierarchy: chunk.HeadingHierarchy,
-						TokenCount:       chunk.TokenCount,
-						PageTitle:        pageTitle,
-						CrawledAt:        crawledAt,
-					}
-				}
-				c.writeToChunksFile(chunkJSONLs, taskLog)
-				taskLog.Debugf("Wrote %d chunks for page", len(chunks))
-			}
-		}
+	// --- After successful content saving, record all output formats ---
+	if savedContentPath != "" {
+		c.output.RecordPageOutput(finalURL.String(), normalizedURLString, savedContentPath, pageTitle, currentDepth, tempImageCount, taskLog)
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.
