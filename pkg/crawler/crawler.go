@@ -159,13 +159,8 @@ func NewCrawlerWithOptions(
 		foundSitemaps:              make(map[string]bool),
 	}
 
-	// --- Ensure output directory exists before creating any output files ---
-	if err := os.MkdirAll(c.siteOutputDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create site output directory '%s': %w", c.siteOutputDir, err)
-	}
-
-	// --- Initialize all output files (TSV, JSONL, chunks, YAML metadata) ---
-	c.output = NewOutputManager(logger, appCfg, siteCfg, siteKey, siteOutputDir, resume)
+	// --- Initialize output manager (files opened later in Run after directory cleanup) ---
+	c.output = NewOutputManager(logger, appCfg, siteCfg, siteKey, siteOutputDir)
 
 	// --- Initialize Tokenizer for Token Counting (if enabled) ---
 	if c.appCfg.EnableTokenCounting {
@@ -290,6 +285,9 @@ func (c *Crawler) Run(resume bool) error {
 		return fmt.Errorf("error creating site output dir '%s' for site '%s': %w", c.siteOutputDir, c.siteKey, err)
 	}
 	c.log.WithFields(runLogFields).Infof("Ensured site output directory exists: %s", c.siteOutputDir)
+
+	// --- Open output files now that the directory is ready ---
+	c.output.OpenFiles(resume)
 
 	// --- Requeue Incomplete Tasks from DB (if resuming) ---
 	initialTasksFromDB := 0

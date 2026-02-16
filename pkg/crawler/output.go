@@ -48,9 +48,10 @@ type OutputManager struct {
 	crawlStartTime        time.Time
 }
 
-// NewOutputManager creates an OutputManager and opens all configured output files.
-func NewOutputManager(log *logrus.Entry, appCfg *config.AppConfig, siteCfg *config.SiteConfig, siteKey, siteOutputDir string, resume bool) *OutputManager {
-	om := &OutputManager{
+// NewOutputManager creates an OutputManager without opening files.
+// Call OpenFiles after the output directory is ready (e.g. after cleanSiteOutputDir).
+func NewOutputManager(log *logrus.Entry, appCfg *config.AppConfig, siteCfg *config.SiteConfig, siteKey, siteOutputDir string) *OutputManager {
+	return &OutputManager{
 		log:                   log,
 		appCfg:                appCfg,
 		siteCfg:               siteCfg,
@@ -58,38 +59,40 @@ func NewOutputManager(log *logrus.Entry, appCfg *config.AppConfig, siteCfg *conf
 		siteOutputDir:         siteOutputDir,
 		collectedPageMetadata: make([]models.PageMetadata, 0),
 	}
+}
 
+// OpenFiles opens all configured output files (TSV, JSONL, chunks).
+// Must be called after the output directory exists and has been cleaned if needed.
+func (om *OutputManager) OpenFiles(resume bool) {
 	// --- Initialize Simple TSV Mapping File (if enabled) ---
-	if config.GetEffectiveEnableOutputMapping(siteCfg, appCfg) {
-		tsvMappingFilename := config.GetEffectiveOutputMappingFilename(siteCfg, appCfg)
-		om.mappingFilePath = filepath.Join(siteOutputDir, tsvMappingFilename)
-		log.Infof("Simple TSV URL-to-FilePath mapping enabled. Output file: %s", om.mappingFilePath)
-		om.mappingFile = openOutputFile(log, om.mappingFilePath, "TSV mapping", resume)
+	if config.GetEffectiveEnableOutputMapping(om.siteCfg, om.appCfg) {
+		tsvMappingFilename := config.GetEffectiveOutputMappingFilename(om.siteCfg, om.appCfg)
+		om.mappingFilePath = filepath.Join(om.siteOutputDir, tsvMappingFilename)
+		om.log.Infof("Simple TSV URL-to-FilePath mapping enabled. Output file: %s", om.mappingFilePath)
+		om.mappingFile = openOutputFile(om.log, om.mappingFilePath, "TSV mapping", resume)
 	} else {
-		log.Info("Simple TSV URL-to-FilePath mapping is disabled.")
+		om.log.Info("Simple TSV URL-to-FilePath mapping is disabled.")
 	}
 
 	// --- Initialize JSONL Output File (if enabled) ---
-	if config.GetEffectiveEnableJSONLOutput(siteCfg, appCfg) {
-		jsonlFilename := config.GetEffectiveJSONLOutputFilename(siteCfg, appCfg)
-		om.jsonlFilePath = filepath.Join(siteOutputDir, jsonlFilename)
-		log.Infof("JSONL output enabled. Output file: %s", om.jsonlFilePath)
-		om.jsonlFile = openOutputFile(log, om.jsonlFilePath, "JSONL", resume)
+	if config.GetEffectiveEnableJSONLOutput(om.siteCfg, om.appCfg) {
+		jsonlFilename := config.GetEffectiveJSONLOutputFilename(om.siteCfg, om.appCfg)
+		om.jsonlFilePath = filepath.Join(om.siteOutputDir, jsonlFilename)
+		om.log.Infof("JSONL output enabled. Output file: %s", om.jsonlFilePath)
+		om.jsonlFile = openOutputFile(om.log, om.jsonlFilePath, "JSONL", resume)
 	} else {
-		log.Info("JSONL output is disabled.")
+		om.log.Info("JSONL output is disabled.")
 	}
 
 	// --- Initialize Chunks Output File (if chunking enabled) ---
-	if config.GetEffectiveChunkingEnabled(siteCfg, appCfg) {
-		chunksFilename := config.GetEffectiveChunkingOutputFilename(siteCfg, appCfg)
-		om.chunksFilePath = filepath.Join(siteOutputDir, chunksFilename)
-		log.Infof("Chunking enabled. Output file: %s", om.chunksFilePath)
-		om.chunksFile = openOutputFile(log, om.chunksFilePath, "chunks", resume)
+	if config.GetEffectiveChunkingEnabled(om.siteCfg, om.appCfg) {
+		chunksFilename := config.GetEffectiveChunkingOutputFilename(om.siteCfg, om.appCfg)
+		om.chunksFilePath = filepath.Join(om.siteOutputDir, chunksFilename)
+		om.log.Infof("Chunking enabled. Output file: %s", om.chunksFilePath)
+		om.chunksFile = openOutputFile(om.log, om.chunksFilePath, "chunks", resume)
 	} else {
-		log.Info("Chunking output is disabled.")
+		om.log.Info("Chunking output is disabled.")
 	}
-
-	return om
 }
 
 // openOutputFile opens an output file for writing, with append or truncate based on resume mode.
