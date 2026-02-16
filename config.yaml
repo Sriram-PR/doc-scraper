@@ -20,9 +20,12 @@ semaphore_acquire_timeout: 30s
 global_crawl_timeout: 0s        # 0 = no timeout
 per_page_timeout: 60s           # Per-page timeout
 
+# Size limits
+max_page_size_bytes: 52428800   # 50 MiB (max HTML page body size, 0 = 50 MiB default)
+max_image_size_bytes: 10485760  # 10 MiB
+
 # Global image defaults
 skip_images: false
-max_image_size_bytes: 10485760  # 10 MiB
 
 # Global output settings
 enable_output_mapping: true

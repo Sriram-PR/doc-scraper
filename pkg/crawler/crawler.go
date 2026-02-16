@@ -591,8 +591,10 @@ func (c *Crawler) closeMappingFile() {
 	defer c.mappingFileMu.Unlock()
 
 	if c.mappingFile != nil {
-		// Use crawler's logger (which includes site_key)
-		c.log.Infof("Closing TSV mapping file: %s", c.mappingFilePath)
+		c.log.Infof("Syncing and closing TSV mapping file: %s", c.mappingFilePath)
+		if err := c.mappingFile.Sync(); err != nil {
+			c.log.Errorf("Error syncing TSV mapping file '%s': %v", c.mappingFilePath, err)
+		}
 		if err := c.mappingFile.Close(); err != nil {
 			c.log.Errorf("Error closing TSV mapping file '%s': %v", c.mappingFilePath, err)
 		}
@@ -606,7 +608,10 @@ func (c *Crawler) closeJSONLFile() {
 	defer c.jsonlFileMu.Unlock()
 
 	if c.jsonlFile != nil {
-		c.log.Infof("Closing JSONL output file: %s", c.jsonlFilePath)
+		c.log.Infof("Syncing and closing JSONL output file: %s", c.jsonlFilePath)
+		if err := c.jsonlFile.Sync(); err != nil {
+			c.log.Errorf("Error syncing JSONL file '%s': %v", c.jsonlFilePath, err)
+		}
 		if err := c.jsonlFile.Close(); err != nil {
 			c.log.Errorf("Error closing JSONL file '%s': %v", c.jsonlFilePath, err)
 		}
@@ -620,7 +625,10 @@ func (c *Crawler) closeChunksFile() {
 	defer c.chunksFileMu.Unlock()
 
 	if c.chunksFile != nil {
-		c.log.Infof("Closing chunks output file: %s", c.chunksFilePath)
+		c.log.Infof("Syncing and closing chunks output file: %s", c.chunksFilePath)
+		if err := c.chunksFile.Sync(); err != nil {
+			c.log.Errorf("Error syncing chunks file '%s': %v", c.chunksFilePath, err)
+		}
 		if err := c.chunksFile.Close(); err != nil {
 			c.log.Errorf("Error closing chunks file '%s': %v", c.chunksFilePath, err)
 		}
