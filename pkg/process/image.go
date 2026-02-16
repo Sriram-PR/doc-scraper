@@ -2,7 +2,7 @@ package process
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -659,7 +659,7 @@ func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType st
 	if imgBaseName == "" || imgBaseName == "_" {
 		// Handle cases where sanitization results in empty/underscore
 		// Use a hash of the URL or a default name
-		urlHashOnly := fmt.Sprintf("%x", md5.Sum([]byte(absImgURL)))[:12] // Longer hash if base name is missing
+		urlHashOnly := fmt.Sprintf("%x", sha256.Sum256([]byte(absImgURL)))[:12] // Longer hash if base name is missing
 		imgBaseName = "image_" + urlHashOnly
 		imgLogEntry.Debugf("Sanitized base name was empty, using hash fallback: %s", imgBaseName)
 	}
@@ -724,7 +724,7 @@ func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType st
 
 	// 3. Add Hash for Uniqueness
 	// Use a short hash of the *full absolute URL* to disambiguate files with the same base name but different paths/queries
-	urlHash := fmt.Sprintf("%x", md5.Sum([]byte(absImgURL)))[:8] // 8-char hex hash
+	urlHash := fmt.Sprintf("%x", sha256.Sum256([]byte(absImgURL)))[:8] // 8-char hex hash
 
 	// 4. Construct Final Filename
 	// Format: sanitizedBaseName_hash.finalExt

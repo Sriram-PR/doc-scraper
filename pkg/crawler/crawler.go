@@ -1047,7 +1047,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 			if readErr != nil {
 				taskLog.Warnf("Failed to read saved markdown file '%s': %v", savedContentPath, readErr)
 			} else {
-				contentHash = utils.CalculateStringMD5(string(markdownBytes))
+				contentHash = utils.CalculateStringSHA256(string(markdownBytes))
 				// Calculate token count if enabled
 				if c.appCfg.EnableTokenCounting {
 					tokenCount = process.CountTokens(string(markdownBytes))
@@ -1077,7 +1077,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 				Title:         pageTitle,                           // Extracted page title
 				Depth:         currentDepth,                        // Crawl depth
 				ProcessedAt:   time.Now(),                          // Timestamp of this successful processing
-				ContentHash:   contentHash,                         // MD5 hash of the Markdown content
+				ContentHash:   contentHash,                         // SHA-256 hash of the Markdown content
 				ImageCount:    imageCountOnPage,                    // Placeholder for image count
 				TokenCount:    tokenCount,                          // Token count for LLM context planning
 			}
@@ -1372,7 +1372,7 @@ func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskL
 	taskLog.Debugf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String())
 
 	// Calculate hash of raw HTML for incremental crawling
-	rawHTMLHash = utils.CalculateStringMD5(string(bodyBytes))
+	rawHTMLHash = utils.CalculateStringSHA256(string(bodyBytes))
 
 	// Parse the HTML content using goquery
 	doc, parseErr := goquery.NewDocumentFromReader(bytes.NewReader(bodyBytes))

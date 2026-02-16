@@ -328,9 +328,9 @@ func TestCompileRegexPatterns_InvalidPattern(t *testing.T) {
 	}
 }
 
-// --- CalculateStringMD5 Tests (actually SHA256) ---
+// --- CalculateStringSHA256 Tests ---
 
-func TestCalculateStringMD5(t *testing.T) {
+func TestCalculateStringSHA256(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -355,17 +355,17 @@ func TestCalculateStringMD5(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := CalculateStringMD5(tt.input)
+			result := CalculateStringSHA256(tt.input)
 			if result != tt.expected {
-				t.Errorf("CalculateStringMD5(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("CalculateStringSHA256(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
 }
 
-// --- CalculateFileMD5 Tests (actually SHA256) ---
+// --- CalculateFileSHA256 Tests ---
 
-func TestCalculateFileMD5(t *testing.T) {
+func TestCalculateFileSHA256(t *testing.T) {
 	// Create a temporary file with known content
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.txt")
@@ -375,26 +375,26 @@ func TestCalculateFileMD5(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	result, err := CalculateFileMD5(tmpFile)
+	result, err := CalculateFileSHA256(tmpFile)
 	if err != nil {
-		t.Fatalf("CalculateFileMD5() unexpected error: %v", err)
+		t.Fatalf("CalculateFileSHA256() unexpected error: %v", err)
 	}
 
-	// Same content as TestCalculateStringMD5 "HelloWorld" case
+	// Same content as TestCalculateStringSHA256 "HelloWorld" case
 	expected := "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
 	if result != expected {
-		t.Errorf("CalculateFileMD5() = %q, want %q", result, expected)
+		t.Errorf("CalculateFileSHA256() = %q, want %q", result, expected)
 	}
 }
 
-func TestCalculateFileMD5_NonExistentFile(t *testing.T) {
-	_, err := CalculateFileMD5("/nonexistent/path/file.txt")
+func TestCalculateFileSHA256_NonExistentFile(t *testing.T) {
+	_, err := CalculateFileSHA256("/nonexistent/path/file.txt")
 	if err == nil {
-		t.Error("CalculateFileMD5() expected error for non-existent file, got nil")
+		t.Error("CalculateFileSHA256() expected error for non-existent file, got nil")
 	}
 }
 
-func TestCalculateFileMD5_EmptyFile(t *testing.T) {
+func TestCalculateFileSHA256_EmptyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "empty.txt")
 
@@ -402,15 +402,15 @@ func TestCalculateFileMD5_EmptyFile(t *testing.T) {
 		t.Fatalf("Failed to create empty test file: %v", err)
 	}
 
-	result, err := CalculateFileMD5(tmpFile)
+	result, err := CalculateFileSHA256(tmpFile)
 	if err != nil {
-		t.Fatalf("CalculateFileMD5() unexpected error: %v", err)
+		t.Fatalf("CalculateFileSHA256() unexpected error: %v", err)
 	}
 
 	// SHA256 of empty content
 	expected := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	if result != expected {
-		t.Errorf("CalculateFileMD5(empty) = %q, want %q", result, expected)
+		t.Errorf("CalculateFileSHA256(empty) = %q, want %q", result, expected)
 	}
 }
 

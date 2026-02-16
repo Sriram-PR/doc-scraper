@@ -53,7 +53,7 @@ type PageMetadata struct {
 	Title         string    `yaml:"title,omitempty"`
 	Depth         int       `yaml:"depth"`
 	ProcessedAt   time.Time `yaml:"processed_at"`
-	ContentHash   string    `yaml:"content_hash,omitempty"` // MD5 or SHA256 hex string
+	ContentHash   string    `yaml:"content_hash,omitempty"` // SHA-256 hex string
 	ImageCount    int       `yaml:"image_count,omitempty"`  // Count of images processed for this page
 	TokenCount    int       `yaml:"token_count,omitempty"`  // Token count for LLM context planning
 	// LinkedFrom    []string  `yaml:"linked_from,omitempty"` // Deferring for now
