@@ -730,6 +730,12 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 		}
 	}
 
+	// Release semaphores early -- HTTP fetch is complete, remaining work is
+	// local computation + image downloads (which acquire their own semaphores).
+	// The deferred cleanupResources() at line 695 remains as safety net for
+	// error paths above this point.
+	cleanupResources()
+
 	// 6. Extract & Queue Links: Find new links on the page and add to priority queue.
 	// Non-critical errors (e.g., DB error during link check) are logged within linkProcessor.
 	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
@@ -826,10 +832,12 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 	cleanupFunc = func() {
 		if acquiredHostSem {
 			c.hostSemPool.Get(host).Release(1)
+			acquiredHostSem = false
 			taskLog.Debugf("Released host semaphore for: %s", host)
 		}
 		if acquiredGlobalSem {
 			c.globalSemaphore.Release(1)
+			acquiredGlobalSem = false
 			taskLog.Debug("Released global semaphore.")
 		}
 	}
