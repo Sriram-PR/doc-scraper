@@ -354,9 +354,17 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 			return
 		}
 
-		// Skip fragments, external links (mailto:, tel:, http:), protocol-relative (//), javascript:
-		if strings.HasPrefix(href, "#") || strings.Contains(href, ":") || strings.HasPrefix(href, "//") {
+		// Skip fragments, protocol-relative URLs (//)
+		if strings.HasPrefix(href, "#") || strings.HasPrefix(href, "//") {
 			return
+		}
+		// Skip scheme-based URIs (mailto:, tel:, http:, javascript:, etc.)
+		// A scheme only appears before the first slash, so colons in paths like /foo:bar are safe.
+		if colonIdx := strings.Index(href, ":"); colonIdx >= 0 {
+			slashIdx := strings.Index(href, "/")
+			if slashIdx < 0 || colonIdx < slashIdx {
+				return
+			}
 		}
 
 		linkURL, parseErr := finalURL.Parse(href)
