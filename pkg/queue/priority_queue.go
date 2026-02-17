@@ -59,11 +59,11 @@ type ThreadSafePriorityQueue struct {
 	mu     sync.Mutex
 	cond   *sync.Cond // Condition variable to wait for items
 	closed bool
-	log    *logrus.Logger // Reference to the main logger
+	log    *logrus.Entry // Reference to the main logger
 }
 
 // NewThreadSafePriorityQueue creates a new thread-safe priority queue
-func NewThreadSafePriorityQueue(logger *logrus.Logger) *ThreadSafePriorityQueue {
+func NewThreadSafePriorityQueue(logger *logrus.Entry) *ThreadSafePriorityQueue {
 	tspq := &ThreadSafePriorityQueue{log: logger}
 	tspq.cond = sync.NewCond(&tspq.mu) // Initialize condition variable
 	heap.Init(&tspq.pq)                // Initialize the underlying heap

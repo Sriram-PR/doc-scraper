@@ -90,7 +90,7 @@ func NewCrawler(
 	appCfg *config.AppConfig,
 	siteCfg *config.SiteConfig,
 	siteKey string, // The key for this site from the config map
-	baseLogger *logrus.Logger, // Base logger from main
+	baseLogger *logrus.Entry, // Base logger from main
 	store storage.VisitedStore,
 	fetcher *fetch.Fetcher,
 	rateLimiter *fetch.RateLimiter,
@@ -106,7 +106,7 @@ func NewCrawlerWithOptions(
 	appCfg *config.AppConfig,
 	siteCfg *config.SiteConfig,
 	siteKey string,
-	baseLogger *logrus.Logger,
+	baseLogger *logrus.Entry,
 	store storage.VisitedStore,
 	fetcher *fetch.Fetcher,
 	rateLimiter *fetch.RateLimiter,
@@ -148,7 +148,7 @@ func NewCrawlerWithOptions(
 		siteOutputDir:              siteOutputDir,
 		compiledDisallowedPatterns: compiledDisallowedPatterns,
 		store:                      store,
-		pq:                         queue.NewThreadSafePriorityQueue(logger.Logger), // Pass contextualized logger
+		pq:                         queue.NewThreadSafePriorityQueue(logger), // Pass contextualized logger
 		fetcher:                    fetcher,
 		rateLimiter:                rateLimiter,
 		globalSemaphore:            globalSem,

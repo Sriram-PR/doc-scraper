@@ -27,7 +27,7 @@ type SiteResult struct {
 // Orchestrator manages parallel crawling of multiple sites
 type Orchestrator struct {
 	appCfg      *config.AppConfig
-	log         *logrus.Logger
+	log         *logrus.Entry
 	siteKeys    []string
 	resume      bool
 
@@ -46,7 +46,7 @@ type Orchestrator struct {
 }
 
 // NewOrchestrator creates a new orchestrator for parallel site crawling
-func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, log *logrus.Logger) *Orchestrator {
+func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, log *logrus.Entry) *Orchestrator {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create shared HTTP client

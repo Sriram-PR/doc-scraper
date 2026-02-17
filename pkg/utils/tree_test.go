@@ -11,10 +11,10 @@ import (
 )
 
 // testTreeLogger returns a logger that discards output
-func testTreeLogger() *logrus.Logger {
+func testTreeLogger() *logrus.Entry {
 	log := logrus.New()
 	log.SetOutput(io.Discard)
-	return log
+	return logrus.NewEntry(log)
 }
 
 // --- GenerateAndSaveTreeStructure Tests ---

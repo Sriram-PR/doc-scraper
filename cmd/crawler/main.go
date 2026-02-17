@@ -349,7 +349,8 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 	}
 
 	// --- Create and run scheduler ---
-	scheduler := watch.NewScheduler(appCfg, siteKeys, interval, log)
+	logEntry := log.WithField("component", "watch")
+	scheduler := watch.NewScheduler(appCfg, siteKeys, interval, logEntry)
 
 	// --- Handle signals for graceful shutdown ---
 	sigChan := make(chan os.Signal, 1)
@@ -494,7 +495,8 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	}
 
 	// --- Create and run orchestrator ---
-	orch := orchestrate.NewOrchestrator(appCfg, siteKeys, isResume, log)
+	logEntry := log.WithField("component", "parallel_crawl")
+	orch := orchestrate.NewOrchestrator(appCfg, siteKeys, isResume, logEntry)
 
 	// --- Handle signals for graceful shutdown ---
 	sigChan := make(chan os.Signal, 1)
@@ -652,9 +654,10 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisit
 	// == Initialize Components ==
 	// ===========================================================
 	log.Info("Initializing components...")
+	logEntry := log.WithField("component", "crawl")
 
 	// --- Storage ---
-	store, err := storage.NewBadgerStore(crawlCtx, appCfg.StateDir, siteCfg.AllowedDomain, isResume, log)
+	store, err := storage.NewBadgerStore(crawlCtx, appCfg.StateDir, siteCfg.AllowedDomain, isResume, logEntry)
 	if err != nil {
 		log.Fatalf("Failed to initialize visited DB: %v", err)
 	}
@@ -663,16 +666,16 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisit
 	go store.RunGC(crawlCtx, 10*time.Minute)
 
 	// --- HTTP Fetching Components ---
-	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, log)
-	fetcher := fetch.NewFetcher(httpClient, appCfg, log)
-	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, log)
+	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, logEntry)
+	fetcher := fetch.NewFetcher(httpClient, appCfg, logEntry)
+	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logEntry)
 
 	// --- Crawler Instance ---
 	crawlerInstance, err := crawler.NewCrawler(
 		appCfg,
 		siteCfg,
 		siteKey,
-		log,
+		logEntry,
 		store,
 		fetcher,
 		rateLimiter,
@@ -700,7 +703,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisit
 		outputFileName := fmt.Sprintf("%s_structure.txt", utils.SanitizeFilename(siteCfg.AllowedDomain))
 		outputFilePath := filepath.Join(appCfg.OutputBaseDir, outputFileName)
 
-		if treeErr := utils.GenerateAndSaveTreeStructure(targetDir, outputFilePath, log); treeErr != nil {
+		if treeErr := utils.GenerateAndSaveTreeStructure(targetDir, outputFilePath, logEntry); treeErr != nil {
 			log.Errorf("Failed to generate or save directory structure: %v", treeErr)
 		} else {
 			log.Infof("Successfully saved directory structure to %s", outputFilePath)

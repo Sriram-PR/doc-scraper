@@ -13,11 +13,11 @@ type RateLimiter struct {
 	hostLastRequest   map[string]time.Time // hostname -> last request attempt time
 	hostLastRequestMu sync.Mutex           // Protects hostLastRequest map
 	defaultDelay      time.Duration        // Fallback delay if specific delay is invalid
-	log               *logrus.Logger
+	log               *logrus.Entry
 }
 
 // NewRateLimiter creates a RateLimiter
-func NewRateLimiter(defaultDelay time.Duration, log *logrus.Logger) *RateLimiter {
+func NewRateLimiter(defaultDelay time.Duration, log *logrus.Entry) *RateLimiter {
 	return &RateLimiter{
 		hostLastRequest: make(map[string]time.Time),
 		defaultDelay:    defaultDelay,

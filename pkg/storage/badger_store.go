@@ -29,13 +29,13 @@ const (
 // BadgerStore implements the VisitedStore interface using BadgerDB
 type BadgerStore struct {
 	db       *badger.DB
-	log      *logrus.Logger
+	log      *logrus.Entry
 	ctx      context.Context // Parent context
 	keyCount atomic.Int64    // Cached key count for O(1) GetVisitedCount
 }
 
 // NewBadgerStore initializes and returns a new BadgerStore
-func NewBadgerStore(ctx context.Context, stateDir, siteDomain string, resume bool, logger *logrus.Logger) (*BadgerStore, error) {
+func NewBadgerStore(ctx context.Context, stateDir, siteDomain string, resume bool, logger *logrus.Entry) (*BadgerStore, error) {
 	store := &BadgerStore{
 		log: logger,
 		ctx: ctx,

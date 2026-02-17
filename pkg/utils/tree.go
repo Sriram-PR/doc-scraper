@@ -20,7 +20,7 @@ const (
 )
 
 // GenerateAndSaveTreeStructure walks the targetDir and writes a text-based directory tree structure to the specified outputFilePath
-func GenerateAndSaveTreeStructure(targetDir, outputFilePath string, log *logrus.Logger) error {
+func GenerateAndSaveTreeStructure(targetDir, outputFilePath string, log *logrus.Entry) error {
 	log.Debugf("Starting tree generation for target: %s", targetDir)
 	// Ensure target directory exists
 	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
@@ -70,7 +70,7 @@ func GenerateAndSaveTreeStructure(targetDir, outputFilePath string, log *logrus.
 }
 
 // walkDirRecursive performs the recursive directory walk and writes entries
-func walkDirRecursive(writer io.Writer, dirPath string, currentIndent string, log *logrus.Logger) error {
+func walkDirRecursive(writer io.Writer, dirPath string, currentIndent string, log *logrus.Entry) error {
 	log.Debugf("Walking directory: %s", dirPath)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {

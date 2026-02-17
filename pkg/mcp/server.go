@@ -29,7 +29,7 @@ type ServerConfig struct {
 type Server struct {
 	mcpServer  *server.MCPServer
 	cfg        *ServerConfig
-	log        *logrus.Logger
+	log        *logrus.Entry
 	jobManager *JobManager
 }
 
@@ -52,7 +52,7 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 	s := &Server{
 		mcpServer:  mcpServer,
 		cfg:        cfg,
-		log:        cfg.Logger,
+		log:        cfg.Logger.WithField("component", "mcp"),
 		jobManager: NewJobManager(),
 	}
 

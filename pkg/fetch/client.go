@@ -11,7 +11,7 @@ import (
 )
 
 // NewClient creates a new HTTP client based on the provided configuration.
-func NewClient(cfg config.HTTPClientConfig, log *logrus.Logger) *http.Client {
+func NewClient(cfg config.HTTPClientConfig, log *logrus.Entry) *http.Client {
 	log.Info("Initializing HTTP client...")
 
 	// Create custom dialer with configured timeouts

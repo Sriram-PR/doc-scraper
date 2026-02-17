@@ -12,10 +12,10 @@ import (
 )
 
 // testLogger returns a logger that discards output
-func testLogger() *logrus.Logger {
+func testLogger() *logrus.Entry {
 	log := logrus.New()
 	log.SetOutput(io.Discard)
-	return log
+	return logrus.NewEntry(log)
 }
 
 // --- Basic Operations Tests ---

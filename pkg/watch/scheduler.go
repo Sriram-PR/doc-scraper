@@ -18,7 +18,7 @@ type Scheduler struct {
 	appCfg       *config.AppConfig
 	siteKeys     []string
 	interval     time.Duration
-	log          *logrus.Logger
+	log          *logrus.Entry
 	stateManager *StateManager
 
 	ctx    context.Context
@@ -27,7 +27,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new watch scheduler
-func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Duration, log *logrus.Logger) *Scheduler {
+func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Duration, log *logrus.Entry) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Scheduler{

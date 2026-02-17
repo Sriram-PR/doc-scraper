@@ -21,11 +21,11 @@ import (
 type Fetcher struct {
 	client *http.Client     // The configured HTTP client to use for requests
 	cfg    *config.AppConfig // Application config, needed primarily for retry settings
-	log    *logrus.Logger
+	log    *logrus.Entry
 }
 
 // NewFetcher creates a new Fetcher instance
-func NewFetcher(client *http.Client, cfg *config.AppConfig, log *logrus.Logger) *Fetcher {
+func NewFetcher(client *http.Client, cfg *config.AppConfig, log *logrus.Entry) *Fetcher {
 	return &Fetcher{
 		client: client,
 		cfg:    cfg,
