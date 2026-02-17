@@ -120,7 +120,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	defer siteCancel()
 
 	// Create site-specific store
-	store, err := storage.NewBadgerStore(siteCtx, o.appCfg.StateDir, siteCfg.AllowedDomain, false, o.log)
+	store, err := storage.NewBadgerStore(siteCtx, o.appCfg.StateDir, siteCfg.AllowedDomain, o.resume, o.log)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create store for '%s': %w", siteKey, err)
 		result.Success = false

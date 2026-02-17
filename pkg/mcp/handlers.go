@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -292,7 +293,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 	fetcher := fetch.NewFetcher(httpClient, s.cfg.AppConfig, s.log)
 	rateLimiter := fetch.NewRateLimiter(time.Second, s.log)
 
-	// Open store
+	// Open store (always fresh for MCP jobs, never resume)
 	store, err := storage.NewBadgerStore(jobCtx, s.cfg.AppConfig.StateDir, siteCfg.AllowedDomain, false, s.log)
 	if err != nil {
 		s.jobManager.UpdateStatus(job.ID, JobStatusFailed, fmt.Sprintf("failed to open store: %v", err))
@@ -349,25 +350,25 @@ func (s *Server) searchJSONL(query string, sites map[string]*config.SiteConfig, 
 		siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
 		jsonlPath := filepath.Join(siteOutputDir, config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig))
 
-		// Read JSONL file
-		data, err := os.ReadFile(jsonlPath)
+		// Stream JSONL file line-by-line to avoid loading it all into memory
+		file, err := os.Open(jsonlPath)
 		if err != nil {
 			continue // Skip if file doesn't exist
 		}
 
-		// Parse each line
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // up to 10MB per line
+
+		for scanner.Scan() {
 			if len(results) >= maxResults {
 				break
 			}
 
-			line = strings.TrimSpace(line)
+			line := strings.TrimSpace(scanner.Text())
 			if line == "" {
 				continue
 			}
 
-			// Simple JSON parsing for search
 			var page models.PageJSONL
 			if err := parseJSONLine(line, &page); err != nil {
 				continue
@@ -407,6 +408,7 @@ func (s *Server) searchJSONL(query string, sites map[string]*config.SiteConfig, 
 				})
 			}
 		}
+		file.Close()
 
 		if len(results) >= maxResults {
 			break
