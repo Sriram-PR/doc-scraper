@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
@@ -135,8 +136,16 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(fmt.Sprintf("content selector '%s' not found on page", contentSelector)), nil
 	}
 
-	// Get text content (simplified - not full markdown conversion)
-	content := contentSelection.First().Text()
+	// Convert HTML content to markdown
+	contentHTML, err := contentSelection.First().Html()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to extract HTML content: %v", err)), nil
+	}
+	converter := md.NewConverter("", true, nil)
+	content, err := converter.ConvertString(contentHTML)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to convert to markdown: %v", err)), nil
+	}
 	content = strings.TrimSpace(content)
 
 	// Calculate metrics
@@ -476,58 +485,11 @@ func parseJSONLine(line string, page *models.PageJSONL) error {
 	return json.Unmarshal([]byte(line), page)
 }
 
-// formatJSON formats a map as JSON string
+// formatJSON formats data as an indented JSON string
 func formatJSON(data map[string]interface{}) string {
-	// Simple JSON formatting
-	var sb strings.Builder
-	sb.WriteString("{\n")
-
-	keys := make([]string, 0, len(data))
-	for k := range data {
-		keys = append(keys, k)
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("{\"error\": %q}", err.Error())
 	}
-	sort.Strings(keys)
-
-	for i, k := range keys {
-		v := data[k]
-		sb.WriteString(fmt.Sprintf("  %q: ", k))
-
-		switch val := v.(type) {
-		case string:
-			sb.WriteString(fmt.Sprintf("%q", val))
-		case int, int64, float64:
-			sb.WriteString(fmt.Sprintf("%v", val))
-		case bool:
-			sb.WriteString(fmt.Sprintf("%v", val))
-		case []map[string]interface{}:
-			sb.WriteString("[\n")
-			for j, item := range val {
-				sb.WriteString("    " + strings.ReplaceAll(formatJSON(item), "\n", "\n    "))
-				if j < len(val)-1 {
-					sb.WriteString(",")
-				}
-				sb.WriteString("\n")
-			}
-			sb.WriteString("  ]")
-		case []string:
-			sb.WriteString("[")
-			for j, s := range val {
-				sb.WriteString(fmt.Sprintf("%q", s))
-				if j < len(val)-1 {
-					sb.WriteString(", ")
-				}
-			}
-			sb.WriteString("]")
-		default:
-			sb.WriteString(fmt.Sprintf("%v", val))
-		}
-
-		if i < len(keys)-1 {
-			sb.WriteString(",")
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("}")
-	return sb.String()
+	return string(b)
 }
