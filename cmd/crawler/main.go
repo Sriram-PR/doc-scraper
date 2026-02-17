@@ -418,14 +418,8 @@ func doListSites(configPath string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// executeCrawl contains the main crawl logic
-// executeParallelCrawl handles crawling multiple sites in parallel
-func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, pprofAddr string, isResume, incrementalMode, fullMode bool) {
-	// --- Set profiling rates ---
-	runtime.SetBlockProfileRate(1000)
-	runtime.SetMutexProfileFraction(1000)
-
-	// --- Logger Setup ---
+// setupLogger creates a configured logrus.Logger with the given log level.
+func setupLogger(logLevelStr string) *logrus.Logger {
 	log := logrus.New()
 	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true, TimestampFormat: "15:04:05.000"})
 	log.SetLevel(logrus.InfoLevel)
@@ -438,28 +432,72 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 		log.Infof("Setting log level to: %s", level.String())
 	}
 
-	// --- Load Configuration ---
+	return log
+}
+
+// loadAndValidateConfig loads the config file, validates it, and logs warnings.
+func loadAndValidateConfig(configFile string, log *logrus.Logger) *config.AppConfig {
 	log.Infof("Loading configuration from %s", configFile)
 	appCfg, err := loadConfig(configFile)
 	if err != nil {
 		log.Fatalf("Config error: %v", err)
 	}
 
-	// --- Validate App Config ---
 	appWarnings, _ := appCfg.Validate()
 	for _, w := range appWarnings {
 		log.Warn(w)
 	}
 
-	// --- Apply incremental mode override ---
-	if incrementalMode {
+	return appCfg
+}
+
+// applyIncrementalOverride applies CLI flag overrides for incremental/full crawl mode.
+func applyIncrementalOverride(appCfg *config.AppConfig, incremental, full bool, log *logrus.Logger) {
+	if incremental {
 		appCfg.EnableIncremental = true
 		log.Info("Incremental mode enabled via CLI flag")
 	}
-	if fullMode {
+	if full {
 		appCfg.EnableIncremental = false
 		log.Info("Full crawl mode forced via CLI flag")
 	}
+}
+
+// startPprof starts the pprof HTTP server if addr is non-empty.
+func startPprof(addr string, log *logrus.Logger) {
+	if addr != "" {
+		go func() {
+			log.Infof("Starting pprof server at http://%s/debug/pprof/", addr)
+			if err := http.ListenAndServe(addr, nil); err != nil {
+				log.Errorf("pprof server error: %v", err)
+			}
+		}()
+	}
+}
+
+// validateSiteConfigs validates the configuration for each site key and logs warnings.
+func validateSiteConfigs(appCfg *config.AppConfig, siteKeys []string, log *logrus.Logger) {
+	for _, key := range siteKeys {
+		siteCfg := appCfg.Sites[key]
+		siteWarnings, err := siteCfg.Validate()
+		if err != nil {
+			log.Fatalf("Site '%s' configuration error: %v", key, err)
+		}
+		for _, w := range siteWarnings {
+			log.Warnf("[%s] %s", key, w)
+		}
+	}
+}
+
+// executeCrawl contains the main crawl logic
+// executeParallelCrawl handles crawling multiple sites in parallel
+func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, pprofAddr string, isResume, incrementalMode, fullMode bool) {
+	runtime.SetBlockProfileRate(1000)
+	runtime.SetMutexProfileFraction(1000)
+
+	log := setupLogger(logLevelStr)
+	appCfg := loadAndValidateConfig(configFile, log)
+	applyIncrementalOverride(appCfg, incrementalMode, fullMode, log)
 
 	// --- Determine site keys ---
 	if allSites {
@@ -472,27 +510,8 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 		log.Fatalf("Invalid site keys: %v", err)
 	}
 
-	// --- Validate each site config ---
-	for _, key := range siteKeys {
-		siteCfg := appCfg.Sites[key]
-		siteWarnings, err := siteCfg.Validate()
-		if err != nil {
-			log.Fatalf("Site '%s' configuration error: %v", key, err)
-		}
-		for _, w := range siteWarnings {
-			log.Warnf("[%s] %s", key, w)
-		}
-	}
-
-	// --- Optional pprof server ---
-	if pprofAddr != "" {
-		go func() {
-			log.Infof("Starting pprof server at http://%s/debug/pprof/", pprofAddr)
-			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
-				log.Errorf("pprof server error: %v", err)
-			}
-		}()
-	}
+	validateSiteConfigs(appCfg, siteKeys, log)
+	startPprof(pprofAddr, log)
 
 	// --- Create and run orchestrator ---
 	logEntry := log.WithField("component", "parallel_crawl")
@@ -526,64 +545,24 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 }
 
 func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisitedLog, isResume, incrementalMode, fullMode bool) {
-	// --- Set profiling rates ---
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
 
-	// --- Logger Setup ---
-	log := logrus.New()
-	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true, TimestampFormat: "15:04:05.000"})
-	log.SetLevel(logrus.InfoLevel)
-
-	level, err := logrus.ParseLevel(logLevelStr)
-	if err != nil {
-		log.Warnf("Invalid log level '%s', using default 'info'. Error: %v", logLevelStr, err)
-	} else {
-		log.SetLevel(level)
-		log.Infof("Setting log level to: %s", level.String())
-	}
-
-	// --- Load Configuration ---
-	log.Infof("Loading configuration from %s", configFile)
-	appCfg, err := loadConfig(configFile)
-	if err != nil {
-		log.Fatalf("Config error: %v", err)
-	}
-
-	// --- Validate App Config ---
-	appWarnings, _ := appCfg.Validate()
-	for _, w := range appWarnings {
-		log.Warn(w)
-	}
-
+	log := setupLogger(logLevelStr)
+	appCfg := loadAndValidateConfig(configFile, log)
 	logAppConfig(appCfg, log)
 
-	// --- Get and Validate Site Config ---
+	// --- Get Site Config ---
 	siteCfg, ok := appCfg.Sites[siteKey]
 	if !ok {
 		log.Fatalf("Error: Site key '%s' not found in config file '%s'", siteKey, configFile)
 	}
 
-	siteWarnings, err := siteCfg.Validate()
-	if err != nil {
-		log.Fatalf("Site '%s' configuration error: %v", siteKey, err)
-	}
-	for _, w := range siteWarnings {
-		log.Warnf("[%s] %s", siteKey, w)
-	}
+	validateSiteConfigs(appCfg, []string{siteKey}, log)
 	log.Infof("Site Config for '%s': Domain: %s, Prefix: %s, ContentSel: '%s', ...",
 		siteKey, siteCfg.AllowedDomain, siteCfg.AllowedPathPrefix, siteCfg.ContentSelector)
 
-	// --- Apply Incremental Mode Override ---
-	// CLI flags override config file settings
-	if incrementalMode {
-		appCfg.EnableIncremental = true
-		log.Info("Incremental crawling enabled via CLI flag")
-	}
-	if fullMode {
-		appCfg.EnableIncremental = false
-		log.Info("Full crawl mode enabled via CLI flag (incremental disabled)")
-	}
+	applyIncrementalOverride(appCfg, incrementalMode, fullMode, log)
 
 	// Log the effective incremental mode
 	if appCfg.EnableIncremental {
@@ -592,22 +571,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisit
 		log.Info("Incremental crawling: DISABLED - will process all pages")
 	}
 
-	// --- Start pprof HTTP Server (Optional) ---
-	if pprofAddr != "" {
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Errorf("PANIC in pprof server: %v", r)
-				}
-			}()
-			log.Infof("Starting pprof HTTP server on: http://%s/debug/pprof/", pprofAddr)
-			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
-				log.Errorf("Pprof server failed to start on %s: %v", pprofAddr, err)
-			}
-		}()
-	} else {
-		log.Info("Pprof server disabled (no -pprof address provided).")
-	}
+	startPprof(pprofAddr, log)
 
 	// ===========================================================
 	// == Setup Global Context & Signal Handling ==
