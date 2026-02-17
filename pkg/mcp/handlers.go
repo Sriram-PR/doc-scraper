@@ -445,35 +445,45 @@ func (s *Server) getLastCrawledTime(siteKey string, siteCfg *config.SiteConfig) 
 	return metadata.CrawlEndTime
 }
 
-// extractSnippet extracts a snippet around the query match
+// extractSnippet extracts a snippet around the query match, slicing on rune
+// boundaries so multi-byte UTF-8 characters are never split.
 func extractSnippet(content, query string, maxLen int) string {
-	contentLower := strings.ToLower(content)
-	queryLower := strings.ToLower(query)
+	runes := []rune(content)
+	queryRunes := []rune(strings.ToLower(query))
+	contentLowerRunes := []rune(strings.ToLower(content))
 
-	idx := strings.Index(contentLower, queryLower)
+	// Find match position in runes
+	idx := -1
+	for i := 0; i <= len(contentLowerRunes)-len(queryRunes); i++ {
+		if string(contentLowerRunes[i:i+len(queryRunes)]) == string(queryRunes) {
+			idx = i
+			break
+		}
+	}
+
 	if idx == -1 {
-		if len(content) > maxLen {
-			return content[:maxLen] + "..."
+		if len(runes) > maxLen {
+			return string(runes[:maxLen]) + "..."
 		}
 		return content
 	}
 
-	// Calculate start and end positions
+	// Calculate start and end positions in rune space
 	start := idx - maxLen/2
 	if start < 0 {
 		start = 0
 	}
 
-	end := idx + len(query) + maxLen/2
-	if end > len(content) {
-		end = len(content)
+	end := idx + len(queryRunes) + maxLen/2
+	if end > len(runes) {
+		end = len(runes)
 	}
 
-	snippet := content[start:end]
+	snippet := string(runes[start:end])
 	if start > 0 {
 		snippet = "..." + snippet
 	}
-	if end < len(content) {
+	if end < len(runes) {
 		snippet = snippet + "..."
 	}
 

@@ -645,8 +645,10 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 			taskLog.Warnf("URL '%s' normalization failed or was not set; cannot update DB status.", currentURL)
 		}
 
-		c.processedCounter.Add(1) // Increment global counter for processed tasks
-		c.wg.Done()               // Decrement main WaitGroup, signaling this task is finished
+		if !skipped {
+			c.processedCounter.Add(1) // Increment global counter for actually processed tasks
+		}
+		c.wg.Done() // Decrement main WaitGroup, signaling this task is finished
 	}() // End defer.
 
 	// Helper function to store the first critical error encountered in the pipeline.
