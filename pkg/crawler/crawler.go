@@ -44,6 +44,7 @@ type Crawler struct {
 	log                        *logrus.Entry // Logger contextualized with site_key
 	appCfg                     *config.AppConfig
 	siteCfg                    *config.SiteConfig
+	resolved                   *config.ResolvedSiteConfig
 	siteKey                    string // Site identifier from config
 	siteOutputDir              string // Base output directory for *this specific site's* files
 	compiledDisallowedPatterns []*regexp.Regexp
@@ -51,7 +52,7 @@ type Crawler struct {
 	// Core components
 	store            storage.VisitedStore
 	pq               *queue.ThreadSafePriorityQueue
-	fetcher          *fetch.Fetcher
+	fetcher          fetch.HTTPFetcher
 	robotsHandler    *fetch.RobotsHandler
 	rateLimiter      *fetch.RateLimiter
 	sitemapProcessor *sitemap.SitemapProcessor
@@ -92,7 +93,7 @@ func NewCrawler(
 	siteKey string, // The key for this site from the config map
 	baseLogger *logrus.Entry, // Base logger from main
 	store storage.VisitedStore,
-	fetcher *fetch.Fetcher,
+	fetcher fetch.HTTPFetcher,
 	rateLimiter *fetch.RateLimiter,
 	crawlCtx context.Context,
 	cancelCrawl context.CancelFunc,
@@ -108,7 +109,7 @@ func NewCrawlerWithOptions(
 	siteKey string,
 	baseLogger *logrus.Entry,
 	store storage.VisitedStore,
-	fetcher *fetch.Fetcher,
+	fetcher fetch.HTTPFetcher,
 	rateLimiter *fetch.RateLimiter,
 	crawlCtx context.Context,
 	cancelCrawl context.CancelFunc,
@@ -140,10 +141,13 @@ func NewCrawlerWithOptions(
 
 	hostSemPool := fetch.NewHostSemaphorePool(appCfg.MaxRequestsPerHost, logger)
 
+	resolved := config.NewResolvedSiteConfig(siteCfg, appCfg)
+
 	c := &Crawler{
 		log:                        logger,
 		appCfg:                     appCfg,
 		siteCfg:                    siteCfg,
+		resolved:                   resolved,
 		siteKey:                    siteKey,
 		siteOutputDir:              siteOutputDir,
 		compiledDisallowedPatterns: compiledDisallowedPatterns,
@@ -160,7 +164,7 @@ func NewCrawlerWithOptions(
 	}
 
 	// --- Initialize output manager (files opened later in Run after directory cleanup) ---
-	c.output = NewOutputManager(logger, appCfg, siteCfg, siteKey, siteOutputDir)
+	c.output = NewOutputManager(logger, resolved, siteCfg, appCfg.EnableTokenCounting, siteKey, siteOutputDir)
 
 	// --- Initialize Tokenizer for Token Counting (if enabled) ---
 	if c.appCfg.EnableTokenCounting {
@@ -179,7 +183,7 @@ func NewCrawlerWithOptions(
 	// Pass the crawler's contextualized logger to these components
 	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c, appCfg, logger)
 	c.sitemapProcessor = sitemap.NewSitemapProcessor(c.sitemapQueue, c.pq, c.store, c.fetcher, c.rateLimiter, c.globalSemaphore, c.compiledDisallowedPatterns, c.siteCfg, c.appCfg, logger, &c.wg)
-	c.imageProcessor = process.NewImageProcessor(c.store, c.fetcher, c.robotsHandler, c.rateLimiter, c.globalSemaphore, c.hostSemPool, c.appCfg, logger)
+	c.imageProcessor = process.NewImageProcessor(c.store, c.fetcher, c.robotsHandler, c.rateLimiter, c.globalSemaphore, c.hostSemPool, c.resolved, c.appCfg, logger)
 	c.contentProcessor = process.NewContentProcessor(c.imageProcessor, c.appCfg, logger)
 	c.linkProcessor = process.NewLinkProcessor(c.store, c.pq, c.compiledDisallowedPatterns, logger)
 
@@ -804,9 +808,8 @@ func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *logrus
 	}
 
 	// Robots.txt Check
-	userAgent := config.GetEffectiveUserAgent(c.siteCfg, c.appCfg)
-	if !c.robotsHandler.TestAgent(parsedURL, userAgent, c.crawlCtx) { // TestAgent handles fetching/caching robots.txt
-		err := fmt.Errorf("%w: URL '%s' disallowed for agent '%s'", utils.ErrRobotsDisallowed, parsedURL.RequestURI(), userAgent)
+	if !c.robotsHandler.TestAgent(parsedURL, c.resolved.UserAgent, c.crawlCtx) { // TestAgent handles fetching/caching robots.txt
+		err := fmt.Errorf("%w: URL '%s' disallowed for agent '%s'", utils.ErrRobotsDisallowed, parsedURL.RequestURI(), c.resolved.UserAgent)
 		taskLog.Warn(err.Error()) // Log warning
 		return err                // Return error to stop processing
 	}
@@ -857,13 +860,8 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 	taskLog.Debug("Acquired global semaphore.")
 
 	// 3. Apply Rate Limit Delay (after acquiring semaphores to avoid delaying semaphore acquisition)
-	// Determine effective delay: site-specific, then global, then none if both are zero/negative.
-	delayPerHost := c.siteCfg.DelayPerHost
-	if delayPerHost <= 0 { // If site-specific delay is not positive, use global default
-		delayPerHost = c.appCfg.DefaultDelayPerHost
-	}
-	if delayPerHost > 0 { // Only apply delay if it's positive
-		c.rateLimiter.ApplyDelay(host, delayPerHost) // ApplyDelay logs if it sleeps
+	if c.resolved.DelayPerHost > 0 {
+		c.rateLimiter.ApplyDelay(host, c.resolved.DelayPerHost)
 	}
 
 	taskLog.Debug("Resource acquisition successful.")
@@ -876,7 +874,6 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 // On error, it ensures resp.Body is closed if resp is not nil.
 func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *url.URL, taskLog *logrus.Entry) (finalURL *url.URL, resp *http.Response, err error) {
 	taskLog.Debugf("Fetching page: %s", reqURLString)
-	userAgent := config.GetEffectiveUserAgent(c.siteCfg, c.appCfg)
 
 	// Create HTTP request with context for cancellation
 	req, reqErr := http.NewRequestWithContext(c.crawlCtx, "GET", reqURLString, nil)
@@ -884,7 +881,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		// Wrap error for clarity
 		return nil, nil, fmt.Errorf("%w: creating request for '%s': %w", utils.ErrRequestCreation, reqURLString, reqErr)
 	}
-	req.Header.Set("User-Agent", userAgent) // Set User-Agent header
+	req.Header.Set("User-Agent", c.resolved.UserAgent) // Set User-Agent header
 
 	// Fetch using the configured Fetcher component (handles retries, HTTP errors)
 	resp, fetchErr := c.fetcher.FetchWithRetry(req, c.crawlCtx)
@@ -936,7 +933,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	if finalHost != originalParsedURL.Hostname() { // If redirected to a different host (within allowed_domain)
 		taskLog.Debugf("Host changed due to redirect (%s -> %s), re-checking robots.txt for final URL.",
 			originalParsedURL.Hostname(), finalHost)
-		if !c.robotsHandler.TestAgent(finalURL, userAgent, c.crawlCtx) {
+		if !c.robotsHandler.TestAgent(finalURL, c.resolved.UserAgent, c.crawlCtx) {
 			err = fmt.Errorf("%w: redirected URL '%s' disallowed by robots.txt on new host",
 				utils.ErrRobotsDisallowed, finalURL.String())
 			io.Copy(io.Discard, resp.Body)
@@ -965,7 +962,7 @@ func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskL
 	defer resp.Body.Close() // Ensure response body is closed when this function returns
 
 	// Read response body with size limit to prevent OOM on oversized pages
-	maxPageSize := config.GetEffectiveMaxPageSize(c.appCfg)
+	maxPageSize := c.resolved.MaxPageSizeBytes
 	limitedReader := io.LimitReader(resp.Body, maxPageSize+1) // +1 to detect exceeding the limit
 	bodyBytes, readErr := io.ReadAll(limitedReader)
 	if readErr != nil {

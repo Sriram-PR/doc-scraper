@@ -32,7 +32,7 @@ type Orchestrator struct {
 	resume      bool
 
 	// Shared resources
-	httpClient      *fetch.Fetcher
+	httpClient      fetch.HTTPFetcher
 	rateLimiter     *fetch.RateLimiter
 	globalSemaphore *semaphore.Weighted
 

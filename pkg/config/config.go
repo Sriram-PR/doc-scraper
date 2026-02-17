@@ -226,3 +226,52 @@ func GetEffectiveChunkingOutputFilename(siteCfg *SiteConfig, appCfg *AppConfig) 
 	}
 	return "chunks.jsonl"
 }
+
+// getEffectiveDelayPerHost returns the site-specific delay if positive, else the global default.
+func getEffectiveDelayPerHost(siteCfg *SiteConfig, appCfg *AppConfig) time.Duration {
+	if siteCfg.DelayPerHost > 0 {
+		return siteCfg.DelayPerHost
+	}
+	return appCfg.DefaultDelayPerHost
+}
+
+// ResolvedSiteConfig holds all effective configuration values for a site,
+// resolved once from site-specific overrides and app-level defaults.
+type ResolvedSiteConfig struct {
+	UserAgent               string
+	OutputMappingFilename   string
+	MetadataYAMLFilename    string
+	JSONLOutputFilename     string
+	ChunkingOutputFilename  string
+	DelayPerHost            time.Duration
+	MaxPageSizeBytes        int64
+	MaxImageSizeBytes       int64
+	SkipImages              bool
+	EnableOutputMapping     bool
+	EnableMetadataYAML      bool
+	EnableJSONLOutput       bool
+	ChunkingEnabled         bool
+	ChunkingMaxSize         int
+	ChunkingOverlap         int
+}
+
+// NewResolvedSiteConfig resolves all effective configuration values for a site.
+func NewResolvedSiteConfig(siteCfg *SiteConfig, appCfg *AppConfig) *ResolvedSiteConfig {
+	return &ResolvedSiteConfig{
+		UserAgent:              GetEffectiveUserAgent(siteCfg, appCfg),
+		OutputMappingFilename:  GetEffectiveOutputMappingFilename(siteCfg, appCfg),
+		MetadataYAMLFilename:   GetEffectiveMetadataYAMLFilename(siteCfg, appCfg),
+		JSONLOutputFilename:    GetEffectiveJSONLOutputFilename(siteCfg, appCfg),
+		ChunkingOutputFilename: GetEffectiveChunkingOutputFilename(siteCfg, appCfg),
+		DelayPerHost:           getEffectiveDelayPerHost(siteCfg, appCfg),
+		MaxPageSizeBytes:       GetEffectiveMaxPageSize(appCfg),
+		MaxImageSizeBytes:      GetEffectiveMaxImageSize(siteCfg, appCfg),
+		SkipImages:             GetEffectiveSkipImages(siteCfg, appCfg),
+		EnableOutputMapping:    GetEffectiveEnableOutputMapping(siteCfg, appCfg),
+		EnableMetadataYAML:     GetEffectiveEnableMetadataYAML(siteCfg, appCfg),
+		EnableJSONLOutput:      GetEffectiveEnableJSONLOutput(siteCfg, appCfg),
+		ChunkingEnabled:        GetEffectiveChunkingEnabled(siteCfg, appCfg),
+		ChunkingMaxSize:        GetEffectiveChunkingMaxSize(siteCfg, appCfg),
+		ChunkingOverlap:        GetEffectiveChunkingOverlap(siteCfg, appCfg),
+	}
+}

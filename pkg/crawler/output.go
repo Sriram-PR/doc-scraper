@@ -21,11 +21,12 @@ import (
 
 // OutputManager owns all output file handles and metadata collection for a crawl.
 type OutputManager struct {
-	log           *logrus.Entry
-	appCfg        *config.AppConfig
-	siteCfg       *config.SiteConfig
-	siteKey       string
-	siteOutputDir string
+	log                *logrus.Entry
+	resolved           *config.ResolvedSiteConfig
+	siteCfg            *config.SiteConfig // retained for YAML metadata marshaling
+	enableTokenCounting bool
+	siteKey            string
+	siteOutputDir      string
 
 	// TSV mapping
 	mappingFile     *os.File
@@ -50,11 +51,12 @@ type OutputManager struct {
 
 // NewOutputManager creates an OutputManager without opening files.
 // Call OpenFiles after the output directory is ready (e.g. after cleanSiteOutputDir).
-func NewOutputManager(log *logrus.Entry, appCfg *config.AppConfig, siteCfg *config.SiteConfig, siteKey, siteOutputDir string) *OutputManager {
+func NewOutputManager(log *logrus.Entry, resolved *config.ResolvedSiteConfig, siteCfg *config.SiteConfig, enableTokenCounting bool, siteKey, siteOutputDir string) *OutputManager {
 	return &OutputManager{
 		log:                   log,
-		appCfg:                appCfg,
+		resolved:              resolved,
 		siteCfg:               siteCfg,
+		enableTokenCounting:   enableTokenCounting,
 		siteKey:               siteKey,
 		siteOutputDir:         siteOutputDir,
 		collectedPageMetadata: make([]models.PageMetadata, 0),
@@ -65,9 +67,8 @@ func NewOutputManager(log *logrus.Entry, appCfg *config.AppConfig, siteCfg *conf
 // Must be called after the output directory exists and has been cleaned if needed.
 func (om *OutputManager) OpenFiles(resume bool) {
 	// --- Initialize Simple TSV Mapping File (if enabled) ---
-	if config.GetEffectiveEnableOutputMapping(om.siteCfg, om.appCfg) {
-		tsvMappingFilename := config.GetEffectiveOutputMappingFilename(om.siteCfg, om.appCfg)
-		om.mappingFilePath = filepath.Join(om.siteOutputDir, tsvMappingFilename)
+	if om.resolved.EnableOutputMapping {
+		om.mappingFilePath = filepath.Join(om.siteOutputDir, om.resolved.OutputMappingFilename)
 		om.log.Infof("Simple TSV URL-to-FilePath mapping enabled. Output file: %s", om.mappingFilePath)
 		om.mappingFile = openOutputFile(om.log, om.mappingFilePath, "TSV mapping", resume)
 	} else {
@@ -75,9 +76,8 @@ func (om *OutputManager) OpenFiles(resume bool) {
 	}
 
 	// --- Initialize JSONL Output File (if enabled) ---
-	if config.GetEffectiveEnableJSONLOutput(om.siteCfg, om.appCfg) {
-		jsonlFilename := config.GetEffectiveJSONLOutputFilename(om.siteCfg, om.appCfg)
-		om.jsonlFilePath = filepath.Join(om.siteOutputDir, jsonlFilename)
+	if om.resolved.EnableJSONLOutput {
+		om.jsonlFilePath = filepath.Join(om.siteOutputDir, om.resolved.JSONLOutputFilename)
 		om.log.Infof("JSONL output enabled. Output file: %s", om.jsonlFilePath)
 		om.jsonlFile = openOutputFile(om.log, om.jsonlFilePath, "JSONL", resume)
 	} else {
@@ -85,9 +85,8 @@ func (om *OutputManager) OpenFiles(resume bool) {
 	}
 
 	// --- Initialize Chunks Output File (if chunking enabled) ---
-	if config.GetEffectiveChunkingEnabled(om.siteCfg, om.appCfg) {
-		chunksFilename := config.GetEffectiveChunkingOutputFilename(om.siteCfg, om.appCfg)
-		om.chunksFilePath = filepath.Join(om.siteOutputDir, chunksFilename)
+	if om.resolved.ChunkingEnabled {
+		om.chunksFilePath = filepath.Join(om.siteOutputDir, om.resolved.ChunkingOutputFilename)
 		om.log.Infof("Chunking enabled. Output file: %s", om.chunksFilePath)
 		om.chunksFile = openOutputFile(om.log, om.chunksFilePath, "chunks", resume)
 	} else {
@@ -137,14 +136,14 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 	om.writeToMappingFile(finalURL, savedContentPath, taskLog)
 
 	// Check if we need markdown content for metadata or JSONL output
-	enableYAML := config.GetEffectiveEnableMetadataYAML(om.siteCfg, om.appCfg)
-	enableJSONL := config.GetEffectiveEnableJSONLOutput(om.siteCfg, om.appCfg)
+	enableYAML := om.resolved.EnableMetadataYAML
+	enableJSONL := om.resolved.EnableJSONLOutput
 
 	var contentHash string
 	var tokenCount int
 	if (enableYAML || enableJSONL) && len(markdownBytes) > 0 {
 		contentHash = utils.CalculateStringSHA256(string(markdownBytes))
-		if om.appCfg.EnableTokenCounting {
+		if om.enableTokenCounting {
 			tokenCount = process.CountTokens(string(markdownBytes))
 		}
 	}
@@ -196,11 +195,10 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 	}
 
 	// Write chunks output
-	enableChunking := config.GetEffectiveChunkingEnabled(om.siteCfg, om.appCfg)
-	if enableChunking && om.chunksFile != nil && markdownBytes != nil {
+	if om.resolved.ChunkingEnabled && om.chunksFile != nil && markdownBytes != nil {
 		chunkCfg := process.ChunkerConfig{
-			MaxChunkSize: config.GetEffectiveChunkingMaxSize(om.siteCfg, om.appCfg),
-			ChunkOverlap: config.GetEffectiveChunkingOverlap(om.siteCfg, om.appCfg),
+			MaxChunkSize: om.resolved.ChunkingMaxSize,
+			ChunkOverlap: om.resolved.ChunkingOverlap,
 		}
 
 		chunks, chunkErr := process.ChunkMarkdown(string(markdownBytes), chunkCfg)
@@ -339,13 +337,12 @@ func (om *OutputManager) writeToChunksFile(chunks []models.ChunkJSONL, taskLog *
 
 // writeMetadataYAML writes all collected page metadata to a YAML file.
 func (om *OutputManager) writeMetadataYAML() error {
-	if !config.GetEffectiveEnableMetadataYAML(om.siteCfg, om.appCfg) {
+	if !om.resolved.EnableMetadataYAML {
 		om.log.Info("YAML metadata output is disabled.")
 		return nil
 	}
 
-	filename := config.GetEffectiveMetadataYAMLFilename(om.siteCfg, om.appCfg)
-	yamlFilePath := filepath.Join(om.siteOutputDir, filename)
+	yamlFilePath := filepath.Join(om.siteOutputDir, om.resolved.MetadataYAMLFilename)
 
 	om.log.Infof("Preparing to write crawl metadata to: %s", yamlFilePath)
 

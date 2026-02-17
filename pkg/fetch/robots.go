@@ -21,7 +21,7 @@ type SitemapDiscoverer interface {
 
 // RobotsHandler manages fetching, parsing, caching, and checking robots.txt data
 type RobotsHandler struct {
-	fetcher         *Fetcher
+	fetcher         HTTPFetcher
 	rateLimiter     *RateLimiter
 	robotsCache     map[string]*robotstxt.RobotsData // hostname -> parsed data (or nil)
 	robotsCacheMu   sync.Mutex
@@ -33,7 +33,7 @@ type RobotsHandler struct {
 
 // NewRobotsHandler creates a RobotsHandler
 func NewRobotsHandler(
-	fetcher *Fetcher,
+	fetcher HTTPFetcher,
 	rateLimiter *RateLimiter,
 	globalSemaphore *semaphore.Weighted,
 	sitemapNotifier SitemapDiscoverer,

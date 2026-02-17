@@ -49,23 +49,25 @@ type ImageDownloadTask struct {
 // ImageProcessor handles the orchestration of image downloading and processing
 type ImageProcessor struct {
 	store           storage.ImageStore          // DB interaction
-	fetcher         *fetch.Fetcher              // HTTP fetching
+	fetcher         fetch.HTTPFetcher           // HTTP fetching
 	robotsHandler   *fetch.RobotsHandler        // Robots checks
 	rateLimiter     *fetch.RateLimiter          // Rate limiting
 	globalSemaphore *semaphore.Weighted         // Global concurrency limit
 	hostSemPool     *fetch.HostSemaphorePool    // Shared per-host semaphore pool
-	appCfg          *config.AppConfig           // Global config
+	resolved        *config.ResolvedSiteConfig  // Resolved site config
+	appCfg          *config.AppConfig           // Global config (non-site settings)
 	log             *logrus.Entry
 }
 
 // NewImageProcessor creates a new ImageProcessor
 func NewImageProcessor(
 	store storage.ImageStore,
-	fetcher *fetch.Fetcher,
+	fetcher fetch.HTTPFetcher,
 	robotsHandler *fetch.RobotsHandler,
 	rateLimiter *fetch.RateLimiter,
 	globalSemaphore *semaphore.Weighted,
 	hostSemPool *fetch.HostSemaphorePool,
+	resolved *config.ResolvedSiteConfig,
 	appCfg *config.AppConfig,
 	log *logrus.Entry,
 ) *ImageProcessor {
@@ -76,6 +78,7 @@ func NewImageProcessor(
 		rateLimiter:     rateLimiter,
 		globalSemaphore: globalSemaphore,
 		hostSemPool:     hostSemPool,
+		resolved:        resolved,
 		appCfg:          appCfg,
 		log:             log,
 	}
@@ -96,7 +99,7 @@ func (ip *ImageProcessor) ProcessImages(
 	imageErrs = make([]error, 0) // Collect non-fatal errors here
 
 	// --- Determine Effective Image Handling Settings ---
-	skipImages := config.GetEffectiveSkipImages(siteCfg, ip.appCfg)
+	skipImages := ip.resolved.SkipImages
 	allowedDomains := siteCfg.AllowedImageDomains
 	disallowedDomains := siteCfg.DisallowedImageDomains
 
@@ -190,8 +193,7 @@ func (ip *ImageProcessor) ProcessImages(
 		}
 
 		// Robots Check (uses the robots handler passed to ImageProcessor)
-		userAgent := config.GetEffectiveUserAgent(siteCfg, ip.appCfg)
-		if !ip.robotsHandler.TestAgent(imgURL, userAgent, ctx) {
+		if !ip.robotsHandler.TestAgent(imgURL, ip.resolved.UserAgent, ctx) {
 			element.SetAttr("data-crawl-status", "skipped-robots")
 			return
 		}
@@ -416,13 +418,10 @@ func (ip *ImageProcessor) processSingleImageTask(
 	}() // --- End Defer ---
 
 	// --- Determine Effective Settings ---
-	userAgent := config.GetEffectiveUserAgent(siteCfg, ip.appCfg)
-	imgHostDelay := siteCfg.DelayPerHost
-	if imgHostDelay <= 0 {
-		imgHostDelay = ip.appCfg.DefaultDelayPerHost
-	}
+	userAgent := ip.resolved.UserAgent
+	imgHostDelay := ip.resolved.DelayPerHost
 	semTimeout := ip.appCfg.SemaphoreAcquireTimeout
-	effectiveMaxBytes := config.GetEffectiveMaxImageSize(siteCfg, ip.appCfg)
+	effectiveMaxBytes := ip.resolved.MaxImageSizeBytes
 	localImageDir := filepath.Join(siteOutputDir, ImageDir) // Base image dir for this site
 
 	// --- Acquire Semaphores & Apply Rate Limit ---

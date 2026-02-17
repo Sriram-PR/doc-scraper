@@ -29,7 +29,7 @@ type SitemapProcessor struct {
 	sitemapQueue               chan string                    // Channel to receive sitemap URLs to process
 	pq                         *queue.ThreadSafePriorityQueue // Main priority queue for page URLs
 	store                      storage.PageStore              // To mark pages visited
-	fetcher                    *fetch.Fetcher                 // For fetching sitemaps
+	fetcher                    fetch.HTTPFetcher              // For fetching sitemaps
 	rateLimiter                *fetch.RateLimiter             // For rate limiting fetches
 	globalSemaphore            *semaphore.Weighted            // Global request limit
 	compiledDisallowedPatterns []*regexp.Regexp               // For filtering URLs found in sitemaps
@@ -46,7 +46,7 @@ func NewSitemapProcessor(
 	sitemapQueue chan string,
 	pq *queue.ThreadSafePriorityQueue,
 	store storage.PageStore,
-	fetcher *fetch.Fetcher,
+	fetcher fetch.HTTPFetcher,
 	rateLimiter *fetch.RateLimiter,
 	globalSemaphore *semaphore.Weighted,
 	compiledDisallowedPatterns []*regexp.Regexp,

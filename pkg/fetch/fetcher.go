@@ -17,6 +17,11 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
+// HTTPFetcher is the interface for performing HTTP requests with retry logic.
+type HTTPFetcher interface {
+	FetchWithRetry(req *http.Request, ctx context.Context) (*http.Response, error)
+}
+
 // Fetcher handles making HTTP requests with configured retry logic, using an underlying http.Client
 type Fetcher struct {
 	client *http.Client     // The configured HTTP client to use for requests
