@@ -199,7 +199,7 @@ func (o *Orchestrator) GetProgress() []crawler.CrawlerProgress {
 
 // logSummary logs a summary of all crawl results
 func (o *Orchestrator) logSummary(totalDuration time.Duration) {
-	o.log.Info("=" + fmt.Sprintf("%s", "==========================================="))
+	o.log.Info("============================================")
 	o.log.Infof("Parallel crawl completed in %v", totalDuration)
 	o.log.Info("Site Results:")
 
@@ -223,10 +223,10 @@ func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 		}
 	}
 
-	o.log.Info("-------------------------------------------")
+	o.log.Info("--------------------------------------------")
 	o.log.Infof("Total: %d sites (%d success, %d failed), %d pages processed",
 		len(o.results), successCount, failCount, totalPages)
-	o.log.Info("=" + fmt.Sprintf("%s", "==========================================="))
+	o.log.Info("============================================")
 }
 
 // ValidateSiteKeys checks that all provided site keys exist in the config

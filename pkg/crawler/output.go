@@ -131,27 +131,21 @@ func (om *OutputManager) PagesSaved() int {
 
 // RecordPageOutput handles all post-save output: TSV write, YAML metadata collection,
 // JSONL write, and chunks write. Called after content is successfully saved to disk.
-func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentPath, pageTitle string, currentDepth, imageCount int, taskLog *logrus.Entry) {
+// markdownBytes is the already-written markdown content, passed through to avoid re-reading the file.
+func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentPath string, markdownBytes []byte, pageTitle string, currentDepth, imageCount int, taskLog *logrus.Entry) {
 	// Write to TSV mapping file
 	om.writeToMappingFile(finalURL, savedContentPath, taskLog)
 
-	// Check if we need to read the markdown file for metadata or JSONL output
+	// Check if we need markdown content for metadata or JSONL output
 	enableYAML := config.GetEffectiveEnableMetadataYAML(om.siteCfg, om.appCfg)
 	enableJSONL := config.GetEffectiveEnableJSONLOutput(om.siteCfg, om.appCfg)
 
-	var markdownBytes []byte
 	var contentHash string
 	var tokenCount int
-	if enableYAML || enableJSONL {
-		var readErr error
-		markdownBytes, readErr = os.ReadFile(savedContentPath)
-		if readErr != nil {
-			taskLog.Warnf("Failed to read saved markdown file '%s': %v", savedContentPath, readErr)
-		} else {
-			contentHash = utils.CalculateStringSHA256(string(markdownBytes))
-			if om.appCfg.EnableTokenCounting {
-				tokenCount = process.CountTokens(string(markdownBytes))
-			}
+	if (enableYAML || enableJSONL) && len(markdownBytes) > 0 {
+		contentHash = utils.CalculateStringSHA256(string(markdownBytes))
+		if om.appCfg.EnableTokenCounting {
+			tokenCount = process.CountTokens(string(markdownBytes))
 		}
 	}
 

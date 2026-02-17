@@ -734,10 +734,11 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 
 	// 7. Process & Save Content: Extract content, process images/links, convert to MD, save.
 	var tempPageTitle, tempSavedPath string // Use temp vars for return values from contentProcessor
+	var tempMarkdownBytes []byte
 	var tempImageCount int
 	var contentErr error
 	// pageTitle and savedContentPath (function-scoped) will be set from these if successful.
-	tempPageTitle, tempSavedPath, tempImageCount, contentErr = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, taskCtx)
+	tempPageTitle, tempSavedPath, tempMarkdownBytes, tempImageCount, contentErr = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, taskCtx)
 	if handleTaskError(contentErr) { // If content processing/saving fails, set taskErr and exit.
 		return
 	}
@@ -747,7 +748,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 
 	// --- After successful content saving, record all output formats ---
 	if savedContentPath != "" {
-		c.output.RecordPageOutput(finalURL.String(), normalizedURLString, savedContentPath, pageTitle, currentDepth, tempImageCount, taskLog)
+		c.output.RecordPageOutput(finalURL.String(), normalizedURLString, savedContentPath, tempMarkdownBytes, pageTitle, currentDepth, tempImageCount, taskLog)
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.
