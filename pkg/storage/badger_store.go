@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	badger "github.com/dgraph-io/badger/v4"
@@ -334,9 +333,6 @@ func (s *BadgerStore) RunGC(ctx context.Context, interval time.Duration) {
 			} else {
 				s.log.Errorf("BadgerDB GC error: %v", err)
 			}
-
-			// Hint to Go's runtime GC after Badger finishes, potentially freeing more memory
-			runtime.GC()
 
 		case <-ctx.Done(): // Check if stop signal received via context cancellation
 			s.log.Infof("Stopping BadgerDB garbage collection goroutine due to context cancellation: %v", ctx.Err())

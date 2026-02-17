@@ -238,11 +238,17 @@ func (c *Crawler) Run(resume bool) error {
 
 	// --- Start URL Validation ---
 	var validStartURLs []string
+	seenStartURLs := make(map[string]bool, len(c.siteCfg.StartURLs))
 	var firstValidParsedURL *url.URL // Used for initial robots.txt fetch
 	c.log.WithFields(runLogFields).Infof("Validating %d provided start URLs...", len(c.siteCfg.StartURLs))
 	for i, startURLStr := range c.siteCfg.StartURLs {
 		// Use task-specific logger for each start URL validation attempt
 		startValidateLog := c.log.WithFields(logrus.Fields{"index": i, "url": startURLStr})
+		if seenStartURLs[startURLStr] {
+			startValidateLog.Warn("Duplicate start URL. Skipping.")
+			continue
+		}
+		seenStartURLs[startURLStr] = true
 		parsed, err := url.ParseRequestURI(startURLStr)
 		if err != nil {
 			startValidateLog.Warnf("Invalid format: %v. Skipping.", err)
