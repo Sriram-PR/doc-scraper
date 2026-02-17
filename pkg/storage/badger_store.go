@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	badger "github.com/dgraph-io/badger/v4"
@@ -27,9 +28,10 @@ const (
 
 // BadgerStore implements the VisitedStore interface using BadgerDB
 type BadgerStore struct {
-	db  *badger.DB
-	log *logrus.Logger
-	ctx context.Context // Parent context
+	db       *badger.DB
+	log      *logrus.Logger
+	ctx      context.Context // Parent context
+	keyCount atomic.Int64    // Cached key count for O(1) GetVisitedCount
 }
 
 // NewBadgerStore initializes and returns a new BadgerStore
@@ -70,8 +72,35 @@ func NewBadgerStore(ctx context.Context, stateDir, siteDomain string, resume boo
 		return nil, fmt.Errorf("failed to open badger database at %s: %w", dbPath, err)
 	}
 
+	// Initialize key count from existing data (matters for resume mode)
+	if resume {
+		count, err := store.countKeys()
+		if err != nil {
+			logger.Warnf("Failed to count existing keys on resume: %v", err)
+		} else {
+			store.keyCount.Store(int64(count))
+			logger.Infof("Loaded existing key count on resume: %d", count)
+		}
+	}
+
 	logger.Info("Visited URL database initialized successfully.")
 	return store, nil
+}
+
+// countKeys performs a one-time full key scan (used only during initialization on resume).
+func (s *BadgerStore) countKeys() (int, error) {
+	count := 0
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		for it.Rewind(); it.Valid(); it.Next() {
+			count++
+		}
+		return nil
+	})
+	return count, err
 }
 
 // MarkPageVisited implements the VisitedStore interface
@@ -100,6 +129,9 @@ func (s *BadgerStore) MarkPageVisited(normalizedPageURL string) (bool, error) {
 	if err != nil {
 		s.log.WithField("key", string(key)).Errorf("DB Update error in MarkPageVisited: %v", err)
 		return false, fmt.Errorf("%w: marking page key '%s': %w", utils.ErrDatabase, string(key), err)
+	}
+	if added {
+		s.keyCount.Add(1)
 	}
 
 	return added, nil
@@ -168,7 +200,12 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 		return wrappedErr
 	}
 
+	isNew := false
 	err := s.db.Update(func(txn *badger.Txn) error {
+		_, errGet := txn.Get(key)
+		if errors.Is(errGet, badger.ErrKeyNotFound) {
+			isNew = true
+		}
 		e := badger.NewEntry(key, entryBytes)
 		return txn.SetEntry(e)
 	})
@@ -176,6 +213,9 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 	if err != nil {
 		s.log.WithField("key", string(key)).Errorf("DB Update error in UpdatePageStatus: %v", err)
 		return fmt.Errorf("%w: failed setting page status for key '%s': %w", utils.ErrDatabase, string(key), err)
+	}
+	if isNew {
+		s.keyCount.Add(1)
 	}
 
 	s.log.Debugf("Successfully updated page status for key '%s' to '%s'", string(key), entry.Status)
@@ -258,7 +298,12 @@ func (s *BadgerStore) UpdateImageStatus(normalizedImgURL string, entry *models.I
 		return wrappedErr
 	}
 
+	isNew := false
 	err := s.db.Update(func(txn *badger.Txn) error {
+		_, errGet := txn.Get(key)
+		if errors.Is(errGet, badger.ErrKeyNotFound) {
+			isNew = true
+		}
 		e := badger.NewEntry(key, entryBytes)
 		return txn.SetEntry(e)
 	})
@@ -267,32 +312,17 @@ func (s *BadgerStore) UpdateImageStatus(normalizedImgURL string, entry *models.I
 		s.log.WithField("key", string(key)).Errorf("DB Update error in UpdateImageStatus: %v", err)
 		return fmt.Errorf("%w: failed setting image status for key '%s': %w", utils.ErrDatabase, string(key), err)
 	}
+	if isNew {
+		s.keyCount.Add(1)
+	}
 
 	return nil
 }
 
-// GetVisitedCount implements the VisitedStore interface
+// GetVisitedCount implements the VisitedStore interface.
+// Returns the cached key count (O(1)) maintained by atomic increments on writes.
 func (s *BadgerStore) GetVisitedCount() (int, error) {
-	if s.db == nil || s.db.IsClosed() {
-		return 0, errors.New("DB not initialized or closed")
-	}
-	count := 0
-	err := s.db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.PrefetchValues = false // We only need to count keys
-		opts.PrefetchSize = 100     // Default prefetch size
-		it := txn.NewIterator(opts)
-		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
-			count++
-		}
-		return nil
-	})
-	if err != nil {
-		s.log.Errorf("Error counting visited items: %v", err)
-		return -1, fmt.Errorf("counting items: %w", err) // Indicate error
-	}
-	return count, nil
+	return int(s.keyCount.Load()), nil
 }
 
 // RunGC runs BadgerDB's garbage collection periodically
