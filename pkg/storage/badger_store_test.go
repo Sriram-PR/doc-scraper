@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
 func testLogger() *logrus.Entry {
@@ -598,6 +600,48 @@ func TestClose(t *testing.T) {
 		require.NoError(t, err)
 		assert.NoError(t, store.Close())
 		assert.NoError(t, store.Close()) // second close should be safe
+	})
+}
+
+func TestDBUpdateConflictRetry(t *testing.T) {
+	t.Run("succeeds after transient conflicts", func(t *testing.T) {
+		store := newTestStore(t)
+		attempts := 0
+		err := store.dbUpdate(func(txn *badger.Txn) error {
+			attempts++
+			if attempts <= 3 {
+				return badger.ErrConflict
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 4, attempts)
+	})
+
+	t.Run("gives up after max retries", func(t *testing.T) {
+		store := newTestStore(t)
+		attempts := 0
+		err := store.dbUpdate(func(txn *badger.Txn) error {
+			attempts++
+			return badger.ErrConflict
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, utils.ErrDatabase)
+		assert.Contains(t, err.Error(), "transaction conflict not resolved")
+		assert.Equal(t, maxConflictRetries, attempts)
+	})
+
+	t.Run("non-conflict error returned immediately", func(t *testing.T) {
+		store := newTestStore(t)
+		attempts := 0
+		sentinel := errors.New("some other error")
+		err := store.dbUpdate(func(txn *badger.Txn) error {
+			attempts++
+			return sentinel
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, sentinel)
+		assert.Equal(t, 1, attempts)
 	})
 }
 

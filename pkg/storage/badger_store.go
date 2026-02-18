@@ -103,6 +103,22 @@ func (s *BadgerStore) countKeys() (int, error) {
 	return count, err
 }
 
+const maxConflictRetries = 10
+
+// dbUpdate wraps db.Update with a retry loop for BadgerDB transaction conflicts.
+// Concurrent MVCC transactions on overlapping keys can return badger.ErrConflict;
+// these resolve in microseconds, so a tight retry loop is sufficient.
+func (s *BadgerStore) dbUpdate(fn func(txn *badger.Txn) error) error {
+	for i := 0; i < maxConflictRetries; i++ {
+		err := s.db.Update(fn)
+		if !errors.Is(err, badger.ErrConflict) {
+			return err
+		}
+		s.log.Debugf("BadgerDB transaction conflict (attempt %d/%d), retrying", i+1, maxConflictRetries)
+	}
+	return fmt.Errorf("%w: transaction conflict not resolved after %d retries", utils.ErrDatabase, maxConflictRetries)
+}
+
 // MarkPageVisited implements the VisitedStore interface
 func (s *BadgerStore) MarkPageVisited(normalizedPageURL string) (bool, error) {
 	if s.db == nil {
@@ -111,7 +127,7 @@ func (s *BadgerStore) MarkPageVisited(normalizedPageURL string) (bool, error) {
 	added := false
 	key := []byte(pageKeyPrefix + normalizedPageURL)
 
-	err := s.db.Update(func(txn *badger.Txn) error {
+	err := s.dbUpdate(func(txn *badger.Txn) error {
 		_, errGet := txn.Get(key)
 		if errors.Is(errGet, badger.ErrKeyNotFound) {
 			// Key doesn't exist, add it with an empty value.
@@ -201,7 +217,7 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 	}
 
 	isNew := false
-	err := s.db.Update(func(txn *badger.Txn) error {
+	err := s.dbUpdate(func(txn *badger.Txn) error {
 		_, errGet := txn.Get(key)
 		if errors.Is(errGet, badger.ErrKeyNotFound) {
 			isNew = true
@@ -299,7 +315,7 @@ func (s *BadgerStore) UpdateImageStatus(normalizedImgURL string, entry *models.I
 	}
 
 	isNew := false
-	err := s.db.Update(func(txn *badger.Txn) error {
+	err := s.dbUpdate(func(txn *badger.Txn) error {
 		_, errGet := txn.Get(key)
 		if errors.Is(errGet, badger.ErrKeyNotFound) {
 			isNew = true
