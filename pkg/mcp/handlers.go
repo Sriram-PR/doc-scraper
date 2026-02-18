@@ -300,7 +300,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 	// Create crawler components
 	httpClient := fetch.NewClient(s.cfg.AppConfig.HTTPClientSettings, s.log)
 	fetcher := fetch.NewFetcher(httpClient, s.cfg.AppConfig, s.log)
-	rateLimiter := fetch.NewRateLimiter(time.Second, s.log)
+	rateLimiter := fetch.NewRateLimiter(s.cfg.AppConfig.DefaultDelayPerHost, s.log)
 
 	// Open store (always fresh for MCP jobs, never resume)
 	store, err := storage.NewBadgerStore(jobCtx, s.cfg.AppConfig.StateDir, siteCfg.AllowedDomain, false, s.log)
@@ -309,6 +309,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 		return
 	}
 	defer store.Close()
+	go store.RunGC(jobCtx, s.cfg.AppConfig.DBGCInterval)
 
 	// Set incremental mode
 	appCfgCopy := *s.cfg.AppConfig

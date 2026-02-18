@@ -112,7 +112,7 @@ func runCrawl(args []string, isResume bool) {
 	sites := fs.String("sites", "", "Comma-separated site keys for parallel crawling")
 	allSites := fs.Bool("all-sites", false, "Crawl all configured sites in parallel")
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
-	pprofAddr := fs.String("pprof", "localhost:6060", "pprof address (empty to disable)")
+	pprofAddr := fs.String("pprof", "", "pprof address, e.g. localhost:6060 (disabled by default)")
 	writeVisitedLog := fs.Bool("write-visited-log", false, "Write visited URLs log on completion")
 	incrementalMode := fs.Bool("incremental", false, "Enable incremental crawling (skip unchanged pages)")
 	fullMode := fs.Bool("full", false, "Force full crawl (ignore incremental settings)")
@@ -627,7 +627,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisit
 	}
 	defer store.Close()
 
-	go store.RunGC(crawlCtx, 10*time.Minute)
+	go store.RunGC(crawlCtx, appCfg.DBGCInterval)
 
 	// --- HTTP Fetching Components ---
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, logEntry)
