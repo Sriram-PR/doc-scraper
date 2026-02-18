@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"context"
 	"math/rand"
 	"sync"
 	"time"
@@ -27,7 +28,7 @@ func NewRateLimiter(defaultDelay time.Duration, log *logrus.Entry) *RateLimiter 
 
 // ApplyDelay sleeps if the time since the last request to the host is less than minDelay
 // Includes jitter (+/- 10%) to desynchronize requests
-func (rl *RateLimiter) ApplyDelay(host string, minDelay time.Duration) {
+func (rl *RateLimiter) ApplyDelay(ctx context.Context, host string, minDelay time.Duration) {
 	// Use default delay if minDelay is invalid
 	if minDelay <= 0 {
 		minDelay = rl.defaultDelay
@@ -65,7 +66,14 @@ func (rl *RateLimiter) ApplyDelay(host string, minDelay time.Duration) {
 				rl.log.WithFields(logrus.Fields{
 					"host": host, "sleep": finalSleep, "required_delay": minDelay, "elapsed": elapsed,
 				}).Debug("Rate limit applying sleep")
-				time.Sleep(finalSleep)
+				timer := time.NewTimer(finalSleep)
+			select {
+			case <-timer.C:
+				// normal delay elapsed
+			case <-ctx.Done():
+				timer.Stop()
+				rl.log.WithField("host", host).Debug("Rate limit sleep interrupted by context cancellation")
+			}
 			}
 		}
 	}

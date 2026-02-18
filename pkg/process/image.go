@@ -440,7 +440,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 		defer ip.globalSemaphore.Release(1)
 
 		// 3. Apply Rate Limit (After acquiring semaphores)
-		ip.rateLimiter.ApplyDelay(imgHost, imgHostDelay) // Use processor's rate limiter
+		ip.rateLimiter.ApplyDelay(ctx, imgHost, imgHostDelay) // Use processor's rate limiter
 
 		return nil // Success
 	}() // Execute the closure immediately

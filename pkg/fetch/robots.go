@@ -114,7 +114,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	}()
 
 	// 4. Apply Rate Limit (using default delay)
-	rh.rateLimiter.ApplyDelay(host, rh.cfg.DefaultDelayPerHost)
+	rh.rateLimiter.ApplyDelay(ctx, host, rh.cfg.DefaultDelayPerHost)
 
 	// 5. Fetch Request (with retries via Fetcher)
 	req, err := http.NewRequestWithContext(ctx, "GET", robotsURLStr, nil)

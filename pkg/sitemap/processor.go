@@ -164,7 +164,7 @@ func (sp *SitemapProcessor) run(ctx context.Context) {
 				defer sp.globalSemaphore.Release(1) // Ensure release on exit
 
 				// --- Apply Rate Limit ---
-				sp.rateLimiter.ApplyDelay(sitemapHost, sp.appCfg.DefaultDelayPerHost)
+				sp.rateLimiter.ApplyDelay(ctx, sitemapHost, sp.appCfg.DefaultDelayPerHost)
 
 				// --- Create Request (with context) ---
 				req, err := http.NewRequestWithContext(ctx, "GET", smURL, nil)

@@ -869,7 +869,7 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 
 	// 3. Apply Rate Limit Delay (after acquiring semaphores to avoid delaying semaphore acquisition)
 	if c.resolved.DelayPerHost > 0 {
-		c.rateLimiter.ApplyDelay(host, c.resolved.DelayPerHost)
+		c.rateLimiter.ApplyDelay(c.crawlCtx, host, c.resolved.DelayPerHost)
 	}
 
 	taskLog.Debug("Resource acquisition successful.")
