@@ -26,6 +26,7 @@ var (
 	ErrResponseBodyRead   = errors.New("failed to read response body")
 	ErrMarkdownConversion = errors.New("failed to convert HTML to markdown")
 	ErrConfigValidation   = errors.New("configuration validation error")
+	ErrNonHTMLContent     = errors.New("non-HTML content type")
 )
 
 // CategorizeError maps an error to a predefined category string for logging/metrics.
@@ -136,6 +137,8 @@ func CategorizeError(err error) string {
 		return "Network_BodyRead"
 	case errors.Is(err, ErrConfigValidation):
 		return "Config_Validation"
+	case errors.Is(err, ErrNonHTMLContent):
+		return "Content_NonHTML"
 	}
 
 	// --- Fallback checks for common underlying error types/strings ---

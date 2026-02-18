@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,6 +18,27 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
+
+// resourceExtensions is the set of file extensions that are never crawlable pages.
+var resourceExtensions = map[string]struct{}{
+	// Images
+	".svg": {}, ".png": {}, ".jpg": {}, ".jpeg": {}, ".gif": {}, ".webp": {}, ".ico": {}, ".bmp": {}, ".tiff": {}, ".avif": {},
+	// Fonts
+	".woff": {}, ".woff2": {}, ".ttf": {}, ".eot": {}, ".otf": {},
+	// Styles/Scripts
+	".css": {}, ".js": {}, ".mjs": {},
+	// Documents/Archives
+	".pdf": {}, ".zip": {}, ".tar": {}, ".gz": {}, ".tgz": {},
+	// Media
+	".mp4": {}, ".mp3": {}, ".wav": {}, ".ogg": {}, ".webm": {},
+}
+
+// isResourceURL returns true if the URL path has a known non-page file extension.
+func isResourceURL(u *url.URL) bool {
+	ext := strings.ToLower(path.Ext(u.Path))
+	_, ok := resourceExtensions[ext]
+	return ok
+}
 
 // LinkProcessor handles extracting and queueing links found on a page
 type LinkProcessor struct {
@@ -104,6 +126,10 @@ func (lp *LinkProcessor) ExtractAndQueueLinks(
 			absoluteLinkURL := linkURL.String() // Get the absolute URL string
 
 			// --- Apply Standard Filtering Logic ---
+			// Skip resource file URLs (images, fonts, scripts, etc.)
+			if isResourceURL(linkURL) {
+				return
+			}
 			// Scheme check
 			if linkURL.Scheme != "http" && linkURL.Scheme != "https" {
 				return // Skip non-http(s) links like mailto:, tel:, etc

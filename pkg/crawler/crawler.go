@@ -950,11 +950,23 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		}
 	}
 
-	// Basic Content-Type Check (informational, doesn't stop processing)
+	// Content-Type Check: hard skip for unambiguous non-document types, warn for ambiguous ones
 	contentType := resp.Header.Get("Content-Type")
 	ctLower := strings.ToLower(contentType)
-	// Check for common HTML content types
 	if !strings.HasPrefix(ctLower, "text/html") && !strings.HasPrefix(ctLower, "application/xhtml+xml") {
+		if strings.HasPrefix(ctLower, "image/") ||
+			strings.HasPrefix(ctLower, "audio/") ||
+			strings.HasPrefix(ctLower, "video/") ||
+			strings.HasPrefix(ctLower, "font/") ||
+			strings.HasPrefix(ctLower, "application/zip") ||
+			strings.HasPrefix(ctLower, "application/gzip") ||
+			strings.HasPrefix(ctLower, "application/pdf") ||
+			strings.HasPrefix(ctLower, "application/octet-stream") {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			return finalURL, nil, fmt.Errorf("%w: '%s' for '%s'", utils.ErrNonHTMLContent, contentType, finalURL.String())
+		}
+		// Ambiguous types (text/plain, etc.) -- warn but proceed
 		taskLog.Warnf("Unexpected Content-Type '%s' for '%s'. Proceeding with parsing attempt.", contentType, finalURL.String())
 	}
 
