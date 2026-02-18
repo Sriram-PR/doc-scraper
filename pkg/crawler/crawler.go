@@ -140,6 +140,7 @@ func NewCrawlerWithOptions(
 	}
 
 	hostSemPool := fetch.NewHostSemaphorePool(appCfg.MaxRequestsPerHost, logger)
+	go hostSemPool.RunEviction(crawlCtx, 5*time.Minute)
 
 	resolved := config.NewResolvedSiteConfig(siteCfg, appCfg)
 
@@ -831,7 +832,7 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 	// Cleanup function will release acquired semaphores.
 	cleanupFunc = func() {
 		if acquiredHostSem {
-			c.hostSemPool.Get(host).Release(1)
+			c.hostSemPool.Release(host)
 			acquiredHostSem = false
 			taskLog.Debugf("Released host semaphore for: %s", host)
 		}
@@ -845,11 +846,10 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 	semTimeout := c.appCfg.SemaphoreAcquireTimeout // Get timeout from app config
 
 	// 1. Acquire Host-Specific Semaphore
-	hostSem := c.hostSemPool.Get(host)
 	ctxHost, cancelHost := context.WithTimeout(c.crawlCtx, semTimeout) // Context for acquiring host semaphore
 	defer cancelHost()                                                 // Ensure timer is cleaned up
 	taskLog.Debugf("Attempting to acquire host semaphore for: %s (timeout: %v)", host, semTimeout)
-	if semErr := hostSem.Acquire(ctxHost, 1); semErr != nil {
+	if semErr := c.hostSemPool.Acquire(ctxHost, host); semErr != nil {
 		// Wrap error for better context (e.g., distinguish timeout from other errors)
 		return cleanupFunc, fmt.Errorf("%w: acquire host semaphore for '%s': %w", utils.ErrSemaphoreTimeout, host, semErr)
 	}

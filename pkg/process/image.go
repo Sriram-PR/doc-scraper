@@ -411,10 +411,9 @@ func (ip *ImageProcessor) processSingleImageTask(
 	// Use a closure to manage semaphore release with scoped defer
 	semAcquireErr := func() error {
 		// 1. Acquire Host Semaphore
-		imgHostSem := ip.hostSemPool.Get(imgHost) // Use processor's method
 		ctxIH, cancelIH := context.WithTimeout(ctx, semTimeout)
 		defer cancelIH()
-		semErr := imgHostSem.Acquire(ctxIH, 1)
+		semErr := ip.hostSemPool.Acquire(ctxIH, imgHost)
 		if semErr != nil {
 			if errors.Is(semErr, context.DeadlineExceeded) {
 				return fmt.Errorf("%w: acquiring host semaphore for img '%s': %w", utils.ErrSemaphoreTimeout, task.AbsImgURL, semErr)
@@ -422,7 +421,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 			return fmt.Errorf("failed acquiring host semaphore for img '%s': %w", task.AbsImgURL, semErr)
 		}
 		// Release host semaphore when closure returns
-		defer imgHostSem.Release(1)
+		defer ip.hostSemPool.Release(imgHost)
 
 		// 2. Acquire Global Semaphore
 		ctxIG, cancelIG := context.WithTimeout(ctx, semTimeout)
