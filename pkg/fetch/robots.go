@@ -117,7 +117,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	rh.rateLimiter.ApplyDelay(ctx, host, rh.cfg.DefaultDelayPerHost)
 
 	// 5. Fetch Request (with retries via Fetcher)
-	req, err := http.NewRequestWithContext(ctx, "GET", robotsURLStr, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, robotsURLStr, nil)
 	if err != nil {
 		robotsLog.Errorf("Error creating request: %v", err)
 		rh.robotsCacheMu.Lock()

@@ -86,7 +86,7 @@ func NewImageProcessor(
 
 // ProcessImages finds images within the main content, checks status, dispatches downloads to a worker pool, and returns a map of successfully processed images and any errors
 // It modifies the 'data-crawl-status' attribute on img tags in the selection
-func (ip *ImageProcessor) ProcessImages(
+func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pipeline with many edge cases
 	mainContent *goquery.Selection, // Operate on the selection
 	finalURL *url.URL, // Base URL of the page containing the images
 	siteCfg *config.SiteConfig, // Need site-specific image settings
@@ -221,7 +221,8 @@ func (ip *ImageProcessor) ProcessImages(
 
 		// --- Determine if Download Task Needs Dispatching ---
 		shouldDispatch := false
-		if dbStatus == models.ImageStatusSuccess {
+		switch dbStatus {
+		case models.ImageStatusSuccess:
 			if dbEntry != nil && dbEntry.LocalPath != "" {
 				// Successfully downloaded previously, reuse data
 				element.SetAttr("data-crawl-status", "success") // Mark success (cached)
@@ -238,7 +239,7 @@ func (ip *ImageProcessor) ProcessImages(
 				shouldDispatch = true
 				element.SetAttr("data-crawl-status", "pending-download") // Mark for download
 			}
-		} else if dbStatus == models.ImageStatusFailure {
+		case models.ImageStatusFailure:
 			// Previously failed, try again
 			errMsg := "Unknown reason"
 			if dbEntry != nil {
@@ -247,7 +248,7 @@ func (ip *ImageProcessor) ProcessImages(
 			imgLog.Warnf("Image previously failed download ('%s'). Re-scheduling.", errMsg)
 			shouldDispatch = true
 			element.SetAttr("data-crawl-status", "pending-download") // Mark for download
-		} else { // ImageStatusNotFound or ImageStatusDBError (though we return early on db_error now)
+		default: // ImageStatusNotFound or ImageStatusDBError (though we return early on db_error now)
 			imgLog.Debugf("Image '%s' new or previously failed check ('%s'). Scheduling download.", imgSrc, dbStatus)
 			shouldDispatch = true
 			element.SetAttr("data-crawl-status", "pending-download") // Mark for download
@@ -323,7 +324,7 @@ func (ip *ImageProcessor) imageWorker(
 // processSingleImageTask handles the download, saving, and DB update for one image
 func (ip *ImageProcessor) processSingleImageTask(
 	task ImageDownloadTask, // The specific task data
-	siteCfg *config.SiteConfig, // Need site specific settings
+	_ *config.SiteConfig, // Reserved for future site-specific image settings
 	siteOutputDir string, // Need output base
 	imageMap map[string]models.ImageData, // Shared map
 	imageErrs *[]error, // Shared slice
@@ -342,7 +343,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 	var imgTaskErr error // Primary error for this specific task
 	imgDownloaded := false
 	imgLocalPath := "" // Relative path, set on success
-	var copiedBytes int64 = 0
+	var copiedBytes int64
 
 	// --- Defer DB update, panic recovery, and WaitGroup decrement ---
 	defer func() {
@@ -490,7 +491,7 @@ func (ip *ImageProcessor) fetchImageData(task ImageDownloadTask, userAgent strin
 	imgHost := task.ImgHost
 
 	imgLogEntry.Debug("Attempting fetch image request")
-	imgReq, reqErr := http.NewRequestWithContext(ctx, "GET", task.AbsImgURL, nil)
+	imgReq, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, task.AbsImgURL, nil)
 	if reqErr != nil {
 		ip.rateLimiter.UpdateLastRequestTime(imgHost)
 		return nil, fmt.Errorf("%w: creating request for img '%s': %w", utils.ErrRequestCreation, task.AbsImgURL, reqErr)
@@ -612,7 +613,7 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 }
 
 // generateLocalFilename creates a unique and safe filename for a downloaded image
-func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType string, imgLogEntry *logrus.Entry) (string, error) {
+func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType string, imgLogEntry *logrus.Entry) (string, error) { //nolint:gocyclo // filename generation with many content-type and extension edge cases
 	// 1. Get Base Name and Original Extension from URL Path
 	originalExt := path.Ext(baseImgURL.Path)
 	imgBaseName := utils.SanitizeFilename(strings.TrimSuffix(path.Base(baseImgURL.Path), originalExt))
@@ -662,7 +663,7 @@ func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType st
 					// Keep originalExt if MIME type didn't yield a better one
 				} else if finalExt == "" {
 					// Cannot determine extension from MIME, and URL had none
-					return "", fmt.Errorf("cannot determine file extension (MIME: %s, MIME extensions error: %v, URL Ext: none)", mimeType, extErr)
+					return "", fmt.Errorf("cannot determine file extension (MIME: %s, MIME extensions error: %w, URL Ext: none)", mimeType, extErr)
 				}
 			}
 		} else {

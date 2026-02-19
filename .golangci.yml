@@ -1,0 +1,96 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errname
+    - errorlint
+    - fatcontext
+    - funlen
+    - gocyclo
+    - gocritic
+    - gosec
+    - intrange
+    - lll
+    - misspell
+    - nakedret
+    - nilerr
+    - noctx
+    - prealloc
+    - testifylint
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+
+  settings:
+    funlen:
+      lines: 200
+      statements: 120
+    gocyclo:
+      min-complexity: 25
+    lll:
+      line-length: 220
+    nakedret:
+      max-func-lines: 30
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*bufio.Writer).Flush
+        - (net/http.ResponseWriter).Write
+        - io.Copy
+        - os.Remove
+        - (*github.com/Sriram-PR/doc-scraper/pkg/storage.BadgerStore).Close
+        - github.com/yuin/goldmark/ast.Walk
+    gosec:
+      excludes:
+        - G104  # Deferred Close() calls
+        - G108  # Pprof endpoint (intentional debug server)
+        - G114  # net/http server without timeouts (pprof only)
+        - G301  # Directory permissions 0750+ (0755 is standard for CLI tool output)
+        - G302  # File permissions 0600+ (0644 is standard for output files)
+        - G304  # File path from variable (expected for a file-writing tool)
+        - G306  # WriteFile permissions 0600+ (0644 is standard)
+        - G404  # Weak random (used for jitter, not security)
+        - G703  # Path traversal via variable (tool writes files by design)
+        - G704  # SSRF via variable (crawler fetches user-provided URLs by design)
+        - G705  # XSS via taint (CLI tool, no web output)
+
+  exclusions:
+    generated: strict
+    rules:
+      # Relax linters in test files
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - funlen
+          - gosec
+          - errcheck
+          - gocritic
+          - unparam
+          - noctx
+      # Long setup functions in main with if-else chains for CLI flag parsing
+      - path: cmd/crawler/main\.go
+        linters:
+          - funlen
+          - gocritic
+      # Existing sentinel error naming
+      - path: pkg/utils/errors\.go
+        linters:
+          - errname
+      # High cyclomatic complexity in error categorization (large switch)
+      - path: pkg/utils/errors\.go
+        linters:
+          - gocyclo
+      # Crawler orchestration has long functions and if-else chains for multi-stage processing
+      - path: pkg/crawler/crawler\.go
+        linters:
+          - funlen
+          - gocritic

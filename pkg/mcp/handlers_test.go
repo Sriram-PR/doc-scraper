@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
 )
@@ -100,7 +101,7 @@ func TestParseJSONLine(t *testing.T) {
 		line := `{"url":"https://example.com","title":"Test","content":"Hello","headings":["H1"]}`
 		var page models.PageJSONL
 		err := parseJSONLine(line, &page)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "https://example.com", page.URL)
 		assert.Equal(t, "Test", page.Title)
 		assert.Equal(t, "Hello", page.Content)
@@ -123,7 +124,7 @@ func TestParseJSONLine(t *testing.T) {
 		line := `{"url":"https://example.com"}`
 		var page models.PageJSONL
 		err := parseJSONLine(line, &page)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "https://example.com", page.URL)
 		assert.Empty(t, page.Title)
 		assert.Empty(t, page.Content)

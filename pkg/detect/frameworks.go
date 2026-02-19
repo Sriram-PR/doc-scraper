@@ -49,10 +49,8 @@ func (sig *FrameworkSignature) Matches(doc *goquery.Document, html string) bool 
 			if found {
 				return true
 			}
-		} else {
-			if doc.Find("." + class).Length() > 0 {
-				return true
-			}
+		} else if doc.Find("." + class).Length() > 0 {
+			return true
 		}
 	}
 

@@ -52,7 +52,7 @@ Available MCP Tools:
 }
 
 // doMcpServer is the testable implementation of the MCP server
-func doMcpServer(configPath, transport string, port int, logLevel string, stdout, stderr io.Writer) int {
+func doMcpServer(configPath, transport string, port int, logLevel string, _, stderr io.Writer) int {
 	// Setup logger
 	log := logrus.New()
 	log.SetOutput(stderr) // MCP protocol uses stdout, logs go to stderr

@@ -163,10 +163,10 @@ func (s *Scheduler) logSchedule() {
 
 // logNextRun logs when the next run will occur
 func (s *Scheduler) logNextRun() {
-	var nextRuns []struct {
+	nextRuns := make([]struct {
 		site string
 		time time.Time
-	}
+	}, 0, len(s.siteKeys))
 
 	for _, siteKey := range s.siteKeys {
 		nextRun := s.stateManager.GetNextRunTime(siteKey, s.interval)

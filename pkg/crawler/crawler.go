@@ -227,7 +227,7 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 }
 
 // Run starts the crawling process for the configured site and blocks until completion or cancellation.
-func (c *Crawler) Run(resume bool) error {
+func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration function with many sequential setup/teardown steps
 	c.output.crawlStartTime = time.Now() // Record CRAWL START TIME for metadata
 	// logFields already part of c.log (site_key). Add resume-specific info.
 	runLogFields := logrus.Fields{"domain": c.siteCfg.AllowedDomain, "resume": resume}
@@ -561,7 +561,7 @@ func (c *Crawler) cleanSiteOutputDir() error {
 }
 
 // processSinglePageTask orchestrates the processing pipeline for a single URL (WorkItem).
-func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *logrus.Entry) {
+func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *logrus.Entry) { //nolint:gocyclo // multi-stage page processing pipeline
 	currentURL := workItem.URL
 	currentDepth := workItem.Depth
 	// workerLog already has site_key and worker_id. Add URL-specific context for this task.
@@ -581,8 +581,8 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	// normalizedURLString is used for DB updates and YAML metadata.
 	var taskErr error                          // Stores the first critical error encountered in the pipeline.
 	var finalStatus models.PageStatus          // PageStatusSuccess or PageStatusFailure (only set for non-skipped tasks)
-	var finalErrorType string = "None"         // Categorized error type on failure.
-	var skipped bool = false                   // True if task is skipped due to prior processing or policy.
+	var finalErrorType = "None"                // Categorized error type on failure.
+	var skipped = false                        // True if task is skipped due to prior processing or policy.
 	var pageTitle string               // Populated on successful content extraction.
 	var savedContentPath string        // Absolute path to the saved .md file.
 	var normalizedURLString string     // Populated from handleSetupAndResumeCheck.
@@ -884,7 +884,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	taskLog.Debugf("Fetching page: %s", reqURLString)
 
 	// Create HTTP request with context for cancellation
-	req, reqErr := http.NewRequestWithContext(c.crawlCtx, "GET", reqURLString, nil)
+	req, reqErr := http.NewRequestWithContext(c.crawlCtx, http.MethodGet, reqURLString, nil)
 	if reqErr != nil {
 		// Wrap error for clarity
 		return nil, nil, fmt.Errorf("%w: creating request for '%s': %w", utils.ErrRequestCreation, reqURLString, reqErr)

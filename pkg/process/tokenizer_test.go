@@ -42,7 +42,7 @@ func TestCountTokens_Initialized(t *testing.T) {
 	// Test with known text
 	text := "Hello, world!"
 	count := CountTokens(text)
-	assert.Greater(t, count, 0)
+	assert.Positive(t, count)
 	// "Hello, world!" should be about 3-4 tokens
 	assert.LessOrEqual(t, count, 10)
 }

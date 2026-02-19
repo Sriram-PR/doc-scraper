@@ -65,7 +65,7 @@ func NewLinkProcessor(
 
 // ExtractAndQueueLinks finds crawlable links within the specified selectors of a document, filters them based on scope and rules, and adds new ones to the priority queue
 // It takes the *original* document to ensure all potential links are considered, before the content might be modified by Markdown conversion etc
-func (lp *LinkProcessor) ExtractAndQueueLinks(
+func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extraction with many filtering and normalization steps
 	originalDoc *goquery.Document, // Use the original, unmodified document
 	finalURL *url.URL, // The final URL of the page (after redirects) to use as base
 	currentDepth int, // The depth of the current page

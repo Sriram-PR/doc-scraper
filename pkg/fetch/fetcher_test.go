@@ -114,7 +114,7 @@ func TestFetchWithRetry_ServerError_RetrySuccess(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
 	}
 	if attempts.Load() != 3 {
@@ -166,7 +166,7 @@ func TestFetchWithRetry_RateLimit_RetrySuccess(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
 	}
 	if attempts.Load() != 2 {
@@ -300,7 +300,7 @@ func TestFetchWithRetry_ContextTimeout_DuringBackoff(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attemptCount.Add(1)
-		w.WriteHeader(500) // Always return 500
+		w.WriteHeader(http.StatusInternalServerError) // Always return 500
 	}))
 	t.Cleanup(server.Close)
 
@@ -334,7 +334,7 @@ func TestFetchWithRetry_ContextTimeout_DuringRequest(t *testing.T) {
 	// Server delays response longer than context timeout
 	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(slowServer.Close)
 
@@ -375,7 +375,7 @@ func TestFetchWithRetry_NetworkError_RetrySuccess(t *testing.T) {
 			conn.Close()
 			return
 		}
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(server.Close)
 
@@ -392,7 +392,7 @@ func TestFetchWithRetry_NetworkError_RetrySuccess(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
 	}
 	if attemptCount.Load() != 2 {
@@ -417,7 +417,7 @@ func TestFetchWithRetry_MixedErrors(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
 	}
 	if attempts.Load() != 4 {

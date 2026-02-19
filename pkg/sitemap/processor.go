@@ -90,7 +90,7 @@ func (sp *SitemapProcessor) MarkSitemapProcessed(sitemapURL string) bool {
 }
 
 // run is the main processing loop
-func (sp *SitemapProcessor) run(ctx context.Context) {
+func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitemap processing with recursive fetch/parse and multiple XML formats
 	var sitemapProcessingWg sync.WaitGroup // Tracks active sitemap downloads/parses within this processor
 
 	defer func() {
@@ -152,11 +152,12 @@ func (sp *SitemapProcessor) run(ctx context.Context) {
 				cancelG() // Release resources associated with the timed context
 				if err != nil {
 					// Check if the error was due to the main context being cancelled
-					if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+					switch {
+					case errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil:
 						sitemapLog.Warnf("Could not acquire GLOBAL semaphore due to main context cancellation: %v", ctx.Err())
-					} else if errors.Is(err, context.DeadlineExceeded) {
+					case errors.Is(err, context.DeadlineExceeded):
 						sitemapLog.Errorf("Timeout acquiring GLOBAL semaphore: %v", err)
-					} else {
+					default:
 						sitemapLog.Errorf("Error acquiring GLOBAL semaphore: %v", err)
 					}
 					return // Stop processing this sitemap if semaphore not acquired
@@ -167,7 +168,7 @@ func (sp *SitemapProcessor) run(ctx context.Context) {
 				sp.rateLimiter.ApplyDelay(ctx, sitemapHost, sp.appCfg.DefaultDelayPerHost)
 
 				// --- Create Request (with context) ---
-				req, err := http.NewRequestWithContext(ctx, "GET", smURL, nil)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, smURL, nil)
 				if err != nil {
 					sitemapLog.Errorf("Req Create error: %v", err)
 					return

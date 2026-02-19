@@ -42,9 +42,7 @@ func ChunkMarkdown(markdown string, cfg ChunkerConfig) ([]Chunk, error) {
 	}
 
 	// Use token-aware length function if tokenizer is initialized
-	lenFunc := func(s string) int {
-		return CountTokens(s)
-	}
+	lenFunc := CountTokens
 
 	// Create recursive splitter for fallback on oversized chunks
 	recursiveSplitter := textsplitter.NewRecursiveCharacter(

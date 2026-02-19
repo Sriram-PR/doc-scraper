@@ -263,7 +263,7 @@ func TestSanitizeFilename(t *testing.T) {
 func TestSanitizeFilename_LongNames(t *testing.T) {
 	// Create a string longer than maxFilenameLength (100)
 	longName := ""
-	for i := 0; i < 150; i++ {
+	for range 150 {
 		longName += "a"
 	}
 

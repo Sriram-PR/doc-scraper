@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -90,7 +91,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 
 	// Create HTTP client and fetch
 	client := fetch.NewClient(s.cfg.AppConfig.HTTPClientSettings, s.log)
-	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create request: %v", err)), nil
 	}
@@ -340,7 +341,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 
 	// Run crawler
 	if err := crawlerInstance.Run(false); err != nil {
-		if err == context.Canceled {
+		if errors.Is(err, context.Canceled) {
 			s.jobManager.UpdateStatus(job.ID, JobStatusCancelled, "")
 		} else {
 			s.jobManager.UpdateStatus(job.ID, JobStatusFailed, err.Error())
@@ -391,13 +392,14 @@ func (s *Server) searchJSONL(query string, sites map[string]*config.SiteConfig, 
 			matched := false
 			matchLocation := ""
 
-			if strings.Contains(titleLower, queryLower) {
+			switch {
+			case strings.Contains(titleLower, queryLower):
 				matched = true
 				matchLocation = "title"
-			} else if strings.Contains(contentLower, queryLower) {
+			case strings.Contains(contentLower, queryLower):
 				matched = true
 				matchLocation = "content"
-			} else {
+			default:
 				for _, heading := range page.Headings {
 					if strings.Contains(strings.ToLower(heading), queryLower) {
 						matched = true
@@ -429,7 +431,7 @@ func (s *Server) searchJSONL(query string, sites map[string]*config.SiteConfig, 
 }
 
 // getLastCrawledTime gets the last crawl time from metadata file
-func (s *Server) getLastCrawledTime(siteKey string, siteCfg *config.SiteConfig) time.Time {
+func (s *Server) getLastCrawledTime(_ string, siteCfg *config.SiteConfig) time.Time {
 	siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
 	metadataPath := filepath.Join(siteOutputDir, config.GetEffectiveMetadataYAMLFilename(siteCfg, s.cfg.AppConfig))
 
@@ -485,7 +487,7 @@ func extractSnippet(content, query string, maxLen int) string {
 		snippet = "..." + snippet
 	}
 	if end < len(runes) {
-		snippet = snippet + "..."
+		snippet += "..."
 	}
 
 	return snippet

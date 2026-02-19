@@ -38,8 +38,9 @@ func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig,
 	}
 }
 
-// ExtractProcessAndSaveContent extracts content using siteCfg.ContentSelector, processes images and internal links within that content, converts it to Markdown, and saves it to a path derived from finalURL and siteOutputDir
-// Returns the extracted page title and any critical error encountered during processing or saving
+// ExtractProcessAndSaveContent extracts content using the configured selector, processes images and
+// internal links, converts to Markdown, and saves to a path derived from finalURL and siteOutputDir.
+// Returns the extracted page title and any critical error encountered during processing or saving.
 func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	doc *goquery.Document, // Parsed document of the fetched page
 	finalURL *url.URL, // Final URL after redirects
@@ -57,7 +58,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	taskLog = taskLog.WithField("page_title", pageTitle)
 
 	var mainContent *goquery.Selection
-	actualSelector := siteCfg.ContentSelector
+	var actualSelector string
 
 	// Handle auto content selector detection
 	if detect.IsAutoSelector(siteCfg.ContentSelector) {
@@ -68,7 +69,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 			taskLog.Debug("Using readability extraction for content")
 			extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
 			if extractErr != nil {
-				err = fmt.Errorf("%w: readability extraction failed for '%s': %v", utils.ErrContentSelector, finalURL.String(), extractErr)
+				err = fmt.Errorf("%w: readability failed for '%s': %v", utils.ErrContentSelector, finalURL.String(), extractErr) //nolint:errorlint // extractErr is supplemental
 				taskLog.Warn(err.Error())
 				return pageTitle, "", nil, 0, err
 			}
@@ -89,7 +90,10 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 				taskLog.Warnf("Detected selector '%s' not found, falling back to readability", actualSelector)
 				extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
 				if extractErr != nil {
-					err = fmt.Errorf("%w: selector '%s' not found and readability failed for '%s': %v", utils.ErrContentSelector, actualSelector, finalURL.String(), extractErr)
+					err = fmt.Errorf(
+					"%w: selector '%s' not found and readability failed for '%s': %v",
+					utils.ErrContentSelector, actualSelector, finalURL.String(), extractErr, //nolint:errorlint // extractErr is supplemental
+				)
 					taskLog.Warn(err.Error())
 					return pageTitle, "", nil, 0, err
 				}

@@ -276,7 +276,7 @@ func TestGetContext(t *testing.T) {
 		jm := NewJobManager()
 		ctx := jm.GetContext("nope")
 		// context.Background() never has an error
-		assert.NoError(t, ctx.Err())
+		require.NoError(t, ctx.Err())
 		// Verify it's essentially background (not cancelled)
 		assert.Equal(t, context.Background(), ctx)
 	})

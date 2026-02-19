@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -452,7 +451,7 @@ func TestRequeueIncomplete(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 0, requeued)
 		assert.Equal(t, 0, scanErrors)
-		assert.Len(t, ch, 0)
+		assert.Empty(t, ch)
 	})
 
 	t.Run("all success nothing requeued", func(t *testing.T) {
@@ -465,7 +464,7 @@ func TestRequeueIncomplete(t *testing.T) {
 		requeued, _, err := store.RequeueIncomplete(context.Background(), ch)
 		require.NoError(t, err)
 		assert.Equal(t, 0, requeued)
-		assert.Len(t, ch, 0)
+		assert.Empty(t, ch)
 	})
 
 	t.Run("pending pages requeued", func(t *testing.T) {
@@ -507,7 +506,7 @@ func TestRequeueIncomplete(t *testing.T) {
 		requeued, _, err := store.RequeueIncomplete(context.Background(), ch)
 		require.NoError(t, err)
 		assert.Equal(t, 0, requeued)
-		assert.Len(t, ch, 0)
+		assert.Empty(t, ch)
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
@@ -626,7 +625,7 @@ func TestDBUpdateConflictRetry(t *testing.T) {
 			return badger.ErrConflict
 		})
 		require.Error(t, err)
-		assert.ErrorIs(t, err, utils.ErrDatabase)
+		require.ErrorIs(t, err, utils.ErrDatabase)
 		assert.Contains(t, err.Error(), "transaction conflict not resolved")
 		assert.Equal(t, maxConflictRetries, attempts)
 	})
@@ -640,24 +639,8 @@ func TestDBUpdateConflictRetry(t *testing.T) {
 			return sentinel
 		})
 		require.Error(t, err)
-		assert.ErrorIs(t, err, sentinel)
+		require.ErrorIs(t, err, sentinel)
 		assert.Equal(t, 1, attempts)
 	})
 }
 
-// rawPut is a test helper that writes raw bytes directly to the DB.
-func rawPut(t *testing.T, store *BadgerStore, key, value []byte) {
-	t.Helper()
-	err := store.db.Update(func(txn *badger.Txn) error {
-		return txn.SetEntry(badger.NewEntry(key, value))
-	})
-	require.NoError(t, err)
-}
-
-// marshalEntry is a test helper for JSON marshalling.
-func marshalEntry(t *testing.T, v interface{}) []byte {
-	t.Helper()
-	data, err := json.Marshal(v)
-	require.NoError(t, err)
-	return data
-}

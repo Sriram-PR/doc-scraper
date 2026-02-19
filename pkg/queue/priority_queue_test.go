@@ -84,7 +84,7 @@ func TestThreadSafePriorityQueue_SamePriority(t *testing.T) {
 
 	// All should be retrievable (order not guaranteed for same priority)
 	urls := make(map[string]bool)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		item, ok := pq.Pop()
 		if !ok {
 			t.Fatalf("Pop() #%d returned ok=false", i)
@@ -215,7 +215,7 @@ func TestThreadSafePriorityQueue_CloseUnblocksWaiters(t *testing.T) {
 	results := make(chan bool, 3)
 
 	// Start multiple waiting goroutines
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -262,7 +262,7 @@ func TestThreadSafePriorityQueue_ConcurrentAdd(t *testing.T) {
 	numItems := 100
 
 	// Concurrently add items
-	for i := 0; i < numItems; i++ {
+	for i := range numItems {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -291,7 +291,7 @@ func TestThreadSafePriorityQueue_ConcurrentAddPop(t *testing.T) {
 	var countMu sync.Mutex
 
 	// Start consumers
-	for i := 0; i < numConsumers; i++ {
+	for range numConsumers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -309,11 +309,11 @@ func TestThreadSafePriorityQueue_ConcurrentAddPop(t *testing.T) {
 
 	// Start producers
 	var producerWg sync.WaitGroup
-	for i := 0; i < numProducers; i++ {
+	for i := range numProducers {
 		producerWg.Add(1)
 		go func(producerID int) {
 			defer producerWg.Done()
-			for j := 0; j < itemsPerProducer; j++ {
+			for range itemsPerProducer {
 				pq.Add(&models.WorkItem{
 					URL:   "url",
 					Depth: producerID,
@@ -352,7 +352,7 @@ func TestThreadSafePriorityQueue_ConcurrentAddPop(t *testing.T) {
 func TestThreadSafePriorityQueue_LenAccuracy(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		pq.Add(&models.WorkItem{URL: "url", Depth: i})
 		if pq.Len() != i+1 {
 			t.Errorf("After Add #%d, Len() = %d, want %d", i, pq.Len(), i+1)

@@ -253,7 +253,7 @@ func TestSiteConfig_Validate_RequiredFields(t *testing.T) {
 			_, err := tt.cfg.Validate()
 
 			require.Error(t, err)
-			assert.ErrorIs(t, err, utils.ErrConfigValidation)
+			require.ErrorIs(t, err, utils.ErrConfigValidation)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}

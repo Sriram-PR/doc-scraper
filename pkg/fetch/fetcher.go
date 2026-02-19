@@ -8,7 +8,6 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -40,7 +39,7 @@ func NewFetcher(client *http.Client, cfg *config.AppConfig, log *logrus.Entry) *
 
 // FetchWithRetry performs an HTTP request associated with the provided context
 // It implements a retry mechanism with exponential backoff and jitter for transient network errors and specific HTTP status codes (5xx, 429)
-func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.Response, error) {
+func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.Response, error) { //nolint:gocyclo // retry logic with multiple error paths
 	var lastErr error              // Stores the error from the *last* failed attempt in the loop
 	var currentResp *http.Response // Stores the response from the *current* attempt (potentially failed)
 
@@ -61,7 +60,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 			reqLog.Warnf("Context cancelled before attempt %d: %v", attempt, ctx.Err())
 			// If context cancelled, wrap the last known error (if any) or return the context error
 			if lastErr != nil {
-				return nil, fmt.Errorf("context cancelled (%v) during retry backoff after error: %w", ctx.Err(), lastErr)
+				return nil, fmt.Errorf("context cancelled (%v) during retry backoff after error: %w", ctx.Err(), lastErr) //nolint:errorlint // ctx.Err() is diagnostic info, lastErr is the wrapped error
 			}
 			return nil, fmt.Errorf("context cancelled before first attempt: %w", ctx.Err())
 		default:
@@ -100,7 +99,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 				reqLog.Warnf("Context cancelled during retry sleep: %v", ctx.Err())
 				// Return the error from the *previous* attempt, wrapped with context info
 				if lastErr != nil {
-					return nil, fmt.Errorf("context cancelled (%v) during retry delay after error: %w", ctx.Err(), lastErr)
+					return nil, fmt.Errorf("context cancelled (%v) during retry delay after error: %w", ctx.Err(), lastErr) //nolint:errorlint // ctx.Err() is diagnostic info, lastErr is the wrapped error
 				}
 				return nil, fmt.Errorf("context cancelled during retry delay: %w", ctx.Err())
 			}
@@ -125,13 +124,6 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 				}
 				// Do not retry context errors. Return the context error directly
 				return nil, lastErr
-			}
-
-			// Check for URL errors - these are typically not retryable
-			var urlErr *url.Error
-			if errors.As(lastErr, &urlErr) {
-				// Could add more specific checks here if needed, e.g., urlErr.Temporary()
-				// For now, most url.Error types resulting from Do() are network-related, so we retry
 			}
 
 			// Log other network errors and proceed to retry

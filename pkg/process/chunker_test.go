@@ -112,7 +112,7 @@ func TestChunkMarkdown_LargeDocument(t *testing.T) {
 	// Create a document that will definitely need multiple chunks
 	var sb strings.Builder
 	sb.WriteString("# Large Document\n\n")
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		sb.WriteString("## Section ")
 		sb.WriteString(string(rune('A' + i%26)))
 		sb.WriteString("\n\n")

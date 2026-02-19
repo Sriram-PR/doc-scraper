@@ -109,7 +109,7 @@ const maxConflictRetries = 10
 // Concurrent MVCC transactions on overlapping keys can return badger.ErrConflict;
 // these resolve in microseconds, so a tight retry loop is sufficient.
 func (s *BadgerStore) dbUpdate(fn func(txn *badger.Txn) error) error {
-	for i := 0; i < maxConflictRetries; i++ {
+	for i := range maxConflictRetries {
 		err := s.db.Update(fn)
 		if !errors.Is(err, badger.ErrConflict) {
 			return err
@@ -470,7 +470,7 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 	})
 
 	durationScan := time.Since(scanStartTime)
-	if scanErr != nil && !(errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded)) {
+	if scanErr != nil && !errors.Is(scanErr, context.Canceled) && !errors.Is(scanErr, context.DeadlineExceeded) {
 		// Log scan error only if it wasn't a context cancellation
 		s.log.Errorf("Error during DB scan for resume: %v.", scanErr)
 	}
@@ -520,11 +520,12 @@ func (s *BadgerStore) WriteVisitedLog(filePath string) error {
 			keyBytesWithPrefix := item.KeyCopy(nil) // Copy key with prefix
 			var keyToWrite string
 			// Check prefix and strip
-			if bytes.HasPrefix(keyBytesWithPrefix, pagePrefixBytes) {
+			switch {
+			case bytes.HasPrefix(keyBytesWithPrefix, pagePrefixBytes):
 				keyToWrite = string(keyBytesWithPrefix[len(pagePrefixBytes):])
-			} else if bytes.HasPrefix(keyBytesWithPrefix, imgPrefixBytes) {
+			case bytes.HasPrefix(keyBytesWithPrefix, imgPrefixBytes):
 				keyToWrite = string(keyBytesWithPrefix[len(imgPrefixBytes):])
-			} else {
+			default:
 				s.log.Warnf("Skipping unexpected key in DB (no page/img prefix): %s", string(keyBytesWithPrefix))
 				continue // Skip keys without expected prefixes
 			}
@@ -553,7 +554,7 @@ func (s *BadgerStore) WriteVisitedLog(filePath string) error {
 	})
 
 	// Handle errors after iteration
-	if iterErr != nil && !(errors.Is(iterErr, context.Canceled) || errors.Is(iterErr, context.DeadlineExceeded)) {
+	if iterErr != nil && !errors.Is(iterErr, context.Canceled) && !errors.Is(iterErr, context.DeadlineExceeded) {
 		s.log.Errorf("Error during visited DB iteration for log: %v", iterErr)
 		if dbErr == nil {
 			dbErr = iterErr
