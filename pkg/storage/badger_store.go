@@ -568,7 +568,13 @@ func (s *BadgerStore) WriteVisitedLog(filePath string) error {
 		}
 	}
 
-	// Close error check is handled by defer
+	// Sync to disk before closing
+	if syncErr := file.Sync(); syncErr != nil {
+		s.log.Errorf("Failed to sync visited log '%s': %v", filePath, syncErr)
+		if dbErr == nil {
+			dbErr = syncErr
+		}
+	}
 
 	if iterErr == nil && dbErr == nil {
 		s.log.Infof("Finished writing %d URLs to visited log: %s", writtenCount, filePath)
