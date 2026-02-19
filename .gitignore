@@ -2,6 +2,7 @@
 vendor/
 
 # Go build outputs
+doc-scraper
 *.exe
 *.exe~
 *.dll
