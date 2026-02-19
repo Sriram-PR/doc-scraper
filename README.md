@@ -1,6 +1,9 @@
 # LLM Documentation Scraper (`doc-scraper`)
 
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Sriram-PR/doc-scraper)](https://golang.org/)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Sriram-PR/doc-scraper.svg)](https://pkg.go.dev/github.com/Sriram-PR/doc-scraper)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Sriram-PR/doc-scraper)](https://goreportcard.com/report/github.com/Sriram-PR/doc-scraper)
+[![License](https://img.shields.io/github/license/Sriram-PR/doc-scraper)](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE)
 
 > A configurable, concurrent, and resumable web crawler written in Go. Specifically designed to scrape technical documentation websites, extract core content, convert it cleanly to Markdown format suitable for ingestion by Large Language Models (LLMs), and save the results locally.
 
