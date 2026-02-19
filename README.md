@@ -88,10 +88,11 @@ This installs the `crawler` binary to your `GOPATH/bin` directory (usually `~/go
 3. **Build the Binary:**
 
    ```bash
-   go build -o crawler.exe ./cmd/crawler/...
+   make build
+   # or: go build -o doc-scraper ./cmd/crawler
    ```
 
-   This creates an executable named `crawler.exe` (Windows) or `crawler` (Linux/macOS) in the project root.
+   This creates an executable named `doc-scraper` in the project root.
 
 ### Quick Start
 
@@ -184,6 +185,7 @@ sites:
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
+| `default_user_agent` | String | Default User-Agent header for requests | `""` (Go default) |
 | `default_delay_per_host` | Duration | Time to wait between requests to the same host | `500ms` |
 | `num_workers` | Integer | Number of concurrent crawl workers | `8` |
 | `num_image_workers` | Integer | Number of concurrent image download workers | `8` |
@@ -194,12 +196,26 @@ sites:
 | `max_retries` | Integer | Maximum retry attempts for HTTP requests | `4` |
 | `initial_retry_delay` | Duration | Initial delay for retry backoff | `1s` |
 | `max_retry_delay` | Duration | Maximum delay for retry backoff | `30s` |
+| `semaphore_acquire_timeout` | Duration | Timeout for acquiring the global semaphore | `30s` |
+| `global_crawl_timeout` | Duration | Overall timeout for the entire crawl | `0s` (no timeout) |
+| `per_page_timeout` | Duration | Timeout for processing a single page | `0s` (no timeout) |
 | `skip_images` | Boolean | Whether to skip downloading images | `false` |
 | `max_image_size_bytes` | Integer | Maximum allowed image size | `10485760` (10 MiB) |
+| `max_page_size_bytes` | Integer | Maximum HTML page body size | `52428800` (50 MiB) |
 | `enable_output_mapping` | Boolean | Enable URL-to-file mapping log | `false` |
-| `output_mapping_filename` | String | Filename for the URL-to-file mapping log | `"url_to_file_map.tsv"` (if enabled and not set) |
+| `output_mapping_filename` | String | Filename for the URL-to-file mapping log | `"url_to_file_map.tsv"` |
 | `enable_metadata_yaml` | Boolean | Enable detailed YAML metadata output file | `false` |
-| `metadata_yaml_filename` | String  | Filename for the YAML metadata output file | `"metadata.yaml"` (if enabled & not set)   |
+| `metadata_yaml_filename` | String | Filename for the YAML metadata output file | `"metadata.yaml"` |
+| `enable_jsonl_output` | Boolean | Enable JSONL page output for RAG pipelines | `false` |
+| `jsonl_output_filename` | String | Filename for JSONL output | `"pages.jsonl"` |
+| `enable_token_counting` | Boolean | Enable token counting per page | `false` |
+| `tokenizer_encoding` | String | Tokenizer encoding (e.g., `cl100k_base`) | `""` |
+| `enable_incremental` | Boolean | Enable incremental crawling globally | `false` |
+| `db_gc_interval` | Duration | BadgerDB garbage collection interval | `10m` |
+| `chunking.enabled` | Boolean | Enable token-aware content chunking | `false` |
+| `chunking.max_chunk_size` | Integer | Max chunk size in tokens | `512` |
+| `chunking.chunk_overlap` | Integer | Overlap between chunks in tokens | `50` |
+| `chunking.output_filename` | String | Chunks output filename | `"chunks.jsonl"` |
 | `http_client_settings` | Object | HTTP client configuration | *(see below)* |
 | `sites` | Map | Site-specific configurations | *(required)* |
 
@@ -225,12 +241,23 @@ sites:
 - `max_depth`: Maximum crawl depth from start URLs (0 = unlimited)
 - `delay_per_host`: Override global delay setting for this site
 - `disallowed_path_patterns`: Array of regex patterns for URLs to skip
+- `link_extraction_selectors`: Array of CSS selectors for additional link extraction areas
+- `respect_nofollow`: Boolean. Whether to respect `rel="nofollow"` links
+- `user_agent`: String. Override global user agent for this site
 - `skip_images`: Override global image setting for this site
+- `max_image_size_bytes`: Integer. Override global max image size for this site
 - `allowed_image_domains`: Array of domains from which to download images
-- `enable_output_mapping`: `true` or `false`. Override global URL-to-file mapping enablement for this site.
-- `output_mapping_filename`: String. Override global URL-to-file mapping filename for this site.
-- `enable_metadata_yaml`: `true` or `false`. Override global YAML metadata output enablement for this site.
-- `metadata_yaml_filename`: String. Override global YAML metadata filename for this site.
+- `disallowed_image_domains`: Array of domains to block image downloads from
+- `enable_output_mapping`: `true` or `false`. Override global URL-to-file mapping enablement for this site
+- `output_mapping_filename`: String. Override global URL-to-file mapping filename for this site
+- `enable_metadata_yaml`: `true` or `false`. Override global YAML metadata output enablement for this site
+- `metadata_yaml_filename`: String. Override global YAML metadata filename for this site
+- `enable_jsonl_output`: `true` or `false`. Override global JSONL output enablement for this site
+- `jsonl_output_filename`: String. Override global JSONL output filename for this site
+- `chunking.enabled`: `true` or `false`. Override global chunking enablement for this site
+- `chunking.max_chunk_size`: Integer. Override global max chunk size for this site
+- `chunking.chunk_overlap`: Integer. Override global chunk overlap for this site
+- `chunking.output_filename`: String. Override global chunks output filename for this site
 
 ## Usage
 
@@ -263,7 +290,7 @@ Execute the compiled binary from the project root directory:
 | `-sites <keys>` | Comma-separated site keys for parallel crawling | - |
 | `--all-sites` | Crawl all configured sites in parallel | `false` |
 | `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`, `fatal`) | `info` |
-| `-pprof <addr>` | pprof server address (empty to disable) | `localhost:6060` |
+| `-pprof <addr>` | pprof server address (empty to disable) | `""` (disabled) |
 | `-write-visited-log` | Write visited URLs log on completion | `false` |
 | `-incremental` | Enable incremental crawling (skip unchanged pages) | `false` |
 | `-full` | Force full crawl (ignore incremental settings) | `false` |
@@ -421,6 +448,76 @@ This feature is controlled by the `enable_output_mapping` and `output_mapping_fi
 In addition to (or instead of) the simple TSV mapping, the crawler can generate a comprehensive YAML file for each crawled site. This file (`metadata.yaml` by default, configurable) contains overall crawl statistics and detailed metadata for every successfully processed page.
 
 The filename can be configured globally and overridden per site using `enable_metadata_yaml` and `metadata_yaml_filename` in `config.yaml`.
+
+## JSONL Output
+
+When enabled, the crawler writes one JSON object per line per page to a JSONL file. This format is designed for ingestion into RAG pipelines and is required by the MCP `search_crawled` tool.
+
+**Enable it:**
+
+```yaml
+enable_jsonl_output: true
+jsonl_output_filename: "pages.jsonl"  # default
+```
+
+**Fields per line** (from `PageJSONL`):
+
+| Field | Description |
+|-------|-------------|
+| `url` | Final absolute URL of the page |
+| `title` | Page title |
+| `content` | Full markdown content |
+| `headings` | Array of headings extracted from the page |
+| `links` | Array of links found in the content |
+| `images` | Array of image URLs found in the content |
+| `content_hash` | SHA-256 hash of the content (used for incremental crawling) |
+| `crawled_at` | Timestamp of when the page was crawled |
+| `depth` | Crawl depth from the start URL |
+| `token_count` | Token count (present when `enable_token_counting` is enabled) |
+
+The output file is written to each site's output directory. Both the enable flag and filename can be overridden per site.
+
+## Token Counting
+
+Enable per-page token counting to track content size for LLM context windows:
+
+```yaml
+enable_token_counting: true
+tokenizer_encoding: "cl100k_base"  # GPT-4 / Claude tokenizer
+```
+
+When enabled, token counts appear in:
+- The YAML metadata output (per-page metadata)
+- The JSONL output (`token_count` field)
+- Content chunks (`token_count` field per chunk)
+
+## Content Chunking
+
+The chunking pipeline splits crawled markdown content into token-aware chunks suitable for RAG vector store ingestion. Content is split by headings and respects configurable token limits with overlap between chunks.
+
+**Enable it:**
+
+```yaml
+chunking:
+  enabled: true
+  max_chunk_size: 512    # Max tokens per chunk
+  chunk_overlap: 50      # Overlap between consecutive chunks
+  output_filename: "chunks.jsonl"  # default
+```
+
+**Output format** (from `ChunkJSONL`, one JSON object per line):
+
+| Field | Description |
+|-------|-------------|
+| `url` | Source page URL |
+| `chunk_index` | Index of this chunk within the page |
+| `content` | Chunk content (includes heading context) |
+| `heading_hierarchy` | Array of headings leading to this chunk |
+| `token_count` | Token count for this chunk |
+| `page_title` | Title of the source page |
+| `crawled_at` | Timestamp of crawl |
+
+Chunking settings can be overridden per site. Enable `enable_token_counting` alongside chunking for accurate token counts.
 
 ## Auto Content Detection
 
@@ -650,7 +747,7 @@ Please ensure code adheres to Go best practices and includes appropriate documen
 
 ## License
 
-This project is licensed under the [Apache-2.0 License](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE.txt).
+This project is licensed under the [Apache-2.0 License](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE).
 
 ## Acknowledgements
 

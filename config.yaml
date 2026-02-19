@@ -33,6 +33,27 @@ output_mapping_filename: "url_to_file_map.tsv"
 enable_metadata_yaml: true
 metadata_yaml_filename: "crawl_meta.yaml"
 
+# JSONL output (required for MCP search_crawled tool)
+# enable_jsonl_output: true
+# jsonl_output_filename: "pages.jsonl"
+
+# Token counting
+# enable_token_counting: true
+# tokenizer_encoding: "cl100k_base"
+
+# Incremental crawling (skip unchanged pages)
+# enable_incremental: false
+
+# BadgerDB GC interval
+# db_gc_interval: 10m
+
+# Content chunking for RAG vector ingestion
+# chunking:
+#   enabled: false
+#   max_chunk_size: 512
+#   chunk_overlap: 50
+#   output_filename: "chunks.jsonl"
+
 # HTTP client settings
 http_client_settings:
   timeout: 45s
