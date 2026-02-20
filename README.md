@@ -68,10 +68,10 @@ The main objective of this tool is to automate the often tedious process of gath
 Install the latest version directly from GitHub:
 
 ```bash
-go install github.com/Sriram-PR/doc-scraper/cmd/crawler@latest
+go install github.com/Sriram-PR/doc-scraper/cmd/doc-scraper@latest
 ```
 
-This installs the `crawler` binary to your `GOPATH/bin` directory (usually `~/go/bin` or `%USERPROFILE%\go\bin`). Make sure this directory is in your `PATH`.
+This installs the `doc-scraper` binary to your `GOPATH/bin` directory (usually `~/go/bin` or `%USERPROFILE%\go\bin`). Make sure this directory is in your `PATH`.
 
 **Option 2: Clone and Build**
 
@@ -92,7 +92,7 @@ This installs the `crawler` binary to your `GOPATH/bin` directory (usually `~/go
 
    ```bash
    make build
-   # or: go build -o doc-scraper ./cmd/crawler
+   # or: go build -o doc-scraper ./cmd/doc-scraper
    ```
 
    This creates an executable named `doc-scraper` in the project root.
@@ -103,7 +103,7 @@ This installs the `crawler` binary to your `GOPATH/bin` directory (usually `~/go
 2. Run the crawler:
 
    ```bash
-   ./crawler crawl -site your_site_key -loglevel info
+   ./doc-scraper crawl -site your_site_key -loglevel info
    ```
 
 3. Find your crawled documentation in the `./crawled_docs/` directory
@@ -131,7 +131,7 @@ num_image_workers: 8
 max_requests: 48
 max_requests_per_host: 4
 output_base_dir: "./crawled_docs"
-state_dir: "./crawler_state"
+state_dir: "./doc-scraper_state"
 max_retries: 4
 initial_retry_delay: 1s
 max_retry_delay: 30s
@@ -195,7 +195,7 @@ sites:
 | `max_requests` | Integer | Maximum concurrent requests (global) | `48` |
 | `max_requests_per_host` | Integer | Maximum concurrent requests per host | `4` |
 | `output_base_dir` | String | Base directory for crawled content | `"./crawled_docs"` |
-| `state_dir` | String | Directory for BadgerDB state data | `"./crawler_state"` |
+| `state_dir` | String | Directory for BadgerDB state data | `"./doc-scraper_state"` |
 | `max_retries` | Integer | Maximum retry attempts for HTTP requests | `4` |
 | `initial_retry_delay` | Duration | Initial delay for retry backoff | `1s` |
 | `max_retry_delay` | Duration | Maximum delay for retry backoff | `30s` |
@@ -267,7 +267,7 @@ sites:
 Execute the compiled binary from the project root directory:
 
 ```bash
-./crawler <command> [options]
+./doc-scraper <command> [options]
 ```
 
 ### Commands
@@ -340,62 +340,62 @@ Execute the compiled binary from the project root directory:
 **Basic Crawl:**
 
 ```bash
-./crawler crawl -site tensorflow_docs -loglevel info
+./doc-scraper crawl -site tensorflow_docs -loglevel info
 ```
 
 **Resume a Large Crawl:**
 
 ```bash
-./crawler resume -site pytorch_docs -loglevel info
+./doc-scraper resume -site pytorch_docs -loglevel info
 ```
 
 **Validate Configuration:**
 
 ```bash
-./crawler validate -config config.yaml
-./crawler validate -site pytorch_docs  # Validate specific site
+./doc-scraper validate -config config.yaml
+./doc-scraper validate -site pytorch_docs  # Validate specific site
 ```
 
 **List Available Sites:**
 
 ```bash
-./crawler list-sites
+./doc-scraper list-sites
 ```
 
 **High Performance Crawl with Profiling:**
 
 ```bash
-./crawler crawl -site small_docs -loglevel warn -pprof localhost:6060
+./doc-scraper crawl -site small_docs -loglevel warn -pprof localhost:6060
 ```
 
 **Debug Mode for Troubleshooting:**
 
 ```bash
-./crawler crawl -site test_site -loglevel debug
+./doc-scraper crawl -site test_site -loglevel debug
 ```
 
 **Parallel Crawl of Multiple Sites:**
 
 ```bash
-./crawler crawl -sites pytorch_docs,tensorflow_docs,langchain_docs
+./doc-scraper crawl -sites pytorch_docs,tensorflow_docs,langchain_docs
 ```
 
 **Crawl All Configured Sites:**
 
 ```bash
-./crawler crawl --all-sites
+./doc-scraper crawl --all-sites
 ```
 
 **Start MCP Server for Claude Desktop:**
 
 ```bash
-./crawler mcp-server -config config.yaml
+./doc-scraper mcp-server -config config.yaml
 ```
 
 **Start MCP Server with SSE Transport:**
 
 ```bash
-./crawler mcp-server -config config.yaml -transport sse -port 8080
+./doc-scraper mcp-server -config config.yaml -transport sse -port 8080
 ```
 
 ## Output Structure
@@ -561,13 +561,13 @@ Crawl multiple documentation sites concurrently with shared resource management.
 
 ```bash
 # Crawl specific sites in parallel
-./crawler crawl -sites pytorch_docs,tensorflow_docs,langchain_docs
+./doc-scraper crawl -sites pytorch_docs,tensorflow_docs,langchain_docs
 
 # Crawl all configured sites
-./crawler crawl --all-sites
+./doc-scraper crawl --all-sites
 
 # Resume parallel crawl
-./crawler resume -sites pytorch_docs,tensorflow_docs
+./doc-scraper resume -sites pytorch_docs,tensorflow_docs
 ```
 
 ### Resource Sharing
@@ -606,13 +606,13 @@ Watch mode enables scheduled periodic re-crawling of documentation sites. The sc
 
 ```bash
 # Watch a single site with 24-hour interval
-./crawler watch -site pytorch_docs -interval 24h
+./doc-scraper watch -site pytorch_docs -interval 24h
 
 # Watch multiple sites
-./crawler watch -sites pytorch_docs,tensorflow_docs -interval 12h
+./doc-scraper watch -sites pytorch_docs,tensorflow_docs -interval 12h
 
 # Watch all configured sites weekly
-./crawler watch --all-sites -interval 7d
+./doc-scraper watch --all-sites -interval 7d
 ```
 
 ### Interval Format
@@ -669,13 +669,13 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 **Stdio Transport (for Claude Desktop/Cursor):**
 
 ```bash
-./crawler mcp-server -config config.yaml
+./doc-scraper mcp-server -config config.yaml
 ```
 
 **SSE Transport (HTTP-based):**
 
 ```bash
-./crawler mcp-server -config config.yaml -transport sse -port 8080
+./doc-scraper mcp-server -config config.yaml -transport sse -port 8080
 ```
 
 ### Claude Code Integration
@@ -686,7 +686,7 @@ Add to your Claude Code configuration (`claude_code_config.json`):
 {
   "mcpServers": {
     "doc-scraper": {
-      "command": "/path/to/crawler",
+      "command": "/path/to/doc-scraper",
       "args": ["mcp-server", "-config", "/path/to/config.yaml"]
     }
   }

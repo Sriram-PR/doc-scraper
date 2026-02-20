@@ -14,7 +14,7 @@ test-cover:
 	@rm -f coverage.out
 
 build:
-	go build -o $(BIN) ./cmd/crawler
+	go build -o $(BIN) ./cmd/doc-scraper
 
 clean:
 	rm -f $(BIN) coverage.out

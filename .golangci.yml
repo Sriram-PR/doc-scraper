@@ -77,7 +77,7 @@ linters:
           - unparam
           - noctx
       # Long setup functions in main with if-else chains for CLI flag parsing
-      - path: cmd/crawler/main\.go
+      - path: cmd/doc-scraper/main\.go
         linters:
           - funlen
           - gocritic
