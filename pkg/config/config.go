@@ -55,7 +55,7 @@ type AppConfig struct {
 	EnableJSONLOutput       bool                   `yaml:"enable_jsonl_output,omitempty"`
 	JSONLOutputFilename     string                 `yaml:"jsonl_output_filename,omitempty"`
 	EnableTokenCounting     bool                   `yaml:"enable_token_counting,omitempty"`
-	TokenizerEncoding       string                 `yaml:"tokenizer_encoding,omitempty"` // e.g., "cl100k_base" (GPT-4, Claude default)
+	TokenizerEncoding       string                 `yaml:"tokenizer_encoding,omitempty"` // e.g., "cl100k_base" (GPT-4 default, approximate for Claude)
 	DBGCInterval            time.Duration          `yaml:"db_gc_interval,omitempty"`     // Interval for BadgerDB value log GC (default: 10m)
 	EnableIncremental       bool                   `yaml:"enable_incremental,omitempty"` // Enable incremental crawling (skip unchanged pages)
 	Chunking                ChunkingConfig         `yaml:"chunking,omitempty"`

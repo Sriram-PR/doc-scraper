@@ -13,8 +13,9 @@ var (
 )
 
 // InitTokenizer initializes the tokenizer with the specified encoding.
-// Common encodings: "cl100k_base" (GPT-4, Claude), "p50k_base" (GPT-3).
-// If encoding is empty, defaults to "cl100k_base".
+// Common encodings: "cl100k_base" (GPT-4), "o200k_base" (GPT-4o), "p50k_base" (GPT-3).
+// Note: Claude uses its own tokenizer (not publicly available); cl100k_base is a
+// reasonable approximation. If encoding is empty, defaults to "cl100k_base".
 func InitTokenizer(encoding string) error {
 	codecMu.Lock()
 	defer codecMu.Unlock()
@@ -49,26 +50,21 @@ func InitTokenizer(encoding string) error {
 }
 
 // CountTokens returns the token count for the given text.
-// If the tokenizer hasn't been initialized, falls back to a rough estimate (chars/4).
+// Returns -1 if the tokenizer is not initialized or encoding fails,
+// so callers can distinguish "not available" from a real zero count.
 func CountTokens(text string) int {
 	codecMu.RLock()
 	defer codecMu.RUnlock()
 
 	if !initialized || defaultCodec == nil {
-		return estimateTokens(text)
+		return -1
 	}
 
 	ids, _, err := defaultCodec.Encode(text)
 	if err != nil {
-		return estimateTokens(text)
+		return -1
 	}
 	return len(ids)
-}
-
-// estimateTokens provides a rough token estimate based on character count.
-// Average is roughly 4 characters per token for English text.
-func estimateTokens(text string) int {
-	return len(text) / 4
 }
 
 // IsInitialized returns whether the tokenizer has been initialized.

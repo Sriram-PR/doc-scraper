@@ -171,13 +171,12 @@ func NewCrawlerWithOptions(
 	if c.appCfg.EnableTokenCounting {
 		encoding := c.appCfg.TokenizerEncoding
 		if encoding == "" {
-			encoding = "cl100k_base" // Default to GPT-4/Claude encoding
+			encoding = "cl100k_base" // Default to GPT-4 encoding (approximate for Claude)
 		}
 		if err := process.InitTokenizer(encoding); err != nil {
-			c.log.Warnf("Failed to initialize tokenizer with encoding '%s': %v. Token counting will use estimates.", encoding, err)
-		} else {
-			c.log.Infof("Token counting enabled with encoding: %s", encoding)
+			return nil, fmt.Errorf("failed to initialize tokenizer with encoding '%s': %w", encoding, err)
 		}
+		c.log.Infof("Token counting enabled with encoding: %s", encoding)
 	}
 
 	// Initialize components that depend on the crawler or other components

@@ -87,6 +87,12 @@ Content for section two.
 }
 
 func TestChunkMarkdown_TokenCount(t *testing.T) {
+	// Initialize tokenizer so CountTokens returns real values
+	err := InitTokenizer("cl100k_base")
+	if err != nil {
+		t.Fatalf("failed to initialize tokenizer: %v", err)
+	}
+
 	markdown := `# Test Document
 
 This is a test document with some content that should be counted for tokens.
@@ -102,7 +108,7 @@ This is a test document with some content that should be counted for tokens.
 		t.Fatal("expected at least 1 chunk")
 	}
 
-	// Token count should be positive
+	// Token count should be positive when tokenizer is initialized
 	if chunks[0].TokenCount <= 0 {
 		t.Errorf("expected positive token count, got %d", chunks[0].TokenCount)
 	}

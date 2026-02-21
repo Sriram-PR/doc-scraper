@@ -53,31 +53,8 @@ func TestCountTokens_Uninitialized(t *testing.T) {
 	initialized = false
 	codecMu.Unlock()
 
-	// Without initialization, should fall back to estimate
+	// Without initialization, should return -1 (not available)
 	text := "Hello, world! This is a test."
 	count := CountTokens(text)
-
-	// Should use estimate (len/4)
-	expected := len(text) / 4
-	assert.Equal(t, expected, count)
-}
-
-func TestEstimateTokens(t *testing.T) {
-	tests := []struct {
-		text     string
-		expected int
-	}{
-		{"", 0},
-		{"test", 1},             // 4 chars / 4 = 1
-		{"hello world", 2},      // 11 chars / 4 = 2
-		{"12345678", 2},         // 8 chars / 4 = 2
-		{"1234567890123456", 4}, // 16 chars / 4 = 4
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.text, func(t *testing.T) {
-			result := estimateTokens(tt.text)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+	assert.Equal(t, -1, count)
 }
