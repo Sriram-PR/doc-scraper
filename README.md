@@ -131,7 +131,7 @@ num_image_workers: 8
 max_requests: 48
 max_requests_per_host: 4
 output_base_dir: "./crawled_docs"
-state_dir: "./doc-scraper_state"
+state_dir: "./crawler_state"
 max_retries: 4
 initial_retry_delay: 1s
 max_retry_delay: 30s
@@ -189,21 +189,21 @@ sites:
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
 | `default_user_agent` | String | Default User-Agent header for requests | `""` (Go default) |
-| `default_delay_per_host` | Duration | Time to wait between requests to the same host | `500ms` |
-| `num_workers` | Integer | Number of concurrent crawl workers | `8` |
-| `num_image_workers` | Integer | Number of concurrent image download workers | `8` |
-| `max_requests` | Integer | Maximum concurrent requests (global) | `48` |
-| `max_requests_per_host` | Integer | Maximum concurrent requests per host | `4` |
+| `default_delay_per_host` | Duration | Time to wait between requests to the same host | `0s` (no delay) |
+| `num_workers` | Integer | Number of concurrent crawl workers | `4` |
+| `num_image_workers` | Integer | Number of concurrent image download workers | same as `num_workers` |
+| `max_requests` | Integer | Maximum concurrent requests (global) | `10` |
+| `max_requests_per_host` | Integer | Maximum concurrent requests per host | `2` |
 | `output_base_dir` | String | Base directory for crawled content | `"./crawled_docs"` |
-| `state_dir` | String | Directory for BadgerDB state data | `"./doc-scraper_state"` |
-| `max_retries` | Integer | Maximum retry attempts for HTTP requests | `4` |
+| `state_dir` | String | Directory for BadgerDB state data | `"./crawler_state"` |
+| `max_retries` | Integer | Maximum retry attempts for HTTP requests | `3` |
 | `initial_retry_delay` | Duration | Initial delay for retry backoff | `1s` |
 | `max_retry_delay` | Duration | Maximum delay for retry backoff | `30s` |
 | `semaphore_acquire_timeout` | Duration | Timeout for acquiring the global semaphore | `30s` |
 | `global_crawl_timeout` | Duration | Overall timeout for the entire crawl | `0s` (no timeout) |
 | `per_page_timeout` | Duration | Timeout for processing a single page | `0s` (no timeout) |
 | `skip_images` | Boolean | Whether to skip downloading images | `false` |
-| `max_image_size_bytes` | Integer | Maximum allowed image size | `10485760` (10 MiB) |
+| `max_image_size_bytes` | Integer | Maximum allowed image size | `0` (unlimited) |
 | `max_page_size_bytes` | Integer | Maximum HTML page body size | `52428800` (50 MiB) |
 | `enable_output_mapping` | Boolean | Enable URL-to-file mapping log | `false` |
 | `output_mapping_filename` | String | Filename for the URL-to-file mapping log | `"url_to_file_map.tsv"` |
@@ -227,7 +227,7 @@ sites:
 
 - `timeout`: Overall request timeout (Default in code: `45s`)
 - `max_idle_conns`: Total idle connections (Default in code: `100`)
-- `max_idle_conns_per_host`: Idle connections per host (Default in code: `6`)
+- `max_idle_conns_per_host`: Idle connections per host (Default in code: `2`)
 - `idle_conn_timeout`: Timeout for idle connections (Default in code: `90s`)
 - `tls_handshake_timeout`: TLS handshake timeout (Default in code: `10s`)
 - `expect_continue_timeout`: "100 Continue" timeout (Default in code: `1s`)
@@ -404,18 +404,20 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
 
 ```
 <output_base_dir>/
-└── <sanitized_allowed_domain>/  # e.g., docs.example.com
-    ├── images/                 # Only present if skip_images: false
+├── <sanitized_domain>_structure.txt  # Directory tree (always generated)
+└── <sanitized_allowed_domain>/       # e.g., docs.example.com
+    ├── images/                       # Only present if skip_images: false
     │   ├── image1.png
     │   └── image2.jpg
-    ├── index.md                # Markdown for the root path
-    ├── <metadata_yaml_filename.yaml>
-    ├── <output_mapping_filename.tsv>
+    ├── index.md                      # Markdown for the root path
+    ├── <metadata_yaml_filename>      # If enable_metadata_yaml: true
+    ├── <output_mapping_filename>     # If enable_output_mapping: true
+    ├── <jsonl_output_filename>       # If enable_jsonl_output: true
+    ├── <chunking.output_filename>    # If chunking.enabled: true
     ├── topic_one/
     │   ├── index.md
     │   └── subtopic_a.md
     └── topic_two.md
-    └── ... (files/dirs mirroring site structure)
 ```
 
 ### Output Format
@@ -486,7 +488,7 @@ Enable per-page token counting to track content size for LLM context windows:
 
 ```yaml
 enable_token_counting: true
-tokenizer_encoding: "cl100k_base"  # GPT-4 / Claude tokenizer
+tokenizer_encoding: "cl100k_base"  # GPT-4 default, approximate for Claude
 ```
 
 When enabled, token counts appear in:
@@ -528,13 +530,13 @@ When you set `content_selector: "auto"` for a site, the crawler automatically de
 
 ### Supported Frameworks
 
-| Framework | Detection Method | Default Selector |
-|-----------|------------------|------------------|
-| Docusaurus | `data-docusaurus` attribute, `__docusaurus` marker | `article[class*='theme-doc']` |
-| MkDocs Material | `data-md-component` attribute, `.md-content` class | `article.md-content__inner` |
-| Sphinx | `searchindex.js`, `sphinxsidebar` class | `div.document, div.body` |
-| ReadTheDocs | `readthedocs` scripts, `.rst-content` class | `.rst-content` |
-| GitBook | `gitbook` class patterns, `markdown-section` | `section.normal.markdown-section` |
+| Framework | Detection Method | Selectors (with fallbacks) |
+|-----------|------------------|---------------------------|
+| Docusaurus | `data-docusaurus` attribute, `__docusaurus` marker | `article[class*='theme-doc']`, `.theme-doc-markdown`, `article.markdown`, `main article` |
+| MkDocs Material | `data-md-component` attribute, `.md-content` class | `article.md-content__inner`, `.md-content article`, `.md-content` |
+| Sphinx | `searchindex.js`, `sphinxsidebar` class | `div.document`, `div.body`, `article.bd-article`, `main.bd-main` |
+| ReadTheDocs | `readthedocs` scripts, `.rst-content` class | `.rst-content`, `div[role='main']`, `.document` |
+| GitBook | `gitbook` class patterns, `markdown-section` | `section.normal.markdown-section`, `.page-inner section`, `main[class*='gitbook']` |
 
 ### Fallback Behavior
 
