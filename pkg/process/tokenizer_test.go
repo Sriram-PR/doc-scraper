@@ -68,9 +68,9 @@ func TestEstimateTokens(t *testing.T) {
 		expected int
 	}{
 		{"", 0},
-		{"test", 1},           // 4 chars / 4 = 1
-		{"hello world", 2},    // 11 chars / 4 = 2
-		{"12345678", 2},       // 8 chars / 4 = 2
+		{"test", 1},             // 4 chars / 4 = 1
+		{"hello world", 2},      // 11 chars / 4 = 2
+		{"12345678", 2},         // 8 chars / 4 = 2
 		{"1234567890123456", 4}, // 16 chars / 4 = 4
 	}
 

@@ -20,20 +20,20 @@ import (
 
 // ContentProcessor handles extracting, cleaning, processing (images, links), converting to Markdown, and saving of page content
 type ContentProcessor struct {
-	imgProcessor        *ImageProcessor
-	log                 *logrus.Entry
-	appCfg              *config.AppConfig
-	detector            *detect.ContentDetector
+	imgProcessor         *ImageProcessor
+	log                  *logrus.Entry
+	appCfg               *config.AppConfig
+	detector             *detect.ContentDetector
 	readabilityExtractor *detect.ReadabilityExtractor
 }
 
 // NewContentProcessor creates a ContentProcessor
 func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig, log *logrus.Entry) *ContentProcessor {
 	return &ContentProcessor{
-		imgProcessor:        imgProcessor,
-		appCfg:              appCfg,
-		log:                 log,
-		detector:            detect.NewContentDetector(log),
+		imgProcessor:         imgProcessor,
+		appCfg:               appCfg,
+		log:                  log,
+		detector:             detect.NewContentDetector(log),
 		readabilityExtractor: detect.NewReadabilityExtractor(),
 	}
 }
@@ -91,9 +91,9 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 				extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
 				if extractErr != nil {
 					err = fmt.Errorf(
-					"%w: selector '%s' not found and readability failed for '%s': %v",
-					utils.ErrContentSelector, actualSelector, finalURL.String(), extractErr, //nolint:errorlint // extractErr is supplemental
-				)
+						"%w: selector '%s' not found and readability failed for '%s': %v",
+						utils.ErrContentSelector, actualSelector, finalURL.String(), extractErr, //nolint:errorlint // extractErr is supplemental
+					)
 					taskLog.Warn(err.Error())
 					return pageTitle, "", nil, 0, err
 				}

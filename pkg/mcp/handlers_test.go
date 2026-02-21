@@ -11,13 +11,13 @@ import (
 
 func TestExtractSnippet(t *testing.T) {
 	tests := []struct {
-		name     string
-		content  string
-		query    string
-		maxLen   int
-		wantHas  string // substring that must appear
-		wantPfx  string // expected prefix (if any)
-		wantSfx  string // expected suffix (if any)
+		name    string
+		content string
+		query   string
+		maxLen  int
+		wantHas string // substring that must appear
+		wantPfx string // expected prefix (if any)
+		wantSfx string // expected suffix (if any)
 	}{
 		{
 			name:    "match in middle with ellipsis",

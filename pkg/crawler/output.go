@@ -21,12 +21,12 @@ import (
 
 // OutputManager owns all output file handles and metadata collection for a crawl.
 type OutputManager struct {
-	log                *logrus.Entry
-	resolved           *config.ResolvedSiteConfig
-	siteCfg            *config.SiteConfig // retained for YAML metadata marshaling
+	log                 *logrus.Entry
+	resolved            *config.ResolvedSiteConfig
+	siteCfg             *config.SiteConfig // retained for YAML metadata marshaling
 	enableTokenCounting bool
-	siteKey            string
-	siteOutputDir      string
+	siteKey             string
+	siteOutputDir       string
 
 	// TSV mapping
 	mappingFile     *os.File

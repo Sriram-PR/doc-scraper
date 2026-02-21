@@ -11,11 +11,11 @@ import (
 type Framework string
 
 const (
-	FrameworkUnknown    Framework = "unknown"
-	FrameworkDocusaurus Framework = "docusaurus"
-	FrameworkMkDocs     Framework = "mkdocs"
-	FrameworkSphinx     Framework = "sphinx"
-	FrameworkGitBook    Framework = "gitbook"
+	FrameworkUnknown     Framework = "unknown"
+	FrameworkDocusaurus  Framework = "docusaurus"
+	FrameworkMkDocs      Framework = "mkdocs"
+	FrameworkSphinx      Framework = "sphinx"
+	FrameworkGitBook     Framework = "gitbook"
 	FrameworkReadTheDocs Framework = "readthedocs"
 )
 

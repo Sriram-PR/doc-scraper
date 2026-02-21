@@ -491,7 +491,6 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	return c.crawlCtx.Err() // Return error from context (nil if completed normally, Canceled/DeadlineExceeded otherwise)
 }
 
-
 // worker runs the loop for a single worker goroutine, processing tasks from the priority queue.
 func (c *Crawler) worker(workerLog *logrus.Entry) { // workerLog already has site_key and worker_id
 	workerLog.Info("Worker starting")
@@ -579,14 +578,14 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	// Variables to be populated during the task.
 	// pageTitle and savedContentPath are used in defer logging.
 	// normalizedURLString is used for DB updates and YAML metadata.
-	var taskErr error                          // Stores the first critical error encountered in the pipeline.
-	var finalStatus models.PageStatus          // PageStatusSuccess or PageStatusFailure (only set for non-skipped tasks)
-	var finalErrorType = "None"                // Categorized error type on failure.
-	var skipped = false                        // True if task is skipped due to prior processing or policy.
-	var pageTitle string               // Populated on successful content extraction.
-	var savedContentPath string        // Absolute path to the saved .md file.
-	var normalizedURLString string     // Populated from handleSetupAndResumeCheck.
-	var rawHTMLHash string             // Hash of raw HTML for incremental crawling.
+	var taskErr error                 // Stores the first critical error encountered in the pipeline.
+	var finalStatus models.PageStatus // PageStatusSuccess or PageStatusFailure (only set for non-skipped tasks)
+	var finalErrorType = "None"       // Categorized error type on failure.
+	var skipped = false               // True if task is skipped due to prior processing or policy.
+	var pageTitle string              // Populated on successful content extraction.
+	var savedContentPath string       // Absolute path to the saved .md file.
+	var normalizedURLString string    // Populated from handleSetupAndResumeCheck.
+	var rawHTMLHash string            // Hash of raw HTML for incremental crawling.
 
 	// Deferred function for panic recovery, final status logging, DB update, and WaitGroup decrement.
 	defer func() {

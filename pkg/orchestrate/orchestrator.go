@@ -26,10 +26,10 @@ type SiteResult struct {
 
 // Orchestrator manages parallel crawling of multiple sites
 type Orchestrator struct {
-	appCfg      *config.AppConfig
-	log         *logrus.Entry
-	siteKeys    []string
-	resume      bool
+	appCfg   *config.AppConfig
+	log      *logrus.Entry
+	siteKeys []string
+	resume   bool
 
 	// Shared resources
 	httpClient      fetch.HTTPFetcher

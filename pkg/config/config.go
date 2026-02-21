@@ -4,24 +4,24 @@ import "time"
 
 // SiteConfig holds configuration specific to a single website crawl
 type SiteConfig struct {
-	StartURLs               []string      `yaml:"start_urls"`
-	AllowedDomain           string        `yaml:"allowed_domain"`
-	AllowedPathPrefix       string        `yaml:"allowed_path_prefix"`
-	ContentSelector         string        `yaml:"content_selector"`
-	LinkExtractionSelectors []string      `yaml:"link_extraction_selectors,omitempty"`
-	DisallowedPathPatterns  []string      `yaml:"disallowed_path_patterns,omitempty"` // Regex patterns for paths to exclude
-	RespectNofollow         bool          `yaml:"respect_nofollow,omitempty"`
-	UserAgent               string        `yaml:"user_agent,omitempty"`
-	DelayPerHost            time.Duration `yaml:"delay_per_host,omitempty"`
-	MaxDepth                int           `yaml:"max_depth"`
-	SkipImages              *bool         `yaml:"skip_images,omitempty"`
-	MaxImageSizeBytes       *int64        `yaml:"max_image_size_bytes,omitempty"`
-	AllowedImageDomains     []string      `yaml:"allowed_image_domains,omitempty"`
-	DisallowedImageDomains  []string      `yaml:"disallowed_image_domains,omitempty"`
-	EnableOutputMapping     *bool         `yaml:"enable_output_mapping,omitempty"`
-	OutputMappingFilename   string        `yaml:"output_mapping_filename,omitempty"`
-	EnableMetadataYAML      *bool         `yaml:"enable_metadata_yaml,omitempty"`
-	MetadataYAMLFilename    string        `yaml:"metadata_yaml_filename,omitempty"`
+	StartURLs               []string           `yaml:"start_urls"`
+	AllowedDomain           string             `yaml:"allowed_domain"`
+	AllowedPathPrefix       string             `yaml:"allowed_path_prefix"`
+	ContentSelector         string             `yaml:"content_selector"`
+	LinkExtractionSelectors []string           `yaml:"link_extraction_selectors,omitempty"`
+	DisallowedPathPatterns  []string           `yaml:"disallowed_path_patterns,omitempty"` // Regex patterns for paths to exclude
+	RespectNofollow         bool               `yaml:"respect_nofollow,omitempty"`
+	UserAgent               string             `yaml:"user_agent,omitempty"`
+	DelayPerHost            time.Duration      `yaml:"delay_per_host,omitempty"`
+	MaxDepth                int                `yaml:"max_depth"`
+	SkipImages              *bool              `yaml:"skip_images,omitempty"`
+	MaxImageSizeBytes       *int64             `yaml:"max_image_size_bytes,omitempty"`
+	AllowedImageDomains     []string           `yaml:"allowed_image_domains,omitempty"`
+	DisallowedImageDomains  []string           `yaml:"disallowed_image_domains,omitempty"`
+	EnableOutputMapping     *bool              `yaml:"enable_output_mapping,omitempty"`
+	OutputMappingFilename   string             `yaml:"output_mapping_filename,omitempty"`
+	EnableMetadataYAML      *bool              `yaml:"enable_metadata_yaml,omitempty"`
+	MetadataYAMLFilename    string             `yaml:"metadata_yaml_filename,omitempty"`
 	EnableJSONLOutput       *bool              `yaml:"enable_jsonl_output,omitempty"`
 	JSONLOutputFilename     string             `yaml:"jsonl_output_filename,omitempty"`
 	Chunking                SiteChunkingConfig `yaml:"chunking,omitempty"`
@@ -29,36 +29,36 @@ type SiteConfig struct {
 
 // AppConfig holds the global application configuration
 type AppConfig struct {
-	DefaultUserAgent        string                `yaml:"default_user_agent"`
-	DefaultDelayPerHost     time.Duration         `yaml:"default_delay_per_host"`
-	NumWorkers              int                   `yaml:"num_workers"`
-	NumImageWorkers         int                   `yaml:"num_image_workers,omitempty"`
-	MaxRequests             int                   `yaml:"max_requests"`
-	MaxRequestsPerHost      int                   `yaml:"max_requests_per_host"`
-	OutputBaseDir           string                `yaml:"output_base_dir"`
-	StateDir                string                `yaml:"state_dir"`
-	MaxRetries              int                   `yaml:"max_retries,omitempty"`
-	InitialRetryDelay       time.Duration         `yaml:"initial_retry_delay,omitempty"`
-	MaxRetryDelay           time.Duration         `yaml:"max_retry_delay,omitempty"`
-	SemaphoreAcquireTimeout time.Duration         `yaml:"semaphore_acquire_timeout,omitempty"`
-	GlobalCrawlTimeout      time.Duration         `yaml:"global_crawl_timeout,omitempty"`
-	PerPageTimeout          time.Duration         `yaml:"per_page_timeout,omitempty"` // Timeout for processing a single page (0 = no timeout)
-	SkipImages              bool                  `yaml:"skip_images,omitempty"`
-	MaxImageSizeBytes       int64                 `yaml:"max_image_size_bytes,omitempty"`
-	MaxPageSizeBytes        int64                 `yaml:"max_page_size_bytes,omitempty"` // Max HTML page body size in bytes (0 = 50MB default)
-	HTTPClientSettings      HTTPClientConfig      `yaml:"http_client_settings,omitempty"`
+	DefaultUserAgent        string                 `yaml:"default_user_agent"`
+	DefaultDelayPerHost     time.Duration          `yaml:"default_delay_per_host"`
+	NumWorkers              int                    `yaml:"num_workers"`
+	NumImageWorkers         int                    `yaml:"num_image_workers,omitempty"`
+	MaxRequests             int                    `yaml:"max_requests"`
+	MaxRequestsPerHost      int                    `yaml:"max_requests_per_host"`
+	OutputBaseDir           string                 `yaml:"output_base_dir"`
+	StateDir                string                 `yaml:"state_dir"`
+	MaxRetries              int                    `yaml:"max_retries,omitempty"`
+	InitialRetryDelay       time.Duration          `yaml:"initial_retry_delay,omitempty"`
+	MaxRetryDelay           time.Duration          `yaml:"max_retry_delay,omitempty"`
+	SemaphoreAcquireTimeout time.Duration          `yaml:"semaphore_acquire_timeout,omitempty"`
+	GlobalCrawlTimeout      time.Duration          `yaml:"global_crawl_timeout,omitempty"`
+	PerPageTimeout          time.Duration          `yaml:"per_page_timeout,omitempty"` // Timeout for processing a single page (0 = no timeout)
+	SkipImages              bool                   `yaml:"skip_images,omitempty"`
+	MaxImageSizeBytes       int64                  `yaml:"max_image_size_bytes,omitempty"`
+	MaxPageSizeBytes        int64                  `yaml:"max_page_size_bytes,omitempty"` // Max HTML page body size in bytes (0 = 50MB default)
+	HTTPClientSettings      HTTPClientConfig       `yaml:"http_client_settings,omitempty"`
 	Sites                   map[string]*SiteConfig `yaml:"sites"`
-	EnableOutputMapping     bool                  `yaml:"enable_output_mapping,omitempty"`
-	OutputMappingFilename   string                `yaml:"output_mapping_filename,omitempty"`
-	EnableMetadataYAML      bool                  `yaml:"enable_metadata_yaml,omitempty"`
-	MetadataYAMLFilename    string                `yaml:"metadata_yaml_filename,omitempty"`
-	EnableJSONLOutput       bool                  `yaml:"enable_jsonl_output,omitempty"`
-	JSONLOutputFilename     string                `yaml:"jsonl_output_filename,omitempty"`
-	EnableTokenCounting     bool                  `yaml:"enable_token_counting,omitempty"`
-	TokenizerEncoding       string                `yaml:"tokenizer_encoding,omitempty"` // e.g., "cl100k_base" (GPT-4, Claude default)
-	DBGCInterval            time.Duration         `yaml:"db_gc_interval,omitempty"`     // Interval for BadgerDB value log GC (default: 10m)
-	EnableIncremental       bool                  `yaml:"enable_incremental,omitempty"` // Enable incremental crawling (skip unchanged pages)
-	Chunking                ChunkingConfig        `yaml:"chunking,omitempty"`
+	EnableOutputMapping     bool                   `yaml:"enable_output_mapping,omitempty"`
+	OutputMappingFilename   string                 `yaml:"output_mapping_filename,omitempty"`
+	EnableMetadataYAML      bool                   `yaml:"enable_metadata_yaml,omitempty"`
+	MetadataYAMLFilename    string                 `yaml:"metadata_yaml_filename,omitempty"`
+	EnableJSONLOutput       bool                   `yaml:"enable_jsonl_output,omitempty"`
+	JSONLOutputFilename     string                 `yaml:"jsonl_output_filename,omitempty"`
+	EnableTokenCounting     bool                   `yaml:"enable_token_counting,omitempty"`
+	TokenizerEncoding       string                 `yaml:"tokenizer_encoding,omitempty"` // e.g., "cl100k_base" (GPT-4, Claude default)
+	DBGCInterval            time.Duration          `yaml:"db_gc_interval,omitempty"`     // Interval for BadgerDB value log GC (default: 10m)
+	EnableIncremental       bool                   `yaml:"enable_incremental,omitempty"` // Enable incremental crawling (skip unchanged pages)
+	Chunking                ChunkingConfig         `yaml:"chunking,omitempty"`
 }
 
 // ChunkingConfig holds configuration for content chunking.
@@ -239,21 +239,21 @@ func getEffectiveDelayPerHost(siteCfg *SiteConfig, appCfg *AppConfig) time.Durat
 // ResolvedSiteConfig holds all effective configuration values for a site,
 // resolved once from site-specific overrides and app-level defaults.
 type ResolvedSiteConfig struct {
-	UserAgent               string
-	OutputMappingFilename   string
-	MetadataYAMLFilename    string
-	JSONLOutputFilename     string
-	ChunkingOutputFilename  string
-	DelayPerHost            time.Duration
-	MaxPageSizeBytes        int64
-	MaxImageSizeBytes       int64
-	SkipImages              bool
-	EnableOutputMapping     bool
-	EnableMetadataYAML      bool
-	EnableJSONLOutput       bool
-	ChunkingEnabled         bool
-	ChunkingMaxSize         int
-	ChunkingOverlap         int
+	UserAgent              string
+	OutputMappingFilename  string
+	MetadataYAMLFilename   string
+	JSONLOutputFilename    string
+	ChunkingOutputFilename string
+	DelayPerHost           time.Duration
+	MaxPageSizeBytes       int64
+	MaxImageSizeBytes      int64
+	SkipImages             bool
+	EnableOutputMapping    bool
+	EnableMetadataYAML     bool
+	EnableJSONLOutput      bool
+	ChunkingEnabled        bool
+	ChunkingMaxSize        int
+	ChunkingOverlap        int
 }
 
 // NewResolvedSiteConfig resolves all effective configuration values for a site.

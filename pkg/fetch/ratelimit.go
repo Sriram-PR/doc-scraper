@@ -67,13 +67,13 @@ func (rl *RateLimiter) ApplyDelay(ctx context.Context, host string, minDelay tim
 					"host": host, "sleep": finalSleep, "required_delay": minDelay, "elapsed": elapsed,
 				}).Debug("Rate limit applying sleep")
 				timer := time.NewTimer(finalSleep)
-			select {
-			case <-timer.C:
-				// normal delay elapsed
-			case <-ctx.Done():
-				timer.Stop()
-				rl.log.WithField("host", host).Debug("Rate limit sleep interrupted by context cancellation")
-			}
+				select {
+				case <-timer.C:
+					// normal delay elapsed
+				case <-ctx.Done():
+					timer.Stop()
+					rl.log.WithField("host", host).Debug("Rate limit sleep interrupted by context cancellation")
+				}
 			}
 		}
 	}

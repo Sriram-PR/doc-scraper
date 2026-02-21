@@ -48,14 +48,14 @@ type ImageDownloadTask struct {
 
 // ImageProcessor handles the orchestration of image downloading and processing
 type ImageProcessor struct {
-	store           storage.ImageStore          // DB interaction
-	fetcher         fetch.HTTPFetcher           // HTTP fetching
-	robotsHandler   *fetch.RobotsHandler        // Robots checks
-	rateLimiter     *fetch.RateLimiter          // Rate limiting
-	globalSemaphore *semaphore.Weighted         // Global concurrency limit
-	hostSemPool     *fetch.HostSemaphorePool    // Shared per-host semaphore pool
-	resolved        *config.ResolvedSiteConfig  // Resolved site config
-	appCfg          *config.AppConfig           // Global config (non-site settings)
+	store           storage.ImageStore         // DB interaction
+	fetcher         fetch.HTTPFetcher          // HTTP fetching
+	robotsHandler   *fetch.RobotsHandler       // Robots checks
+	rateLimiter     *fetch.RateLimiter         // Rate limiting
+	globalSemaphore *semaphore.Weighted        // Global concurrency limit
+	hostSemPool     *fetch.HostSemaphorePool   // Shared per-host semaphore pool
+	resolved        *config.ResolvedSiteConfig // Resolved site config
+	appCfg          *config.AppConfig          // Global config (non-site settings)
 	log             *logrus.Entry
 }
 

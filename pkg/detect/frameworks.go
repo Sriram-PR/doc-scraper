@@ -8,11 +8,11 @@ import (
 
 // FrameworkSignature defines detection patterns for a documentation framework
 type FrameworkSignature struct {
-	Framework   Framework
-	Selector    string   // CSS selector for main content
-	Attributes  []string // HTML attributes to look for (e.g., "data-docusaurus")
-	Classes     []string // CSS classes to look for
-	Scripts     []string // Script src patterns to look for
+	Framework    Framework
+	Selector     string   // CSS selector for main content
+	Attributes   []string // HTML attributes to look for (e.g., "data-docusaurus")
+	Classes      []string // CSS classes to look for
+	Scripts      []string // Script src patterns to look for
 	HTMLPatterns []string // Substring patterns to look for in raw HTML
 }
 
@@ -20,7 +20,7 @@ type FrameworkSignature struct {
 func (sig *FrameworkSignature) Matches(doc *goquery.Document, html string) bool {
 	// Check for attribute presence
 	for _, attr := range sig.Attributes {
-		if doc.Find("[" + attr + "]").Length() > 0 {
+		if doc.Find("["+attr+"]").Length() > 0 {
 			return true
 		}
 	}
@@ -49,7 +49,7 @@ func (sig *FrameworkSignature) Matches(doc *goquery.Document, html string) bool 
 			if found {
 				return true
 			}
-		} else if doc.Find("." + class).Length() > 0 {
+		} else if doc.Find("."+class).Length() > 0 {
 			return true
 		}
 	}
