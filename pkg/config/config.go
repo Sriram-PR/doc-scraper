@@ -88,6 +88,11 @@ type HTTPClientConfig struct {
 	ForceAttemptHTTP2     *bool         `yaml:"force_attempt_http2,omitempty"`     // Explicitly enable/disable HTTP/2 attempt (use pointer for tri-state: nil=default, true=force, false=disable)
 	DialerTimeout         time.Duration `yaml:"dialer_timeout,omitempty"`          // Connection dial timeout
 	DialerKeepAlive       time.Duration `yaml:"dialer_keep_alive,omitempty"`       // TCP keep-alive interval
+	// AllowPrivateNetworks disables the SSRF guard that blocks outbound
+	// connections to private/loopback/link-local/CGNAT/multicast addresses.
+	// Default false. Set to true only if you intentionally crawl internal
+	// documentation servers reachable via private IPs.
+	AllowPrivateNetworks bool `yaml:"allow_private_networks,omitempty"`
 }
 
 const (

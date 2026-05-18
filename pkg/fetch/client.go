@@ -21,10 +21,21 @@ func NewClient(cfg config.HTTPClientConfig, log *logrus.Entry) *http.Client {
 		// DualStack support is enabled by default
 	}
 
+	// Wrap with SSRF guard unless explicitly disabled. Blocks dials to
+	// loopback/private/link-local/CGNAT/multicast addresses, including those
+	// reached via redirect chains. Resolves once and dials each pre-validated
+	// IP directly to prevent DNS-rebinding races.
+	dialContext := dialer.DialContext
+	if cfg.AllowPrivateNetworks {
+		log.Warn("HTTP client: allow_private_networks=true — SSRF guard disabled, dials to private IPs are permitted")
+	} else {
+		dialContext = SafeDialContext(dialer)
+	}
+
 	// Create custom transport using configured settings
 	transport := &http.Transport{
 		Proxy:                  http.ProxyFromEnvironment, // Use system proxy settings
-		DialContext:            dialer.DialContext,        // Use our custom dialer
+		DialContext:            dialContext,               // SSRF-guarded dialer (unless opted out)
 		ForceAttemptHTTP2:      true,                      // Default to true unless explicitly disabled
 		MaxIdleConns:           cfg.MaxIdleConns,
 		MaxIdleConnsPerHost:    cfg.MaxIdleConnsPerHost,
