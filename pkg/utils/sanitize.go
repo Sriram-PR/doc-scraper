@@ -24,7 +24,10 @@ func SanitizeFilename(name string) string {
 		sanitized = strings.Trim(sanitized, "_ ")
 	}
 
-	if sanitized == "" { // Handle cases where sanitization results in an empty string
+	// Reject segments composed entirely of dots (".", "..", "...") — these
+	// would resolve to parent/current directory references when used in
+	// filesystem paths and could escape the intended output directory.
+	if sanitized == "" || strings.Trim(sanitized, ".") == "" {
 		sanitized = "untitled" // Provide a default name
 	}
 	return sanitized

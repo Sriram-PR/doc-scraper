@@ -307,6 +307,15 @@ func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *con
 	}
 
 	fullPath := filepath.Join(outputSubDir, outputFilename)
+
+	// Defense in depth: even if upstream sanitization is bypassed, ensure the
+	// resolved path stays under siteOutputDir. This blocks any URL whose path
+	// segments resolve (via filepath.Join) outside the site's output tree.
+	cleanedDir := filepath.Clean(siteOutputDir)
+	cleanedFull := filepath.Clean(fullPath)
+	if cleanedFull != cleanedDir && !strings.HasPrefix(cleanedFull, cleanedDir+string(filepath.Separator)) {
+		return "", false
+	}
 	return fullPath, true
 }
 

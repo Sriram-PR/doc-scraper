@@ -3,6 +3,7 @@ package process
 import (
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
@@ -300,6 +301,45 @@ func TestGetOutputPathForURL_PathPrefixVariations(t *testing.T) {
 			}
 			if path != tt.expectedPath {
 				t.Errorf("getOutputPathForURL(%q) path = %q, want %q", tt.inputURL, path, tt.expectedPath)
+			}
+		})
+	}
+}
+
+// TestGetOutputPathForURL_PathTraversal verifies that URLs whose path segments
+// would resolve outside the site output directory (via ".." traversal or
+// dot-only segments) are rejected. Regression test for path traversal that
+// could otherwise write files to arbitrary filesystem locations.
+func TestGetOutputPathForURL_PathTraversal(t *testing.T) {
+	cp := testContentProcessor()
+	siteCfg := config.SiteConfig{
+		AllowedDomain:     "example.com",
+		AllowedPathPrefix: "/docs/",
+	}
+	siteOutputDir := "/output/site"
+
+	tests := []struct {
+		name     string
+		inputURL string
+	}{
+		{"ParentTraversal", "https://example.com/docs/../../../etc/evil.md"},
+		{"MixedTraversal", "https://example.com/docs/legit/../../../../etc/passwd"},
+		{"DoubleDotSegment", "https://example.com/docs/..//page.html"},
+		{"DoubleDotInDirPath", "https://example.com/docs/foo/../../../bar.html"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, _ := url.Parse(tt.inputURL)
+			gotPath, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
+			// Two acceptable outcomes: (a) function rejects URL outright (ok=false),
+			// or (b) function returns a path that stays within siteOutputDir.
+			if ok {
+				cleanedDir := filepath.Clean(siteOutputDir)
+				cleanedFull := filepath.Clean(gotPath)
+				if cleanedFull != cleanedDir && !strings.HasPrefix(cleanedFull, cleanedDir+string(filepath.Separator)) {
+					t.Errorf("getOutputPathForURL(%q) returned escape path %q (siteOutputDir=%q)", tt.inputURL, gotPath, siteOutputDir)
+				}
 			}
 		})
 	}

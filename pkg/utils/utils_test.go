@@ -248,6 +248,11 @@ func TestSanitizeFilename(t *testing.T) {
 		{"Pipe", "file|name", "file_name"},
 		{"NullChar", "file\x00name", "file_name"},
 		{"ControlChars", "file\x01\x02name", "file_name"},
+		{"SingleDot", ".", "untitled"},
+		{"DoubleDot", "..", "untitled"},
+		{"TripleDot", "...", "untitled"},
+		{"DotsWithExtension", "file.html", "file.html"},
+		{"LeadingDot", ".hidden", ".hidden"},
 	}
 
 	for _, tt := range tests {
