@@ -77,6 +77,11 @@ type Crawler struct {
 
 	// Output file management (TSV, JSONL, chunks, YAML metadata)
 	output *OutputManager
+
+	// Optional periodic progress reporter (e.g. MCP job status updates).
+	// Invoked from the progress reporter goroutine, never per-page, so it
+	// is safe to do a small amount of work (lock + write) inside.
+	progressCallback func(processed, queued int64)
 }
 
 // CrawlerOptions contains optional parameters for NewCrawler
@@ -84,6 +89,11 @@ type CrawlerOptions struct {
 	// SharedSemaphore allows sharing a global semaphore across multiple crawlers
 	// If nil, the crawler creates its own semaphore based on appCfg.MaxRequests
 	SharedSemaphore *semaphore.Weighted
+
+	// ProgressCallback receives periodic (~30s) updates of processed page
+	// count and remaining queue depth. Fired one final time when the
+	// progress reporter exits so observers see the terminal state.
+	ProgressCallback func(processed, queued int64)
 }
 
 // NewCrawler creates and initializes a new Crawler instance and its components
@@ -162,6 +172,9 @@ func NewCrawlerWithOptions(
 		cancelCrawl:                cancelCrawl,
 		sitemapQueue:               make(chan string, 100), // Buffer size can be configured if needed
 		foundSitemaps:              make(map[string]bool),
+	}
+	if opts != nil {
+		c.progressCallback = opts.ProgressCallback
 	}
 
 	// --- Initialize output manager (files opened later in Run after directory cleanup) ---
@@ -355,6 +368,14 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		}()
 		go func() { // Progress reporting loop
 			c.log.WithFields(runLogFields).Info("Progress reporter started.")
+			defer func() {
+				// Fire one final callback so external observers (e.g. MCP
+				// get_job_status) see the terminal state without waiting
+				// for the next tick that will never come.
+				if c.progressCallback != nil {
+					c.progressCallback(c.processedCounter.Load(), int64(c.pq.Len()+len(c.sitemapQueue)))
+				}
+			}()
 			for {
 				select {
 				case <-progDone:
@@ -373,6 +394,9 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 						"sitemap_queue_len": smQLen,
 						"processed_tasks":   procCount,
 					}).Info("Crawl Progress")
+					if c.progressCallback != nil {
+						c.progressCallback(procCount, int64(pqLen+smQLen))
+					}
 				}
 			}
 		}()

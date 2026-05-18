@@ -322,7 +322,8 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 	crawlerCtx, cancelCrawl := context.WithCancel(jobCtx)
 	defer cancelCrawl()
 
-	crawlerInstance, err := crawler.NewCrawler(
+	jobID := job.ID
+	crawlerInstance, err := crawler.NewCrawlerWithOptions(
 		&appCfgCopy,
 		siteCfg,
 		siteKey,
@@ -333,6 +334,11 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 		crawlerCtx,
 		cancelCrawl,
 		false, // not resume
+		&crawler.CrawlerOptions{
+			ProgressCallback: func(processed, queued int64) {
+				s.jobManager.UpdateProgress(jobID, processed, queued)
+			},
+		},
 	)
 	if err != nil {
 		s.jobManager.UpdateStatus(job.ID, JobStatusFailed, fmt.Sprintf("failed to create crawler: %v", err))
