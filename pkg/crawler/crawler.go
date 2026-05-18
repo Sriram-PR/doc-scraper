@@ -171,7 +171,7 @@ func NewCrawlerWithOptions(
 	if c.appCfg.EnableTokenCounting {
 		encoding := c.appCfg.TokenizerEncoding
 		if encoding == "" {
-			encoding = "cl100k_base" // Default to GPT-4 encoding (approximate for Claude)
+			encoding = "cl100k_base" // GPT-4 tokenizer; Claude uses a different, non-public tokenizer (see pkg/process/tokenizer.go)
 		}
 		if err := process.InitTokenizer(encoding); err != nil {
 			return nil, fmt.Errorf("failed to initialize tokenizer with encoding '%s': %w", encoding, err)

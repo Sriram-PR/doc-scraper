@@ -488,7 +488,7 @@ Enable per-page token counting to track content size for LLM context windows:
 
 ```yaml
 enable_token_counting: true
-tokenizer_encoding: "cl100k_base"  # GPT-4 default, approximate for Claude
+tokenizer_encoding: "cl100k_base"  # GPT-4 tokenizer. Claude uses a different, non-public tokenizer.
 ```
 
 When enabled, token counts appear in:
