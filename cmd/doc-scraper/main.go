@@ -29,7 +29,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/watch"
 )
 
-const version = "1.4.0"
+const version = "1.4.1"
 
 func main() {
 	if len(os.Args) < 2 {
