@@ -1,38 +1,31 @@
 package process
 
 import (
-	"bytes"
-
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/text"
+	"regexp"
+	"strings"
 )
 
-// ExtractHeadings parses markdown content and extracts all heading texts.
-// Returns a slice of heading strings in document order.
+// headingRegex matches markdown ATX headings at the start of lines. Group 1 is
+// the hash prefix (#-######), group 2 is the heading text up to end of line.
+var headingRegex = regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
+
+// ExtractHeadings returns all ATX heading texts in markdown in document order.
+// Does not parse Setext-style headings or detect headings inside fenced code
+// blocks — acceptable for the inputs we feed it (HTML-to-markdown conversion
+// output, where Setext headings do not occur).
 func ExtractHeadings(markdown []byte) []string {
-	reader := text.NewReader(markdown)
-	parser := goldmark.DefaultParser()
-	doc := parser.Parse(reader)
-
-	var headings []string
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
-		if heading, ok := n.(*ast.Heading); ok {
-			var buf bytes.Buffer
-			for child := heading.FirstChild(); child != nil; child = child.NextSibling() {
-				if textNode, ok := child.(*ast.Text); ok {
-					buf.Write(textNode.Segment.Value(markdown))
-				}
-			}
-			if buf.Len() > 0 {
-				headings = append(headings, buf.String())
+	matches := headingRegex.FindAllSubmatch(markdown, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	headings := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if len(m) >= 3 {
+			text := strings.TrimSpace(string(m[2]))
+			if text != "" {
+				headings = append(headings, text)
 			}
 		}
-		return ast.WalkContinue, nil
-	})
-
+	}
 	return headings
 }

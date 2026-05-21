@@ -172,7 +172,7 @@ func TestExtractHeadingHierarchy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractHeadingHierarchy(tt.content)
+			result := ExtractHeadings([]byte(tt.content))
 			if len(result) != len(tt.expected) {
 				t.Errorf("expected %d headings, got %d: %v", len(tt.expected), len(result), result)
 				return

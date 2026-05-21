@@ -1,7 +1,6 @@
 package process
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/tmc/langchaingo/textsplitter"
@@ -27,9 +26,6 @@ func DefaultChunkerConfig() ChunkerConfig {
 		ChunkOverlap: 50,
 	}
 }
-
-// headingRegex matches markdown headings at the start of lines.
-var headingRegex = regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
 
 // ChunkMarkdown splits markdown content into chunks using a hybrid strategy:
 // 1. Primary: Split by markdown headers, preserving heading hierarchy
@@ -76,7 +72,7 @@ func ChunkMarkdown(markdown string, cfg ChunkerConfig) ([]Chunk, error) {
 
 		chunk := Chunk{
 			Content:          part,
-			HeadingHierarchy: extractHeadingHierarchy(part),
+			HeadingHierarchy: ExtractHeadings([]byte(part)),
 			TokenCount:       CountTokens(part),
 		}
 		chunks = append(chunks, chunk)
@@ -85,24 +81,3 @@ func ChunkMarkdown(markdown string, cfg ChunkerConfig) ([]Chunk, error) {
 	return chunks, nil
 }
 
-// extractHeadingHierarchy extracts the heading hierarchy from chunk content.
-// Returns headings in order from highest level (h1) to lowest (h6).
-func extractHeadingHierarchy(content string) []string {
-	matches := headingRegex.FindAllStringSubmatch(content, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	// Track headings by level to build hierarchy
-	hierarchy := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) >= 3 {
-			heading := strings.TrimSpace(match[2])
-			if heading != "" {
-				hierarchy = append(hierarchy, heading)
-			}
-		}
-	}
-
-	return hierarchy
-}
