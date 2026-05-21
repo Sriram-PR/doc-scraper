@@ -322,12 +322,12 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 
 	// --- Determine site keys ---
 	if allSites {
-		siteKeys = orchestrate.GetAllSiteKeys(appCfg)
+		siteKeys = config.GetAllSiteKeys(appCfg)
 		log.Infof("All sites mode: found %d sites", len(siteKeys))
 	}
 
 	// --- Validate site keys ---
-	if err := orchestrate.ValidateSiteKeys(appCfg, siteKeys); err != nil {
+	if err := config.ValidateSiteKeys(appCfg, siteKeys); err != nil {
 		log.Fatalf("Invalid site keys: %v", err)
 	}
 
@@ -484,12 +484,12 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 
 	// --- Determine site keys ---
 	if allSites {
-		siteKeys = orchestrate.GetAllSiteKeys(appCfg)
+		siteKeys = config.GetAllSiteKeys(appCfg)
 		log.Infof("All sites mode: found %d sites", len(siteKeys))
 	}
 
 	// --- Validate site keys ---
-	if err := orchestrate.ValidateSiteKeys(appCfg, siteKeys); err != nil {
+	if err := config.ValidateSiteKeys(appCfg, siteKeys); err != nil {
 		log.Fatalf("Invalid site keys: %v", err)
 	}
 
