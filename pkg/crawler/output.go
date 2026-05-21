@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -33,15 +34,26 @@ type OutputManager struct {
 	mappingFileMu   sync.Mutex
 	mappingFilePath string
 
-	// JSONL output
-	jsonlFile     *os.File
-	jsonlFileMu   sync.Mutex
-	jsonlFilePath string
+	// JSONL output. When bufferOutput is true (fresh crawls), records are
+	// collected into collectedPageJSONL and written sorted by URL at Close()
+	// for deterministic, diffable output. When false (resume crawls), records
+	// stream directly to disk under jsonlFileMu so we don't fight the existing
+	// content of the file.
+	jsonlFile          *os.File
+	jsonlFileMu        sync.Mutex
+	jsonlFilePath      string
+	collectedPageJSONL []models.PageJSONL
 
-	// Chunks output
-	chunksFile     *os.File
-	chunksFileMu   sync.Mutex
-	chunksFilePath string
+	// Chunks output. Same buffer-vs-stream behavior as JSONL above; on
+	// buffered close, sorted by (URL, ChunkIndex).
+	chunksFile       *os.File
+	chunksFileMu     sync.Mutex
+	chunksFilePath   string
+	collectedChunks  []models.ChunkJSONL
+
+	// bufferOutput selects between buffer-and-sort (fresh crawls, deterministic
+	// output) and stream-write (resume crawls). Set by OpenFiles.
+	bufferOutput bool
 
 	// YAML metadata
 	collectedPageMetadata []models.PageMetadata
@@ -66,6 +78,11 @@ func NewOutputManager(log *logrus.Entry, resolved *config.ResolvedSiteConfig, si
 // OpenFiles opens all configured output files (TSV, JSONL, chunks).
 // Must be called after the output directory exists and has been cleaned if needed.
 func (om *OutputManager) OpenFiles(resume bool) {
+	// Fresh crawls buffer JSONL and chunk records in memory and write them
+	// sorted at Close(). Resume crawls stream directly to disk so we don't
+	// overwrite existing content of the resumed-into file.
+	om.bufferOutput = !resume
+
 	// --- Initialize Simple TSV Mapping File (if enabled) ---
 	if om.resolved.EnableOutputMapping {
 		om.mappingFilePath = filepath.Join(om.siteOutputDir, om.resolved.OutputMappingFilename)
@@ -114,7 +131,13 @@ func openOutputFile(log *logrus.Entry, path, label string, resume bool) *os.File
 }
 
 // Close syncs and closes all output files and writes the YAML metadata file.
+// For fresh crawls (bufferOutput=true), JSONL and chunk records buffered in
+// memory are sorted (by URL, and by URL+ChunkIndex respectively) and written
+// out before the file handles are closed. Resume crawls have already streamed
+// their records during the crawl and just need a flush.
 func (om *OutputManager) Close() error {
+	om.flushBufferedJSONL()
+	om.flushBufferedChunks()
 	om.closeMappingFile()
 	om.closeJSONLFile()
 	om.closeChunksFile()
@@ -131,7 +154,14 @@ func (om *OutputManager) PagesSaved() int {
 // RecordPageOutput handles all post-save output: TSV write, YAML metadata collection,
 // JSONL write, and chunks write. Called after content is successfully saved to disk.
 // markdownBytes is the already-written markdown content, passed through to avoid re-reading the file.
+//
+// One timestamp is captured per page (crawledAt) and shared by every record
+// emitted for that page so YAML/JSONL/chunks rows for the same page have
+// identical timestamps and content hashes can be diffed cleanly across runs.
 func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentPath string, markdownBytes []byte, pageTitle string, currentDepth, imageCount int, taskLog *logrus.Entry) {
+	crawledAt := time.Now()
+	crawledAtStr := crawledAt.Format(time.RFC3339)
+
 	// Write to TSV mapping file
 	om.writeToMappingFile(finalURL, savedContentPath, taskLog)
 
@@ -163,7 +193,7 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 			LocalFilePath: filepath.ToSlash(relativeLocalPath),
 			Title:         pageTitle,
 			Depth:         currentDepth,
-			ProcessedAt:   time.Now(),
+			ProcessedAt:   crawledAt,
 			ContentHash:   contentHash,
 			ImageCount:    imageCount,
 			TokenCount:    tokenCount,
@@ -174,7 +204,7 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 		om.metadataMutex.Unlock()
 	}
 
-	// Write JSONL output
+	// JSONL output (buffer for fresh crawls, stream for resume)
 	if enableJSONL && om.jsonlFile != nil && markdownBytes != nil {
 		headings := process.ExtractHeadings(markdownBytes)
 		links, images := extractLinksAndImages(string(markdownBytes))
@@ -187,14 +217,14 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 			Links:       links,
 			Images:      images,
 			ContentHash: contentHash,
-			CrawledAt:   time.Now().Format(time.RFC3339),
+			CrawledAt:   crawledAtStr,
 			Depth:       currentDepth,
 			TokenCount:  tokenCount,
 		}
-		om.writeToJSONLFile(pageJSONL, taskLog)
+		om.recordJSONL(pageJSONL, taskLog)
 	}
 
-	// Write chunks output
+	// Chunks output (buffer for fresh crawls, stream for resume)
 	if om.resolved.ChunkingEnabled && om.chunksFile != nil && markdownBytes != nil {
 		chunkCfg := process.ChunkerConfig{
 			MaxChunkSize: om.resolved.ChunkingMaxSize,
@@ -205,7 +235,6 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 		if chunkErr != nil {
 			taskLog.Warnf("Failed to chunk markdown content: %v", chunkErr)
 		} else if len(chunks) > 0 {
-			crawledAt := time.Now().Format(time.RFC3339)
 			chunkJSONLs := make([]models.ChunkJSONL, len(chunks))
 			for i, chunk := range chunks {
 				chunkJSONLs[i] = models.ChunkJSONL{
@@ -215,10 +244,10 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 					HeadingHierarchy: chunk.HeadingHierarchy,
 					TokenCount:       chunk.TokenCount,
 					PageTitle:        pageTitle,
-					CrawledAt:        crawledAt,
+					CrawledAt:        crawledAtStr,
 				}
 			}
-			om.writeToChunksFile(chunkJSONLs, taskLog)
+			om.recordChunks(chunkJSONLs, taskLog)
 			taskLog.Debugf("Wrote %d chunks for page", len(chunks))
 		}
 	}
@@ -293,46 +322,105 @@ func (om *OutputManager) writeToMappingFile(pageURL, absoluteFilePath string, ta
 	}
 }
 
-// writeToJSONLFile writes a page entry to the JSONL output file (if enabled and open).
-func (om *OutputManager) writeToJSONLFile(page models.PageJSONL, taskLog *logrus.Entry) {
+// recordJSONL either buffers the page record for deterministic flush at Close()
+// (fresh crawl) or streams it straight to disk (resume crawl).
+func (om *OutputManager) recordJSONL(page models.PageJSONL, taskLog *logrus.Entry) {
 	om.jsonlFileMu.Lock()
 	defer om.jsonlFileMu.Unlock()
 
 	if om.jsonlFile == nil {
 		return
 	}
-
-	jsonBytes, err := json.Marshal(page)
-	if err != nil {
-		taskLog.WithField("jsonl_file", om.jsonlFilePath).Errorf("Failed to marshal page to JSON: %v", err)
+	if om.bufferOutput {
+		om.collectedPageJSONL = append(om.collectedPageJSONL, page)
 		return
 	}
-
-	if _, err := om.jsonlFile.Write(append(jsonBytes, '\n')); err != nil {
+	if err := writeJSONLLine(om.jsonlFile, page); err != nil {
 		taskLog.WithField("jsonl_file", om.jsonlFilePath).Errorf("Failed to write to JSONL file: %v", err)
 	}
 }
 
-// writeToChunksFile writes chunk entries to the chunks output file (if enabled and open).
-func (om *OutputManager) writeToChunksFile(chunks []models.ChunkJSONL, taskLog *logrus.Entry) {
+// recordChunks either buffers chunk records for deterministic flush at Close()
+// (fresh crawl) or streams them straight to disk (resume crawl).
+func (om *OutputManager) recordChunks(chunks []models.ChunkJSONL, taskLog *logrus.Entry) {
 	om.chunksFileMu.Lock()
 	defer om.chunksFileMu.Unlock()
 
 	if om.chunksFile == nil {
 		return
 	}
-
+	if om.bufferOutput {
+		om.collectedChunks = append(om.collectedChunks, chunks...)
+		return
+	}
 	for _, chunk := range chunks {
-		jsonBytes, err := json.Marshal(chunk)
-		if err != nil {
-			taskLog.WithField("chunks_file", om.chunksFilePath).Errorf("Failed to marshal chunk to JSON: %v", err)
-			continue
-		}
-
-		if _, err := om.chunksFile.Write(append(jsonBytes, '\n')); err != nil {
+		if err := writeJSONLLine(om.chunksFile, chunk); err != nil {
 			taskLog.WithField("chunks_file", om.chunksFilePath).Errorf("Failed to write to chunks file: %v", err)
 		}
 	}
+}
+
+// flushBufferedJSONL writes all buffered page records to the JSONL file in URL
+// order. No-op for resume crawls (records were streamed during the crawl) and
+// when JSONL output is disabled.
+func (om *OutputManager) flushBufferedJSONL() {
+	om.jsonlFileMu.Lock()
+	defer om.jsonlFileMu.Unlock()
+
+	if !om.bufferOutput || om.jsonlFile == nil || len(om.collectedPageJSONL) == 0 {
+		return
+	}
+
+	sort.Slice(om.collectedPageJSONL, func(i, j int) bool {
+		return om.collectedPageJSONL[i].URL < om.collectedPageJSONL[j].URL
+	})
+
+	for _, page := range om.collectedPageJSONL {
+		if err := writeJSONLLine(om.jsonlFile, page); err != nil {
+			om.log.Errorf("Failed to flush JSONL record for %s: %v", page.URL, err)
+		}
+	}
+	om.log.Infof("Flushed %d sorted JSONL records to %s", len(om.collectedPageJSONL), om.jsonlFilePath)
+	om.collectedPageJSONL = nil
+}
+
+// flushBufferedChunks writes all buffered chunk records to the chunks file in
+// (URL, ChunkIndex) order. No-op for resume crawls and when chunking is
+// disabled.
+func (om *OutputManager) flushBufferedChunks() {
+	om.chunksFileMu.Lock()
+	defer om.chunksFileMu.Unlock()
+
+	if !om.bufferOutput || om.chunksFile == nil || len(om.collectedChunks) == 0 {
+		return
+	}
+
+	sort.Slice(om.collectedChunks, func(i, j int) bool {
+		if om.collectedChunks[i].URL != om.collectedChunks[j].URL {
+			return om.collectedChunks[i].URL < om.collectedChunks[j].URL
+		}
+		return om.collectedChunks[i].ChunkIndex < om.collectedChunks[j].ChunkIndex
+	})
+
+	for _, chunk := range om.collectedChunks {
+		if err := writeJSONLLine(om.chunksFile, chunk); err != nil {
+			om.log.Errorf("Failed to flush chunk record for %s#%d: %v", chunk.URL, chunk.ChunkIndex, err)
+		}
+	}
+	om.log.Infof("Flushed %d sorted chunk records to %s", len(om.collectedChunks), om.chunksFilePath)
+	om.collectedChunks = nil
+}
+
+// writeJSONLLine marshals a value to JSON and writes it as one line.
+func writeJSONLLine(f *os.File, v interface{}) error {
+	jsonBytes, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	if _, err := f.Write(append(jsonBytes, '\n')); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	return nil
 }
 
 // writeMetadataYAML writes all collected page metadata to a YAML file.
