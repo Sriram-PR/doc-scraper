@@ -660,22 +660,6 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisit
 	// == Post-Crawl Actions ==
 	// ===========================================================
 
-	// --- Generate Directory Structure File (Only on Success) ---
-	if err == nil {
-		log.Info("Crawl completed successfully, generating directory structure file...")
-		targetDir := filepath.Join(appCfg.OutputBaseDir, utils.SanitizeFilename(siteCfg.AllowedDomain))
-		outputFileName := fmt.Sprintf("%s_structure.txt", utils.SanitizeFilename(siteCfg.AllowedDomain))
-		outputFilePath := filepath.Join(appCfg.OutputBaseDir, outputFileName)
-
-		if treeErr := utils.GenerateAndSaveTreeStructure(targetDir, outputFilePath, logEntry); treeErr != nil {
-			log.Errorf("Failed to generate or save directory structure: %v", treeErr)
-		} else {
-			log.Infof("Successfully saved directory structure to %s", outputFilePath)
-		}
-	} else {
-		log.Warnf("Skipping directory structure generation due to crawl error: %v", err)
-	}
-
 	// --- Final Visited Log File Generation (Optional) ---
 	if crawlCtx.Err() != nil {
 		log.Warnf("Skipping final visited log due to crawl context error: %v", crawlCtx.Err())

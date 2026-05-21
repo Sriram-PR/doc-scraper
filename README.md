@@ -404,7 +404,6 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
 
 ```
 <output_base_dir>/
-├── <sanitized_domain>_structure.txt  # Directory tree (always generated)
 └── <sanitized_allowed_domain>/       # e.g., docs.example.com
     ├── images/                       # Only present if skip_images: false
     │   ├── image1.png
@@ -429,14 +428,6 @@ Each generated Markdown file contains:
 - Relative links to other pages (when within the allowed domain)
 - Local image references (if images are enabled)
 - A footer with metadata including source URL and crawl timestamp
-
-## Directory Structure Output
-
-After a successful crawl for a specific site, the crawler automatically generates a text file named `<sanitized_domain>_structure.txt` within the global `output_base_dir` (alongside the site's content folder). This file contains a visual tree representation of the generated directory structure for the crawled site, which can be helpful for verification and analysis.
-
-**Example Location:**
-If `output_base_dir` is `./crawled_docs` and you crawled `docs.example.com`, the structure file will be:
-`./crawled_docs/docs.example.com_structure.txt`
 
 ## URL-to-File Mapping Output
 
