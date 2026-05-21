@@ -178,19 +178,7 @@ func NewCrawlerWithOptions(
 	}
 
 	// --- Initialize output manager (files opened later in Run after directory cleanup) ---
-	c.output = NewOutputManager(logger, resolved, siteCfg, appCfg.EnableTokenCounting, siteKey, siteOutputDir)
-
-	// --- Initialize Tokenizer for Token Counting (if enabled) ---
-	if c.appCfg.EnableTokenCounting {
-		encoding := c.appCfg.TokenizerEncoding
-		if encoding == "" {
-			encoding = "cl100k_base" // GPT-4 tokenizer; Claude uses a different, non-public tokenizer (see pkg/process/tokenizer.go)
-		}
-		if err := process.InitTokenizer(encoding); err != nil {
-			return nil, fmt.Errorf("failed to initialize tokenizer with encoding '%s': %w", encoding, err)
-		}
-		c.log.Infof("Token counting enabled with encoding: %s", encoding)
-	}
+	c.output = NewOutputManager(logger, resolved, siteCfg, siteKey, siteOutputDir)
 
 	// Initialize components that depend on the crawler or other components
 	// Pass the crawler's contextualized logger to these components

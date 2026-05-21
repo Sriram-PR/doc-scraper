@@ -55,7 +55,6 @@ type PageMetadata struct {
 	ProcessedAt   time.Time `yaml:"processed_at"`
 	ContentHash   string    `yaml:"content_hash,omitempty"` // SHA-256 hex string
 	ImageCount    int       `yaml:"image_count,omitempty"`  // Count of images processed for this page
-	TokenCount    int       `yaml:"token_count,omitempty"`  // Token count for LLM context planning
 	// LinkedFrom    []string  `yaml:"linked_from,omitempty"` // Deferring for now
 }
 
@@ -70,7 +69,6 @@ type PageJSONL struct {
 	ContentHash string   `json:"content_hash"`
 	CrawledAt   string   `json:"crawled_at"`
 	Depth       int      `json:"depth"`
-	TokenCount  int      `json:"token_count,omitempty"`
 }
 
 // ChunkJSONL represents a single chunk for JSONL output (RAG vector ingestion).
@@ -79,7 +77,6 @@ type ChunkJSONL struct {
 	ChunkIndex       int      `json:"chunk_index"`       // Index of this chunk within the page
 	Content          string   `json:"content"`           // Chunk content (includes heading context)
 	HeadingHierarchy []string `json:"heading_hierarchy"` // Extracted heading hierarchy
-	TokenCount       int      `json:"token_count"`       // Token count for this chunk
 	PageTitle        string   `json:"page_title"`        // Title of the source page
 	CrawledAt        string   `json:"crawled_at"`        // Timestamp of crawl
 }

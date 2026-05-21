@@ -8,7 +8,6 @@ import (
 type Chunk struct {
 	Content          string   // The chunk content (includes heading context when HeadingHierarchy is enabled)
 	HeadingHierarchy []string // Extracted heading hierarchy from the chunk
-	TokenCount       int      // Token count for this chunk
 }
 
 // ChunkerConfig holds configuration for the chunker.
@@ -32,9 +31,12 @@ func DefaultChunkerConfig() ChunkerConfig {
 //     separator-based packing (paragraph, line, sentence, word, then rune)
 //     with ChunkOverlap tokens of overlap between consecutive sub-chunks.
 //
-// The tokenizer set up by InitTokenizer is the authority on token counts; if
-// it is not initialized, an approximate "1 token per 4 characters" heuristic
-// is used so chunking still produces sensible boundaries.
+// Token counts here are estimated via a "1 token per 4 characters" heuristic.
+// This is intentionally coarse: real tokenizers vary by model, and the only
+// publicly available choices (cl100k_base / o200k_base) are GPT-family
+// encodings that misrepresent Claude and most non-OpenAI consumers. If you
+// need precise counts for a specific model, tokenize the output yourself
+// with that model's tokenizer.
 func ChunkMarkdown(markdown string, cfg ChunkerConfig) ([]Chunk, error) {
 	if markdown == "" {
 		return nil, nil
@@ -67,19 +69,16 @@ func ChunkMarkdown(markdown string, cfg ChunkerConfig) ([]Chunk, error) {
 		chunks = append(chunks, Chunk{
 			Content:          part,
 			HeadingHierarchy: ExtractHeadings([]byte(part)),
-			TokenCount:       CountTokens(part),
 		})
 	}
 	return chunks, nil
 }
 
-// effectiveTokenCount returns CountTokens, or an approximate 1-token-per-4-char
-// estimate when the tokenizer is not initialized (CountTokens returns -1).
-// The estimate keeps chunking sensible in tokenizer-disabled deployments.
+// effectiveTokenCount returns an approximate token count using a
+// 1-token-per-4-characters heuristic. Used only for chunk-size budgeting; the
+// chunker does not expose the number to consumers. See ChunkMarkdown's
+// godoc for why we don't ship a real tokenizer.
 func effectiveTokenCount(text string) int {
-	if n := CountTokens(text); n >= 0 {
-		return n
-	}
 	return len(text) / 4
 }
 

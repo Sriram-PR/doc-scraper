@@ -211,8 +211,6 @@ sites:
 | `metadata_yaml_filename` | String | Filename for the YAML metadata output file | `"metadata.yaml"` |
 | `enable_jsonl_output` | Boolean | Enable JSONL page output for RAG pipelines | `false` |
 | `jsonl_output_filename` | String | Filename for JSONL output | `"pages.jsonl"` |
-| `enable_token_counting` | Boolean | Enable token counting per page | `false` |
-| `tokenizer_encoding` | String | Tokenizer encoding (e.g., `cl100k_base`) | `""` |
 | `enable_incremental` | Boolean | Enable incremental crawling globally | `false` |
 | `db_gc_interval` | Duration | BadgerDB garbage collection interval | `10m` |
 | `chunking.enabled` | Boolean | Enable token-aware content chunking | `false` |
@@ -468,27 +466,14 @@ jsonl_output_filename: "pages.jsonl"  # default
 | `content_hash` | SHA-256 hash of the content (used for incremental crawling) |
 | `crawled_at` | Timestamp of when the page was crawled |
 | `depth` | Crawl depth from the start URL |
-| `token_count` | Token count (present when `enable_token_counting` is enabled) |
 
 The output file is written to each site's output directory. Both the enable flag and filename can be overridden per site.
 
-## Token Counting
-
-Enable per-page token counting to track content size for LLM context windows:
-
-```yaml
-enable_token_counting: true
-tokenizer_encoding: "cl100k_base"  # GPT-4 tokenizer. Claude uses a different, non-public tokenizer.
-```
-
-When enabled, token counts appear in:
-- The YAML metadata output (per-page metadata)
-- The JSONL output (`token_count` field)
-- Content chunks (`token_count` field per chunk)
-
 ## Content Chunking
 
-The chunking pipeline splits crawled markdown content into token-aware chunks suitable for RAG vector store ingestion. Content is split by headings and respects configurable token limits with overlap between chunks.
+The chunking pipeline splits crawled markdown content into chunks suitable for RAG vector store ingestion. Content is split by headings; sections that exceed the configured size are further split using a recursive separator strategy (paragraph, line, sentence, word) with overlap between consecutive chunks.
+
+Chunk sizes are estimated using a "1 token per 4 characters" heuristic. doc-scraper does not ship a tokenizer because the available public tokenizers (cl100k_base, o200k_base) are OpenAI-specific and would misrepresent Claude and most non-OpenAI targets. If you need precise per-model token counts, tokenize the output yourself with your target model's tokenizer.
 
 **Enable it:**
 
@@ -508,11 +493,10 @@ chunking:
 | `chunk_index` | Index of this chunk within the page |
 | `content` | Chunk content (includes heading context) |
 | `heading_hierarchy` | Array of headings leading to this chunk |
-| `token_count` | Token count for this chunk |
 | `page_title` | Title of the source page |
 | `crawled_at` | Timestamp of crawl |
 
-Chunking settings can be overridden per site. Enable `enable_token_counting` alongside chunking for accurate token counts.
+Chunking settings can be overridden per site.
 
 ## Auto Content Detection
 

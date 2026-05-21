@@ -22,12 +22,11 @@ import (
 
 // OutputManager owns all output file handles and metadata collection for a crawl.
 type OutputManager struct {
-	log                 *logrus.Entry
-	resolved            *config.ResolvedSiteConfig
-	siteCfg             *config.SiteConfig // retained for YAML metadata marshaling
-	enableTokenCounting bool
-	siteKey             string
-	siteOutputDir       string
+	log           *logrus.Entry
+	resolved      *config.ResolvedSiteConfig
+	siteCfg       *config.SiteConfig // retained for YAML metadata marshaling
+	siteKey       string
+	siteOutputDir string
 
 	// TSV mapping
 	mappingFile     *os.File
@@ -63,12 +62,11 @@ type OutputManager struct {
 
 // NewOutputManager creates an OutputManager without opening files.
 // Call OpenFiles after the output directory is ready (e.g. after cleanSiteOutputDir).
-func NewOutputManager(log *logrus.Entry, resolved *config.ResolvedSiteConfig, siteCfg *config.SiteConfig, enableTokenCounting bool, siteKey, siteOutputDir string) *OutputManager {
+func NewOutputManager(log *logrus.Entry, resolved *config.ResolvedSiteConfig, siteCfg *config.SiteConfig, siteKey, siteOutputDir string) *OutputManager {
 	return &OutputManager{
 		log:                   log,
 		resolved:              resolved,
 		siteCfg:               siteCfg,
-		enableTokenCounting:   enableTokenCounting,
 		siteKey:               siteKey,
 		siteOutputDir:         siteOutputDir,
 		collectedPageMetadata: make([]models.PageMetadata, 0),
@@ -170,12 +168,8 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 	enableJSONL := om.resolved.EnableJSONLOutput
 
 	var contentHash string
-	var tokenCount int
 	if (enableYAML || enableJSONL) && len(markdownBytes) > 0 {
 		contentHash = utils.CalculateStringSHA256(string(markdownBytes))
-		if om.enableTokenCounting {
-			tokenCount = process.CountTokens(string(markdownBytes))
-		}
 	}
 
 	// Collect YAML Page Metadata
@@ -196,7 +190,6 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 			ProcessedAt:   crawledAt,
 			ContentHash:   contentHash,
 			ImageCount:    imageCount,
-			TokenCount:    tokenCount,
 		}
 
 		om.metadataMutex.Lock()
@@ -219,7 +212,6 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 			ContentHash: contentHash,
 			CrawledAt:   crawledAtStr,
 			Depth:       currentDepth,
-			TokenCount:  tokenCount,
 		}
 		om.recordJSONL(pageJSONL, taskLog)
 	}
@@ -242,7 +234,6 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 					ChunkIndex:       i,
 					Content:          chunk.Content,
 					HeadingHierarchy: chunk.HeadingHierarchy,
-					TokenCount:       chunk.TokenCount,
 					PageTitle:        pageTitle,
 					CrawledAt:        crawledAtStr,
 				}

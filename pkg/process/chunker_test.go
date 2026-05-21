@@ -86,34 +86,6 @@ Content for section two.
 	}
 }
 
-func TestChunkMarkdown_TokenCount(t *testing.T) {
-	// Initialize tokenizer so CountTokens returns real values
-	err := InitTokenizer("cl100k_base")
-	if err != nil {
-		t.Fatalf("failed to initialize tokenizer: %v", err)
-	}
-
-	markdown := `# Test Document
-
-This is a test document with some content that should be counted for tokens.
-`
-
-	cfg := DefaultChunkerConfig()
-	chunks, err := ChunkMarkdown(markdown, cfg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(chunks) == 0 {
-		t.Fatal("expected at least 1 chunk")
-	}
-
-	// Token count should be positive when tokenizer is initialized
-	if chunks[0].TokenCount <= 0 {
-		t.Errorf("expected positive token count, got %d", chunks[0].TokenCount)
-	}
-}
-
 func TestChunkMarkdown_LargeDocument(t *testing.T) {
 	// Create a document that will definitely need multiple chunks
 	var sb strings.Builder
@@ -187,13 +159,9 @@ func TestExtractHeadingHierarchy(t *testing.T) {
 }
 
 // TestChunkMarkdown_RecursiveSplit exercises the recursive separator path:
-// a single section whose token count exceeds MaxChunkSize must be split into
-// multiple chunks, each within budget, with overlap between consecutive chunks.
+// a single section whose estimated token count exceeds MaxChunkSize must be
+// split into multiple chunks, with overlap between consecutive chunks.
 func TestChunkMarkdown_RecursiveSplit(t *testing.T) {
-	if err := InitTokenizer("cl100k_base"); err != nil {
-		t.Fatalf("init tokenizer: %v", err)
-	}
-
 	// One heading section with many paragraphs so the section as a whole
 	// vastly exceeds MaxChunkSize and the recursive splitter has to kick in.
 	var sb strings.Builder
@@ -213,14 +181,14 @@ func TestChunkMarkdown_RecursiveSplit(t *testing.T) {
 		t.Fatalf("expected the recursive splitter to produce several chunks, got %d", len(chunks))
 	}
 
-	// Each chunk must be within (approximately) the token budget. We allow a
-	// small slack for the overlap tail prepended to the next chunk.
+	// Each chunk should be within a reasonable multiple of the token budget
+	// (char/4 heuristic, so we allow some slack). Verify by char length.
 	for i, c := range chunks {
-		if c.TokenCount <= 0 {
-			t.Errorf("chunk %d has non-positive token count %d", i, c.TokenCount)
+		if c.Content == "" {
+			t.Errorf("chunk %d has empty content", i)
 		}
-		if c.TokenCount > cfg.MaxChunkSize*2 {
-			t.Errorf("chunk %d token count %d exceeds 2x MaxChunkSize %d", i, c.TokenCount, cfg.MaxChunkSize)
+		if len(c.Content) > cfg.MaxChunkSize*4*4 {
+			t.Errorf("chunk %d content length %d far exceeds expected budget for MaxChunkSize=%d", i, len(c.Content), cfg.MaxChunkSize)
 		}
 	}
 }

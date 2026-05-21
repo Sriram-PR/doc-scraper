@@ -86,7 +86,6 @@ func TestPageJSONL_JSONRoundTrip(t *testing.T) {
 		ContentHash: "deadbeef",
 		CrawledAt:   "2025-01-01T00:00:00Z",
 		Depth:       1,
-		TokenCount:  42,
 	}
 
 	data, err := json.Marshal(entry)
@@ -103,7 +102,6 @@ func TestChunkJSONL_JSONRoundTrip(t *testing.T) {
 		ChunkIndex:       2,
 		Content:          "chunk content",
 		HeadingHierarchy: []string{"H1", "H2"},
-		TokenCount:       10,
 		PageTitle:        "Example",
 		CrawledAt:        "2025-01-01T00:00:00Z",
 	}
@@ -166,7 +164,6 @@ func TestPageMetadata_YAMLRoundTrip(t *testing.T) {
 		ProcessedAt:   now,
 		ContentHash:   "abc123",
 		ImageCount:    3,
-		TokenCount:    100,
 	}
 
 	data, err := yaml.Marshal(page)

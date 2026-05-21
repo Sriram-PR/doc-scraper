@@ -37,10 +37,6 @@ metadata_yaml_filename: "crawl_meta.yaml"
 # enable_jsonl_output: true
 # jsonl_output_filename: "pages.jsonl"
 
-# Token counting
-# enable_token_counting: true
-# tokenizer_encoding: "cl100k_base"
-
 # Incremental crawling (skip unchanged pages)
 # enable_incremental: false
 
