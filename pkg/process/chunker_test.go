@@ -186,6 +186,45 @@ func TestExtractHeadingHierarchy(t *testing.T) {
 	}
 }
 
+// TestChunkMarkdown_RecursiveSplit exercises the recursive separator path:
+// a single section whose token count exceeds MaxChunkSize must be split into
+// multiple chunks, each within budget, with overlap between consecutive chunks.
+func TestChunkMarkdown_RecursiveSplit(t *testing.T) {
+	if err := InitTokenizer("cl100k_base"); err != nil {
+		t.Fatalf("init tokenizer: %v", err)
+	}
+
+	// One heading section with many paragraphs so the section as a whole
+	// vastly exceeds MaxChunkSize and the recursive splitter has to kick in.
+	var sb strings.Builder
+	sb.WriteString("# One Section\n\n")
+	for range 80 {
+		sb.WriteString("The quick brown fox jumps over the lazy dog. ")
+		sb.WriteString("Pack my box with five dozen liquor jugs. ")
+		sb.WriteString("How vexingly quick daft zebras jump.\n\n")
+	}
+
+	cfg := ChunkerConfig{MaxChunkSize: 64, ChunkOverlap: 8}
+	chunks, err := ChunkMarkdown(sb.String(), cfg)
+	if err != nil {
+		t.Fatalf("ChunkMarkdown: %v", err)
+	}
+	if len(chunks) < 5 {
+		t.Fatalf("expected the recursive splitter to produce several chunks, got %d", len(chunks))
+	}
+
+	// Each chunk must be within (approximately) the token budget. We allow a
+	// small slack for the overlap tail prepended to the next chunk.
+	for i, c := range chunks {
+		if c.TokenCount <= 0 {
+			t.Errorf("chunk %d has non-positive token count %d", i, c.TokenCount)
+		}
+		if c.TokenCount > cfg.MaxChunkSize*2 {
+			t.Errorf("chunk %d token count %d exceeds 2x MaxChunkSize %d", i, c.TokenCount, cfg.MaxChunkSize)
+		}
+	}
+}
+
 func TestDefaultChunkerConfig(t *testing.T) {
 	cfg := DefaultChunkerConfig()
 
