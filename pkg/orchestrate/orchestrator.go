@@ -3,6 +3,7 @@ package orchestrate
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -238,17 +239,19 @@ func ValidateSiteKeys(appCfg *config.AppConfig, siteKeys []string) error {
 			for k := range appCfg.Sites {
 				available = append(available, k)
 			}
+			slices.Sort(available)
 			return fmt.Errorf("site '%s' not found. Available sites: %v", key, available)
 		}
 	}
 	return nil
 }
 
-// GetAllSiteKeys returns all site keys from the config
+// GetAllSiteKeys returns all site keys from the config, sorted for deterministic iteration
 func GetAllSiteKeys(appCfg *config.AppConfig) []string {
 	keys := make([]string, 0, len(appCfg.Sites))
 	for k := range appCfg.Sites {
 		keys = append(keys, k)
 	}
+	slices.Sort(keys)
 	return keys
 }

@@ -358,12 +358,21 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 	s.jobManager.UpdateStatus(job.ID, JobStatusCompleted, "")
 }
 
-// searchJSONL searches JSONL files for matching content
+// searchJSONL searches JSONL files for matching content. Sites are iterated
+// in sorted key order so that truncation by maxResults is deterministic across
+// runs (map iteration is randomized in Go).
 func (s *Server) searchJSONL(query string, sites map[string]*config.SiteConfig, maxResults int) []map[string]interface{} {
 	results := make([]map[string]interface{}, 0)
 	queryLower := strings.ToLower(query)
 
-	for siteKey, siteCfg := range sites {
+	siteKeys := make([]string, 0, len(sites))
+	for k := range sites {
+		siteKeys = append(siteKeys, k)
+	}
+	sort.Strings(siteKeys)
+
+	for _, siteKey := range siteKeys {
+		siteCfg := sites[siteKey]
 		siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
 		jsonlPath := filepath.Join(siteOutputDir, config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig))
 

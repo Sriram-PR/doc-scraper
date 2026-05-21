@@ -1,7 +1,6 @@
 package orchestrate
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,10 +51,11 @@ func TestValidateSiteKeys(t *testing.T) {
 }
 
 func TestGetAllSiteKeys(t *testing.T) {
-	t.Run("multiple sites", func(t *testing.T) {
-		cfg := testAppConfig("alpha", "beta", "gamma")
+	t.Run("multiple sites returned sorted", func(t *testing.T) {
+		// Pass keys in a non-sorted order; result must come back sorted so that
+		// callers (e.g. --all-sites crawl order, error messages) are deterministic.
+		cfg := testAppConfig("gamma", "alpha", "beta")
 		keys := GetAllSiteKeys(cfg)
-		sort.Strings(keys)
 		assert.Equal(t, []string{"alpha", "beta", "gamma"}, keys)
 	})
 
