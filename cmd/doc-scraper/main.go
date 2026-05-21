@@ -6,8 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
@@ -457,18 +455,6 @@ func applyIncrementalOverride(appCfg *config.AppConfig, incremental, full bool, 
 	if full {
 		appCfg.EnableIncremental = false
 		log.Info("Full crawl mode forced via CLI flag")
-	}
-}
-
-// startPprof starts the pprof HTTP server if addr is non-empty.
-func startPprof(addr string, log *logrus.Logger) {
-	if addr != "" {
-		go func() {
-			log.Infof("Starting pprof server at http://%s/debug/pprof/", addr)
-			if err := http.ListenAndServe(addr, nil); err != nil {
-				log.Errorf("pprof server error: %v", err)
-			}
-		}()
 	}
 }
 

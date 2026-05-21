@@ -45,7 +45,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **State Persistence** | Uses BadgerDB for state; supports resuming crawls via `resume` subcommand |
 | **Graceful Shutdown** | Handles `SIGINT`/`SIGTERM` with proper cleanup |
 | **HTTP Retries** | Exponential backoff with jitter for transient errors |
-| **Observability** | Structured logging (`logrus`) and optional `pprof` endpoint |
+| **Observability** | Structured logging (`logrus`); optional `pprof` endpoint (build with `-tags pprof`) |
 | **Modular Code** | Organized into packages for clarity and maintainability |
 | **CLI Utilities** | Built-in `validate` and `list-sites` commands for configuration management |
 | **MCP Server Mode** | Expose as Model Context Protocol server for Claude Code/Cursor integration |
@@ -293,7 +293,7 @@ Execute the compiled binary from the project root directory:
 | `-sites <keys>` | Comma-separated site keys for parallel crawling | - |
 | `--all-sites` | Crawl all configured sites in parallel | `false` |
 | `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`, `fatal`) | `info` |
-| `-pprof <addr>` | pprof server address (empty to disable) | `""` (disabled) |
+| `-pprof <addr>` | pprof server address. Only effective in builds with `-tags pprof`; default builds log a warning and ignore the flag | `""` (disabled) |
 | `-incremental` | Enable incremental crawling (skip unchanged pages) | `false` |
 | `-full` | Force full crawl (ignore incremental settings) | `false` |
 
