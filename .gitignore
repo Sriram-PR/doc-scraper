@@ -20,9 +20,9 @@ crawler_state/
 archive/
 tuning.md
 todo.md
-
-# Visited log file (if -write-visited-log is used)
-*-visited.txt
+findings.md
+roadmap.md
+.claude/
 
 # OS generated files
 .DS_Store

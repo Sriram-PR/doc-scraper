@@ -46,9 +46,6 @@ type StoreAdmin interface {
 	// Should be called only during resume
 	RequeueIncomplete(ctx context.Context, workChan chan<- models.WorkItem) (requeuedCount int, scanErrors int, err error)
 
-	// WriteVisitedLog writes all page and image keys (URLs) to the specified file path
-	WriteVisitedLog(filePath string) error
-
 	// RunGC runs periodic garbage collection. Should be run in a goroutine
 	RunGC(ctx context.Context, interval time.Duration)
 

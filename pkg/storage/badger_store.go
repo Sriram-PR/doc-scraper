@@ -1,8 +1,6 @@
 package storage
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -481,113 +479,6 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 		return requeuedCount, scanErrors, scanErr // Return context error
 	}
 	return requeuedCount, scanErrors, scanErr // Return potential DB error
-}
-
-// WriteVisitedLog implements the VisitedStore interface.
-func (s *BadgerStore) WriteVisitedLog(filePath string) error {
-	s.log.Info("Writing list of visited page and image URLs (from DB)...")
-	file, err := os.Create(filePath)
-	if err != nil {
-		s.log.Errorf("Failed create visited log '%s': %v", filePath, err)
-		return fmt.Errorf("create visited log '%s': %w", filePath, err)
-	}
-	defer file.Close() // Ensure file is closed
-
-	writer := bufio.NewWriter(file)
-	s.log.Info("Iterating visited DB to write log file...")
-	var dbErr error
-	writtenCount := 0
-
-	iterErr := s.db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.PrefetchValues = false
-		it := txn.NewIterator(opts)
-		defer it.Close()
-		pagePrefixBytes := []byte(pageKeyPrefix)
-		imgPrefixBytes := []byte(imageKeyPrefix)
-
-		for it.Rewind(); it.Valid(); it.Next() {
-			// Check context cancellation within the loop
-			select {
-			case <-s.ctx.Done():
-				s.log.Warnf("WriteVisitedLog scan interrupted by context cancellation: %v", s.ctx.Err())
-				return s.ctx.Err() // Stop iteration
-			default:
-				// Continue processing item
-			}
-
-			item := it.Item()
-			keyBytesWithPrefix := item.KeyCopy(nil) // Copy key with prefix
-			var keyToWrite string
-			// Check prefix and strip
-			switch {
-			case bytes.HasPrefix(keyBytesWithPrefix, pagePrefixBytes):
-				keyToWrite = string(keyBytesWithPrefix[len(pagePrefixBytes):])
-			case bytes.HasPrefix(keyBytesWithPrefix, imgPrefixBytes):
-				keyToWrite = string(keyBytesWithPrefix[len(imgPrefixBytes):])
-			default:
-				s.log.Warnf("Skipping unexpected key in DB (no page/img prefix): %s", string(keyBytesWithPrefix))
-				continue // Skip keys without expected prefixes
-			}
-
-			_, writeErr := writer.WriteString(keyToWrite + "\n") // Write stripped key
-			if writeErr != nil {
-				if dbErr == nil { // Store first write error
-					dbErr = writeErr
-				}
-				s.log.Errorf("Error writing URL '%s' to visited log: %v", keyToWrite, writeErr)
-				// Continue writing other URLs if possible
-			}
-			writtenCount++
-			if writtenCount%5000 == 0 {
-				s.log.Debugf("Flushing visited writer after %d entries...", writtenCount)
-				if flushErr := writer.Flush(); flushErr != nil {
-					if dbErr == nil { // Store first flush error
-						dbErr = flushErr
-					}
-					s.log.Errorf("Error flushing visited writer: %v", flushErr)
-					// Continue if possible
-				}
-			}
-		}
-		return nil
-	})
-
-	// Handle errors after iteration
-	if iterErr != nil && !errors.Is(iterErr, context.Canceled) && !errors.Is(iterErr, context.DeadlineExceeded) {
-		s.log.Errorf("Error during visited DB iteration for log: %v", iterErr)
-		if dbErr == nil {
-			dbErr = iterErr
-		}
-	}
-
-	// Final flush
-	if flushErr := writer.Flush(); flushErr != nil {
-		s.log.Errorf("Failed final flush for visited log '%s': %v", filePath, flushErr)
-		if dbErr == nil {
-			dbErr = flushErr
-		}
-	}
-
-	// Sync to disk before closing
-	if syncErr := file.Sync(); syncErr != nil {
-		s.log.Errorf("Failed to sync visited log '%s': %v", filePath, syncErr)
-		if dbErr == nil {
-			dbErr = syncErr
-		}
-	}
-
-	if iterErr == nil && dbErr == nil {
-		s.log.Infof("Finished writing %d URLs to visited log: %s", writtenCount, filePath)
-	} else {
-		s.log.Warnf("Finished writing visited log with errors. Wrote ~%d URLs to %s", writtenCount, filePath)
-	}
-
-	// Return context error if iteration was cancelled, otherwise return first IO/DB error
-	if errors.Is(iterErr, context.Canceled) || errors.Is(iterErr, context.DeadlineExceeded) {
-		return iterErr
-	}
-	return dbErr
 }
 
 // Close implements the VisitedStore interface

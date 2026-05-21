@@ -10,7 +10,6 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -25,7 +24,6 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 	"github.com/Sriram-PR/doc-scraper/pkg/watch"
 )
 
@@ -113,7 +111,6 @@ func runCrawl(args []string, isResume bool) {
 	allSites := fs.Bool("all-sites", false, "Crawl all configured sites in parallel")
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
 	pprofAddr := fs.String("pprof", "", "pprof address, e.g. localhost:6060 (disabled by default)")
-	writeVisitedLog := fs.Bool("write-visited-log", false, "Write visited URLs log on completion")
 	incrementalMode := fs.Bool("incremental", false, "Enable incremental crawling (skip unchanged pages)")
 	fullMode := fs.Bool("full", false, "Force full crawl (ignore incremental settings)")
 
@@ -156,7 +153,7 @@ func runCrawl(args []string, isResume bool) {
 	if *allSites || len(siteKeys) > 1 {
 		executeParallelCrawl(*configFile, siteKeys, *allSites, *logLevel, *pprofAddr, isResume, *incrementalMode, *fullMode)
 	} else {
-		executeCrawl(*configFile, siteKeys[0], *logLevel, *pprofAddr, *writeVisitedLog, isResume, *incrementalMode, *fullMode)
+		executeCrawl(*configFile, siteKeys[0], *logLevel, *pprofAddr, isResume, *incrementalMode, *fullMode)
 	}
 }
 
@@ -544,7 +541,7 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	}
 }
 
-func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisitedLog, isResume, incrementalMode, fullMode bool) {
+func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, incrementalMode, fullMode bool) {
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
 
@@ -659,19 +656,6 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, writeVisit
 	// ===========================================================
 	// == Post-Crawl Actions ==
 	// ===========================================================
-
-	// --- Final Visited Log File Generation (Optional) ---
-	if crawlCtx.Err() != nil {
-		log.Warnf("Skipping final visited log due to crawl context error: %v", crawlCtx.Err())
-	} else if writeVisitedLog {
-		visitedFilename := fmt.Sprintf("%s-visited.txt", utils.SanitizeFilename(siteCfg.AllowedDomain))
-		visitedFilePath := filepath.Join(appCfg.OutputBaseDir, visitedFilename)
-		if writeErr := store.WriteVisitedLog(visitedFilePath); writeErr != nil {
-			log.Errorf("Error writing final visited log: %v", writeErr)
-		}
-	} else {
-		log.Info("Skipping final visited URL log file generation.")
-	}
 
 	// --- Exit ---
 	if err != nil {

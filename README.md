@@ -294,7 +294,6 @@ Execute the compiled binary from the project root directory:
 | `--all-sites` | Crawl all configured sites in parallel | `false` |
 | `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`, `fatal`) | `info` |
 | `-pprof <addr>` | pprof server address (empty to disable) | `""` (disabled) |
-| `-write-visited-log` | Write visited URLs log on completion | `false` |
 | `-incremental` | Enable incremental crawling (skip unchanged pages) | `false` |
 | `-full` | Force full crawl (ignore incremental settings) | `false` |
 

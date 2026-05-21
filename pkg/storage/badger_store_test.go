@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -520,46 +518,6 @@ func TestRequeueIncomplete(t *testing.T) {
 		ch := make(chan models.WorkItem, 10)
 		_, _, err := store.RequeueIncomplete(ctx, ch)
 		assert.ErrorIs(t, err, context.Canceled)
-	})
-}
-
-func TestWriteVisitedLog(t *testing.T) {
-	t.Run("empty store", func(t *testing.T) {
-		store := newTestStore(t)
-		outPath := filepath.Join(t.TempDir(), "visited.log")
-		err := store.WriteVisitedLog(outPath)
-		require.NoError(t, err)
-
-		data, err := os.ReadFile(outPath)
-		require.NoError(t, err)
-		assert.Empty(t, string(data))
-	})
-
-	t.Run("pages and images written without prefix", func(t *testing.T) {
-		store := newTestStore(t)
-		store.MarkPageVisited("https://example.com/page1")
-		store.UpdateImageStatus("https://example.com/img.png", &models.ImageDBEntry{
-			Status: models.ImageStatusSuccess,
-		})
-
-		outPath := filepath.Join(t.TempDir(), "visited.log")
-		err := store.WriteVisitedLog(outPath)
-		require.NoError(t, err)
-
-		data, err := os.ReadFile(outPath)
-		require.NoError(t, err)
-		content := string(data)
-		assert.Contains(t, content, "https://example.com/page1")
-		assert.Contains(t, content, "https://example.com/img.png")
-		// Prefixes should be stripped
-		assert.NotContains(t, content, "page:")
-		assert.NotContains(t, content, "img:")
-	})
-
-	t.Run("invalid path returns error", func(t *testing.T) {
-		store := newTestStore(t)
-		err := store.WriteVisitedLog("/nonexistent/dir/file.log")
-		assert.Error(t, err)
 	})
 }
 
