@@ -35,7 +35,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **Scope Control** | Limits crawling by domain, path prefix, and disallowed path patterns (regex) |
 | **Content Extraction** | Extracts main content using CSS selectors |
 | **HTML-to-Markdown** | Converts extracted HTML to clean Markdown |
-| **Image Handling** | Optional downloading and local rewriting of image links with domain and size filtering |
+| **Image Handling** | Opt-in downloading and local rewriting of image links with domain and size filtering (disabled by default; doc-scraper is text-first) |
 | **Link Rewriting** | Rewrites internal links to relative paths for local structure |
 | **URL-to-File Mapping** | Optional TSV file logging saved file paths and their corresponding original URLs |
 | **YAML Metadata Output**  | Optional detailed YAML file per site with crawl stats and per-page metadata (including content hashes) |
@@ -118,7 +118,7 @@ When configuring for LLM documentation processing, pay special attention to thes
 
 - `sites.<your_site_key>.content_selector`: Define precisely to capture only relevant text
 - `sites.<your_site_key>.allowed_domain` / `allowed_path_prefix`: Define scope accurately
-- `skip_images`: Set to `true` globally or per-site if images aren't needed for the LLM
+- `skip_images`: Images are **not** downloaded by default (text-first). Set to `false` globally or per-site to download and localize images for offline consumption
 - Adjust concurrency/delay settings based on the target site and your resources
 
 ### Example Configuration
@@ -137,8 +137,8 @@ initial_retry_delay: 1s
 max_retry_delay: 30s
 semaphore_acquire_timeout: 30s
 global_crawl_timeout: 0s
-skip_images: false # Set to true to skip images globally
-max_image_size_bytes: 10485760 # 10 MiB
+skip_images: true # Default. Set to false to download and localize images
+max_image_size_bytes: 10485760 # 10 MiB (applies only when images are downloaded)
 enable_output_mapping: true
 output_mapping_filename: "global_url_map.tsv"
 enable_metadata_yaml: true
@@ -159,7 +159,7 @@ sites:
     allowed_path_prefix: "/docs/stable/"
     content_selector: "article.pytorch-article .body"
     max_depth: 0 # 0 for unlimited depth
-    skip_images: false
+    skip_images: false # Opt in to downloading images for this site
     # Override global mapping filename for this site
     output_mapping_filename: "pytorch_docs_map.txt"
     metadata_yaml_filename: "pytorch_metadata_output.yaml"
@@ -202,8 +202,8 @@ sites:
 | `semaphore_acquire_timeout` | Duration | Timeout for acquiring the global semaphore | `30s` |
 | `global_crawl_timeout` | Duration | Overall timeout for the entire crawl | `0s` (no timeout) |
 | `per_page_timeout` | Duration | Timeout for processing a single page | `0s` (no timeout) |
-| `skip_images` | Boolean | Whether to skip downloading images | `false` |
-| `max_image_size_bytes` | Integer | Maximum allowed image size | `0` (unlimited) |
+| `skip_images` | Boolean | Whether to skip downloading images. Image downloading is opt-in | `true` (skip) |
+| `max_image_size_bytes` | Integer | Maximum allowed image size (applies only when images are downloaded) | `0` (unlimited) |
 | `max_page_size_bytes` | Integer | Maximum HTML page body size | `52428800` (50 MiB) |
 | `enable_output_mapping` | Boolean | Enable URL-to-file mapping log | `false` |
 | `output_mapping_filename` | String | Filename for the URL-to-file mapping log | `"url_to_file_map.tsv"` |
@@ -245,7 +245,7 @@ sites:
 - `link_extraction_selectors`: Array of CSS selectors for additional link extraction areas
 - `respect_nofollow`: Boolean. Whether to respect `rel="nofollow"` links
 - `user_agent`: String. Override global user agent for this site
-- `skip_images`: Override global image setting for this site
+- `skip_images`: Override the global image setting for this site. Images are skipped unless this (or the global `skip_images`) is set to `false`
 - `max_image_size_bytes`: Integer. Override global max image size for this site
 - `allowed_image_domains`: Array of domains from which to download images
 - `disallowed_image_domains`: Array of domains to block image downloads from

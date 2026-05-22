@@ -25,7 +25,10 @@ max_page_size_bytes: 52428800   # 50 MiB (max HTML page body size, 0 = 50 MiB de
 max_image_size_bytes: 10485760  # 10 MiB
 
 # Global image defaults
-skip_images: false
+# Image downloading is opt-in. When skip_images is unset, images are skipped
+# (doc-scraper is text-first for LLMs). Set to false here, or per-site, to
+# download and localize images for offline consumption.
+skip_images: true
 
 # Global output settings
 enable_output_mapping: true

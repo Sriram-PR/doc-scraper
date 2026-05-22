@@ -45,6 +45,59 @@ func TestGetEffectiveUserAgent(t *testing.T) {
 	}
 }
 
+func TestGetEffectiveSkipImages(t *testing.T) {
+	tests := []struct {
+		name     string
+		siteCfg  SiteConfig
+		appCfg   AppConfig
+		expected bool
+	}{
+		{
+			name:     "both unset defaults to skip (opt-in)",
+			siteCfg:  SiteConfig{SkipImages: nil},
+			appCfg:   AppConfig{SkipImages: nil},
+			expected: true,
+		},
+		{
+			name:     "global opt-in (false) used when site unset",
+			siteCfg:  SiteConfig{SkipImages: nil},
+			appCfg:   AppConfig{SkipImages: boolPtr(false)},
+			expected: false,
+		},
+		{
+			name:     "global skip (true) used when site unset",
+			siteCfg:  SiteConfig{SkipImages: nil},
+			appCfg:   AppConfig{SkipImages: boolPtr(true)},
+			expected: true,
+		},
+		{
+			name:     "site opt-in overrides global skip",
+			siteCfg:  SiteConfig{SkipImages: boolPtr(false)},
+			appCfg:   AppConfig{SkipImages: boolPtr(true)},
+			expected: false,
+		},
+		{
+			name:     "site skip overrides global opt-in",
+			siteCfg:  SiteConfig{SkipImages: boolPtr(true)},
+			appCfg:   AppConfig{SkipImages: boolPtr(false)},
+			expected: true,
+		},
+		{
+			name:     "site opt-in overrides unset global default",
+			siteCfg:  SiteConfig{SkipImages: boolPtr(false)},
+			appCfg:   AppConfig{SkipImages: nil},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GetEffectiveSkipImages(&tt.siteCfg, &tt.appCfg)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestGetEffectiveEnableJSONLOutput(t *testing.T) {
 	tests := []struct {
 		name     string

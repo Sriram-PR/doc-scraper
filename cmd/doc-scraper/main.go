@@ -671,8 +671,12 @@ func logAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 		appCfg.MaxRetries, appCfg.InitialRetryDelay, appCfg.MaxRetryDelay)
 	log.Infof("Global Config Timeouts: SemaphoreAcquire:%v, GlobalCrawl:%v, PerPage:%v",
 		appCfg.SemaphoreAcquireTimeout, appCfg.GlobalCrawlTimeout, appCfg.PerPageTimeout)
-	log.Infof("Global Config Images: Skip:%t, MaxSize:%d bytes",
-		appCfg.SkipImages, appCfg.MaxImageSizeBytes)
+	globalSkipImages := true // Default: skip image downloads (text-first)
+	if appCfg.SkipImages != nil {
+		globalSkipImages = *appCfg.SkipImages
+	}
+	log.Infof("Global Config Images: Skip(default):%t, MaxSize:%d bytes",
+		globalSkipImages, appCfg.MaxImageSizeBytes)
 	log.Infof("Global Config HTTP Client: Timeout:%v, MaxIdle:%d, MaxIdlePerHost:%d, IdleTimeout:%v, TLSTimeout:%v, DialerTimeout:%v",
 		appCfg.HTTPClientSettings.Timeout, appCfg.HTTPClientSettings.MaxIdleConns, appCfg.HTTPClientSettings.MaxIdleConnsPerHost,
 		appCfg.HTTPClientSettings.IdleConnTimeout, appCfg.HTTPClientSettings.TLSHandshakeTimeout, appCfg.HTTPClientSettings.DialerTimeout)

@@ -43,7 +43,7 @@ type AppConfig struct {
 	SemaphoreAcquireTimeout time.Duration          `yaml:"semaphore_acquire_timeout,omitempty"`
 	GlobalCrawlTimeout      time.Duration          `yaml:"global_crawl_timeout,omitempty"`
 	PerPageTimeout          time.Duration          `yaml:"per_page_timeout,omitempty"` // Timeout for processing a single page (0 = no timeout)
-	SkipImages              bool                   `yaml:"skip_images,omitempty"`
+	SkipImages              *bool                  `yaml:"skip_images,omitempty"`       // Global image-download default; nil means skip (text-first default)
 	MaxImageSizeBytes       int64                  `yaml:"max_image_size_bytes,omitempty"`
 	MaxPageSizeBytes        int64                  `yaml:"max_page_size_bytes,omitempty"` // Max HTML page body size in bytes (0 = 50MB default)
 	HTTPClientSettings      HTTPClientConfig       `yaml:"http_client_settings,omitempty"`
@@ -114,12 +114,18 @@ func GetEffectiveUserAgent(siteCfg *SiteConfig, appCfg *AppConfig) string {
 	return appCfg.DefaultUserAgent
 }
 
-// GetEffectiveSkipImages determines the effective skip setting
+// GetEffectiveSkipImages determines the effective skip setting.
+// Image downloading is opt-in: when neither the site nor the global config
+// sets skip_images, images are skipped (doc-scraper is text-first for LLMs).
+// Set skip_images: false globally or per-site to download and localize images.
 func GetEffectiveSkipImages(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.SkipImages != nil {
 		return *siteCfg.SkipImages
 	}
-	return appCfg.SkipImages
+	if appCfg.SkipImages != nil {
+		return *appCfg.SkipImages
+	}
+	return true
 }
 
 // GetEffectiveMaxImageSize determines the effective max image size
