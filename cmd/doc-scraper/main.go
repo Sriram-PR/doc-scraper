@@ -35,9 +35,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "crawl":
-		runCrawl(os.Args[2:], false)
-	case "resume":
-		runCrawl(os.Args[2:], true)
+		runCrawl(os.Args[2:])
 	case "watch":
 		runWatch(os.Args[2:])
 	case "validate":
@@ -69,8 +67,7 @@ Usage:
   doc-scraper <command> [options]
 
 Commands:
-  crawl       Start a fresh crawl
-  resume      Resume an interrupted crawl
+  crawl       Start a crawl (use --resume to continue an interrupted one)
   watch       Watch sites and re-crawl on schedule
   validate    Validate configuration file
   list-sites  List available site keys
@@ -95,35 +92,35 @@ func loadConfig(path string) (*config.AppConfig, error) {
 	return &cfg, nil
 }
 
-// runCrawl handles both crawl and resume subcommands
-func runCrawl(args []string, isResume bool) {
-	cmdName := "crawl"
-	if isResume {
-		cmdName = "resume"
-	}
-
-	fs := flag.NewFlagSet(cmdName, flag.ExitOnError)
+// runCrawl handles the crawl subcommand. A fresh crawl wipes prior state;
+// passing --resume continues an interrupted crawl from existing BadgerDB state.
+func runCrawl(args []string) {
+	fs := flag.NewFlagSet("crawl", flag.ExitOnError)
 	configFile := fs.String("config", "config.yaml", "Path to config file")
 	siteKey := fs.String("site", "", "Site key from config (single site)")
 	sites := fs.String("sites", "", "Comma-separated site keys for parallel crawling")
 	allSites := fs.Bool("all-sites", false, "Crawl all configured sites in parallel")
+	resume := fs.Bool("resume", false, "Resume an interrupted crawl from existing state")
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
 	pprofAddr := fs.String("pprof", "", "pprof address, e.g. localhost:6060 (disabled by default)")
 	incrementalMode := fs.Bool("incremental", false, "Enable incremental crawling (skip unchanged pages)")
 	fullMode := fs.Bool("full", false, "Force full crawl (ignore incremental settings)")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: doc-scraper %s [options]\n\nOptions:\n", cmdName)
+		fmt.Fprintf(os.Stderr, "Usage: doc-scraper crawl [options]\n\nOptions:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  doc-scraper %s -site pytorch_docs\n", cmdName)
-		fmt.Fprintf(os.Stderr, "  doc-scraper %s -sites pytorch_docs,tensorflow_docs\n", cmdName)
-		fmt.Fprintf(os.Stderr, "  doc-scraper %s --all-sites\n", cmdName)
+		fmt.Fprintf(os.Stderr, "  doc-scraper crawl -site pytorch_docs\n")
+		fmt.Fprintf(os.Stderr, "  doc-scraper crawl -site pytorch_docs --resume\n")
+		fmt.Fprintf(os.Stderr, "  doc-scraper crawl -sites pytorch_docs,tensorflow_docs\n")
+		fmt.Fprintf(os.Stderr, "  doc-scraper crawl --all-sites\n")
 	}
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
+
+	isResume := *resume
 
 	// Determine which sites to crawl
 	var siteKeys []string
@@ -680,8 +677,6 @@ func logAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 	log.Infof("Global Config HTTP Client: Timeout:%v, MaxIdle:%d, MaxIdlePerHost:%d, IdleTimeout:%v, TLSTimeout:%v, DialerTimeout:%v",
 		appCfg.HTTPClientSettings.Timeout, appCfg.HTTPClientSettings.MaxIdleConns, appCfg.HTTPClientSettings.MaxIdleConnsPerHost,
 		appCfg.HTTPClientSettings.IdleConnTimeout, appCfg.HTTPClientSettings.TLSHandshakeTimeout, appCfg.HTTPClientSettings.DialerTimeout)
-	log.Infof("Global Config Output Mapping: Enabled Globally:%t, Default Global Filename:'%s'",
-		appCfg.EnableOutputMapping, appCfg.OutputMappingFilename)
-	log.Infof("Global Config YAML Metadata: Enabled Globally:%t, Default Global Filename:'%s'",
-		appCfg.EnableMetadataYAML, appCfg.MetadataYAMLFilename)
+	log.Infof("Global Config JSONL Output: Enabled Globally:%t, Default Global Filename:'%s'",
+		appCfg.EnableJSONLOutput, appCfg.JSONLOutputFilename)
 }
