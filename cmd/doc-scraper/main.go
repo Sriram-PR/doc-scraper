@@ -38,10 +38,8 @@ func main() {
 		runCrawl(os.Args[2:])
 	case "watch":
 		runWatch(os.Args[2:])
-	case "validate":
-		runValidate(os.Args[2:])
-	case "list-sites":
-		runListSites(os.Args[2:])
+	case "config":
+		runConfig(os.Args[2:])
 	case "mcp-server":
 		runMcpServer(os.Args[2:])
 	case "version":
@@ -69,8 +67,7 @@ Usage:
 Commands:
   crawl       Start a crawl (use --resume to continue an interrupted one)
   watch       Watch sites and re-crawl on schedule
-  validate    Validate configuration file
-  list-sites  List available site keys
+  config      Inspect configuration: 'config validate' or 'config list'
   mcp-server  Start MCP server for AI tool integration
   version     Show version info
 
@@ -152,23 +149,47 @@ func runCrawl(args []string) {
 	}
 }
 
-// runValidate handles the validate subcommand
-func runValidate(args []string) {
-	fs := flag.NewFlagSet("validate", flag.ExitOnError)
-	configFile := fs.String("config", "config.yaml", "Path to config file")
-	siteKey := fs.String("site", "", "Site key to validate (optional, validates all if empty)")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: doc-scraper validate [options]\n\nOptions:\n")
-		fs.PrintDefaults()
-	}
-
-	if err := fs.Parse(args); err != nil {
+// runConfig handles the config subcommand, which groups configuration
+// inspection actions: "validate" checks the config file (optionally a single
+// site), and "list" lists the configured sites.
+func runConfig(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: config requires an action: validate | list")
+		fmt.Fprintln(os.Stderr, "\nUsage:")
+		fmt.Fprintln(os.Stderr, "  doc-scraper config validate [-config <path>] [-site <key>]")
+		fmt.Fprintln(os.Stderr, "  doc-scraper config list [-config <path>]")
 		os.Exit(1)
 	}
 
-	exitCode := doValidate(*configFile, *siteKey, os.Stdout, os.Stderr)
-	os.Exit(exitCode)
+	action, rest := args[0], args[1:]
+	switch action {
+	case "validate":
+		fs := flag.NewFlagSet("config validate", flag.ExitOnError)
+		configFile := fs.String("config", "config.yaml", "Path to config file")
+		siteKey := fs.String("site", "", "Site key to validate (optional, validates all if empty)")
+		fs.Usage = func() {
+			fmt.Fprintf(os.Stderr, "Usage: doc-scraper config validate [options]\n\nOptions:\n")
+			fs.PrintDefaults()
+		}
+		if err := fs.Parse(rest); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(doValidate(*configFile, *siteKey, os.Stdout, os.Stderr))
+	case "list":
+		fs := flag.NewFlagSet("config list", flag.ExitOnError)
+		configFile := fs.String("config", "config.yaml", "Path to config file")
+		fs.Usage = func() {
+			fmt.Fprintf(os.Stderr, "Usage: doc-scraper config list [options]\n\nOptions:\n")
+			fs.PrintDefaults()
+		}
+		if err := fs.Parse(rest); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(doListSites(*configFile, os.Stdout, os.Stderr))
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown config action: %s (expected: validate | list)\n", action)
+		os.Exit(1)
+	}
 }
 
 // doValidate performs validation and writes output to provided writers.
@@ -360,24 +381,6 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 	}
 
 	log.Info("Watch mode stopped")
-}
-
-// runListSites handles the list-sites subcommand
-func runListSites(args []string) {
-	fs := flag.NewFlagSet("list-sites", flag.ExitOnError)
-	configFile := fs.String("config", "config.yaml", "Path to config file")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: doc-scraper list-sites [options]\n\nOptions:\n")
-		fs.PrintDefaults()
-	}
-
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
-
-	exitCode := doListSites(*configFile, os.Stdout, os.Stderr)
-	os.Exit(exitCode)
 }
 
 // doListSites lists sites and writes output to provided writers.

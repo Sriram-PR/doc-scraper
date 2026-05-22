@@ -46,7 +46,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **HTTP Retries** | Exponential backoff with jitter for transient errors |
 | **Observability** | Structured logging (`logrus`); optional `pprof` endpoint (build with `-tags pprof`) |
 | **Modular Code** | Organized into packages for clarity and maintainability |
-| **CLI Utilities** | Built-in `validate` and `list-sites` commands for configuration management |
+| **CLI Utilities** | Built-in `config validate` and `config list` commands for configuration management |
 | **MCP Server Mode** | Expose as Model Context Protocol server for Claude Code/Cursor integration |
 | **Auto Content Detection** | Automatic framework detection (Docusaurus, MkDocs, Sphinx, GitBook, ReadTheDocs) with readability fallback |
 | **Parallel Site Crawling** | Crawl multiple sites concurrently with shared resource management |
@@ -258,8 +258,8 @@ Execute the compiled binary from the project root directory:
 | Command | Description |
 |---------|-------------|
 | `crawl` | Start a crawl (add `--resume` to continue an interrupted one) |
-| `validate` | Validate configuration file without crawling |
-| `list-sites` | List available site keys from config |
+| `config validate` | Validate configuration file without crawling |
+| `config list` | List available site keys from config |
 | `mcp-server` | Start MCP server for AI tool integration |
 | `watch` | Watch sites and re-crawl on schedule |
 | `version` | Show version information |
@@ -282,14 +282,14 @@ Execute the compiled binary from the project root directory:
 
 **Note:** One of `-site`, `-sites`, or `--all-sites` is required.
 
-**validate:**
+**config validate:**
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-config <path>` | Path to config file | `config.yaml` |
 | `-site <key>` | Site key to validate (optional, validates all if empty) | - |
 
-**list-sites:**
+**config list:**
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -334,14 +334,14 @@ Execute the compiled binary from the project root directory:
 **Validate Configuration:**
 
 ```bash
-./doc-scraper validate -config config.yaml
-./doc-scraper validate -site pytorch_docs  # Validate specific site
+./doc-scraper config validate -config config.yaml
+./doc-scraper config validate -site pytorch_docs  # Validate specific site
 ```
 
 **List Available Sites:**
 
 ```bash
-./doc-scraper list-sites
+./doc-scraper config list
 ```
 
 **High Performance Crawl with Profiling:**

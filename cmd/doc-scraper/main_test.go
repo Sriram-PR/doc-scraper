@@ -184,7 +184,7 @@ func TestPrintUsageTo(t *testing.T) {
 	out := buf.String()
 	assert.Contains(t, out, "crawl")
 	assert.Contains(t, out, "--resume")
-	assert.Contains(t, out, "validate")
-	assert.Contains(t, out, "list-sites")
+	assert.Contains(t, out, "config")
+	assert.Contains(t, out, "mcp-server")
 	assert.Contains(t, out, "version")
 }
