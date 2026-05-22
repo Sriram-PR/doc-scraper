@@ -7,12 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
@@ -24,20 +23,16 @@ import (
 type OutputManager struct {
 	log           *logrus.Entry
 	resolved      *config.ResolvedSiteConfig
-	siteCfg       *config.SiteConfig // retained for YAML metadata marshaling
+	siteCfg       *config.SiteConfig // retained for the crawl_meta record (allowed_domain)
 	siteKey       string
 	siteOutputDir string
-
-	// TSV mapping
-	mappingFile     *os.File
-	mappingFileMu   sync.Mutex
-	mappingFilePath string
 
 	// JSONL output. When bufferOutput is true (fresh crawls), records are
 	// collected into collectedPageJSONL and written sorted by URL at Close()
 	// for deterministic, diffable output. When false (resume crawls), records
 	// stream directly to disk under jsonlFileMu so we don't fight the existing
-	// content of the file.
+	// content of the file. A single crawl_meta summary record is appended as
+	// the final line at Close() in both modes.
 	jsonlFile          *os.File
 	jsonlFileMu        sync.Mutex
 	jsonlFilePath      string
@@ -45,50 +40,40 @@ type OutputManager struct {
 
 	// Chunks output. Same buffer-vs-stream behavior as JSONL above; on
 	// buffered close, sorted by (URL, ChunkIndex).
-	chunksFile       *os.File
-	chunksFileMu     sync.Mutex
-	chunksFilePath   string
-	collectedChunks  []models.ChunkJSONL
+	chunksFile      *os.File
+	chunksFileMu    sync.Mutex
+	chunksFilePath  string
+	collectedChunks []models.ChunkJSONL
 
 	// bufferOutput selects between buffer-and-sort (fresh crawls, deterministic
 	// output) and stream-write (resume crawls). Set by OpenFiles.
 	bufferOutput bool
 
-	// YAML metadata
-	collectedPageMetadata []models.PageMetadata
-	metadataMutex         sync.Mutex
-	crawlStartTime        time.Time
+	// crawlStartTime is set by the crawler before Run; pagesRecorded counts
+	// pages passed to RecordPageOutput. Both feed the crawl_meta record.
+	crawlStartTime time.Time
+	pagesRecorded  atomic.Int64
 }
 
 // NewOutputManager creates an OutputManager without opening files.
 // Call OpenFiles after the output directory is ready (e.g. after cleanSiteOutputDir).
 func NewOutputManager(log *logrus.Entry, resolved *config.ResolvedSiteConfig, siteCfg *config.SiteConfig, siteKey, siteOutputDir string) *OutputManager {
 	return &OutputManager{
-		log:                   log,
-		resolved:              resolved,
-		siteCfg:               siteCfg,
-		siteKey:               siteKey,
-		siteOutputDir:         siteOutputDir,
-		collectedPageMetadata: make([]models.PageMetadata, 0),
+		log:           log,
+		resolved:      resolved,
+		siteCfg:       siteCfg,
+		siteKey:       siteKey,
+		siteOutputDir: siteOutputDir,
 	}
 }
 
-// OpenFiles opens all configured output files (TSV, JSONL, chunks).
+// OpenFiles opens all configured output files (JSONL, chunks).
 // Must be called after the output directory exists and has been cleaned if needed.
 func (om *OutputManager) OpenFiles(resume bool) {
 	// Fresh crawls buffer JSONL and chunk records in memory and write them
 	// sorted at Close(). Resume crawls stream directly to disk so we don't
 	// overwrite existing content of the resumed-into file.
 	om.bufferOutput = !resume
-
-	// --- Initialize Simple TSV Mapping File (if enabled) ---
-	if om.resolved.EnableOutputMapping {
-		om.mappingFilePath = filepath.Join(om.siteOutputDir, om.resolved.OutputMappingFilename)
-		om.log.Infof("Simple TSV URL-to-FilePath mapping enabled. Output file: %s", om.mappingFilePath)
-		om.mappingFile = openOutputFile(om.log, om.mappingFilePath, "TSV mapping", resume)
-	} else {
-		om.log.Info("Simple TSV URL-to-FilePath mapping is disabled.")
-	}
 
 	// --- Initialize JSONL Output File (if enabled) ---
 	if om.resolved.EnableJSONLOutput {
@@ -128,81 +113,43 @@ func openOutputFile(log *logrus.Entry, path, label string, resume bool) *os.File
 	return file
 }
 
-// Close syncs and closes all output files and writes the YAML metadata file.
-// For fresh crawls (bufferOutput=true), JSONL and chunk records buffered in
-// memory are sorted (by URL, and by URL+ChunkIndex respectively) and written
-// out before the file handles are closed. Resume crawls have already streamed
-// their records during the crawl and just need a flush.
+// Close flushes buffered records, appends the crawl_meta summary line, then
+// syncs and closes all output files. For fresh crawls (bufferOutput=true),
+// JSONL and chunk records buffered in memory are sorted (by URL, and by
+// URL+ChunkIndex respectively) and written out first. Resume crawls have
+// already streamed their records during the crawl.
 func (om *OutputManager) Close() error {
 	om.flushBufferedJSONL()
 	om.flushBufferedChunks()
-	om.closeMappingFile()
+	om.writeCrawlMetaRecord()
 	om.closeJSONLFile()
 	om.closeChunksFile()
-	return om.writeMetadataYAML()
+	return nil
 }
 
-// PagesSaved returns the number of pages whose metadata has been collected.
+// PagesSaved returns the number of pages recorded during the crawl.
 func (om *OutputManager) PagesSaved() int {
-	om.metadataMutex.Lock()
-	defer om.metadataMutex.Unlock()
-	return len(om.collectedPageMetadata)
+	return int(om.pagesRecorded.Load())
 }
 
-// RecordPageOutput handles all post-save output: TSV write, YAML metadata collection,
-// JSONL write, and chunks write. Called after content is successfully saved to disk.
-// markdownBytes is the already-written markdown content, passed through to avoid re-reading the file.
-//
-// One timestamp is captured per page (crawledAt) and shared by every record
-// emitted for that page so YAML/JSONL/chunks rows for the same page have
-// identical timestamps and content hashes can be diffed cleanly across runs.
-func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentPath string, markdownBytes []byte, pageTitle string, currentDepth, imageCount int, taskLog *logrus.Entry) {
-	crawledAt := time.Now()
-	crawledAtStr := crawledAt.Format(time.RFC3339)
-
-	// Write to TSV mapping file
-	om.writeToMappingFile(finalURL, savedContentPath, taskLog)
-
-	// Check if we need markdown content for metadata or JSONL output
-	enableYAML := om.resolved.EnableMetadataYAML
-	enableJSONL := om.resolved.EnableJSONLOutput
-
-	var contentHash string
-	if (enableYAML || enableJSONL) && len(markdownBytes) > 0 {
-		contentHash = utils.CalculateStringSHA256(string(markdownBytes))
-	}
-
-	// Collect YAML Page Metadata
-	if enableYAML {
-		relativeLocalPath, relErr := filepath.Rel(om.siteOutputDir, savedContentPath)
-		if relErr != nil {
-			taskLog.Warnf("Could not make path relative for metadata.yaml (Base: '%s', Target: '%s'): %v",
-				om.siteOutputDir, savedContentPath, relErr)
-			relativeLocalPath = savedContentPath
-		}
-
-		pageMeta := models.PageMetadata{
-			OriginalURL:   finalURL,
-			NormalizedURL: normalizedURL,
-			LocalFilePath: filepath.ToSlash(relativeLocalPath),
-			Title:         pageTitle,
-			Depth:         currentDepth,
-			ProcessedAt:   crawledAt,
-			ContentHash:   contentHash,
-			ImageCount:    imageCount,
-		}
-
-		om.metadataMutex.Lock()
-		om.collectedPageMetadata = append(om.collectedPageMetadata, pageMeta)
-		om.metadataMutex.Unlock()
-	}
+// RecordPageOutput handles all post-save output: JSONL write and chunks write.
+// Called after content is successfully saved to disk. markdownBytes is the
+// already-written markdown content, passed through to avoid re-reading the file.
+func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte, pageTitle string, currentDepth int, taskLog *logrus.Entry) {
+	om.pagesRecorded.Add(1)
+	crawledAtStr := time.Now().Format(time.RFC3339)
 
 	// JSONL output (buffer for fresh crawls, stream for resume)
-	if enableJSONL && om.jsonlFile != nil && markdownBytes != nil {
+	if om.resolved.EnableJSONLOutput && om.jsonlFile != nil && markdownBytes != nil {
+		var contentHash string
+		if len(markdownBytes) > 0 {
+			contentHash = utils.CalculateStringSHA256(string(markdownBytes))
+		}
 		headings := process.ExtractHeadings(markdownBytes)
 		links, images := extractLinksAndImages(string(markdownBytes))
 
 		pageJSONL := models.PageJSONL{
+			RecordType:  models.RecordTypePage,
 			URL:         finalURL,
 			Title:       pageTitle,
 			Content:     string(markdownBytes),
@@ -244,23 +191,6 @@ func (om *OutputManager) RecordPageOutput(finalURL, normalizedURL, savedContentP
 	}
 }
 
-// closeMappingFile closes the simple TSV mapping file, if it was opened.
-func (om *OutputManager) closeMappingFile() {
-	om.mappingFileMu.Lock()
-	defer om.mappingFileMu.Unlock()
-
-	if om.mappingFile != nil {
-		om.log.Infof("Syncing and closing TSV mapping file: %s", om.mappingFilePath)
-		if err := om.mappingFile.Sync(); err != nil {
-			om.log.Errorf("Error syncing TSV mapping file '%s': %v", om.mappingFilePath, err)
-		}
-		if err := om.mappingFile.Close(); err != nil {
-			om.log.Errorf("Error closing TSV mapping file '%s': %v", om.mappingFilePath, err)
-		}
-		om.mappingFile = nil
-	}
-}
-
 // closeJSONLFile closes the JSONL output file handle if it was opened.
 func (om *OutputManager) closeJSONLFile() {
 	om.jsonlFileMu.Lock()
@@ -292,24 +222,6 @@ func (om *OutputManager) closeChunksFile() {
 			om.log.Errorf("Error closing chunks file '%s': %v", om.chunksFilePath, err)
 		}
 		om.chunksFile = nil
-	}
-}
-
-// writeToMappingFile writes a line to the simple TSV mapping file (if enabled and open).
-func (om *OutputManager) writeToMappingFile(pageURL, absoluteFilePath string, taskLog *logrus.Entry) {
-	om.mappingFileMu.Lock()
-	defer om.mappingFileMu.Unlock()
-
-	if om.mappingFile == nil {
-		return
-	}
-
-	line := fmt.Sprintf("%s\t%s\n", pageURL, absoluteFilePath)
-	if _, err := om.mappingFile.WriteString(line); err != nil {
-		taskLog.WithFields(logrus.Fields{
-			"tsv_mapping_file": om.mappingFilePath,
-			"line_content":     strings.TrimSpace(line),
-		}).Errorf("Failed to write to TSV mapping file: %v", err)
 	}
 }
 
@@ -402,6 +314,32 @@ func (om *OutputManager) flushBufferedChunks() {
 	om.collectedChunks = nil
 }
 
+// writeCrawlMetaRecord appends the crawl-level summary as the final line of the
+// JSONL file. Consumers treat the last crawl_meta record in the file as
+// authoritative (a resumed crawl appends a fresh one). No-op when JSONL output
+// is disabled.
+func (om *OutputManager) writeCrawlMetaRecord() {
+	om.jsonlFileMu.Lock()
+	defer om.jsonlFileMu.Unlock()
+
+	if om.jsonlFile == nil {
+		return
+	}
+	meta := models.CrawlMetaJSONL{
+		RecordType:     models.RecordTypeCrawlMeta,
+		SiteKey:        om.siteKey,
+		AllowedDomain:  om.siteCfg.AllowedDomain,
+		CrawlStartedAt: om.crawlStartTime.Format(time.RFC3339),
+		CrawlEndedAt:   time.Now().Format(time.RFC3339),
+		TotalPages:     int(om.pagesRecorded.Load()),
+	}
+	if err := writeJSONLLine(om.jsonlFile, meta); err != nil {
+		om.log.Errorf("Failed to write crawl_meta record to %s: %v", om.jsonlFilePath, err)
+		return
+	}
+	om.log.Infof("Wrote crawl_meta record (%d pages) to %s", meta.TotalPages, om.jsonlFilePath)
+}
+
 // writeJSONLLine marshals a value to JSON and writes it as one line.
 func writeJSONLLine(f *os.File, v interface{}) error {
 	jsonBytes, err := json.Marshal(v)
@@ -411,58 +349,5 @@ func writeJSONLLine(f *os.File, v interface{}) error {
 	if _, err := f.Write(append(jsonBytes, '\n')); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
-	return nil
-}
-
-// writeMetadataYAML writes all collected page metadata to a YAML file.
-func (om *OutputManager) writeMetadataYAML() error {
-	if !om.resolved.EnableMetadataYAML {
-		om.log.Info("YAML metadata output is disabled.")
-		return nil
-	}
-
-	yamlFilePath := filepath.Join(om.siteOutputDir, om.resolved.MetadataYAMLFilename)
-
-	om.log.Infof("Preparing to write crawl metadata to: %s", yamlFilePath)
-
-	var siteConfigMap map[string]interface{}
-	siteConfigBytes, errCfgMarshal := yaml.Marshal(om.siteCfg)
-	if errCfgMarshal != nil {
-		om.log.Warnf("Could not marshal site_configuration for YAML metadata: %v", errCfgMarshal)
-	} else {
-		if errCfgUnmarshal := yaml.Unmarshal(siteConfigBytes, &siteConfigMap); errCfgUnmarshal != nil {
-			om.log.Warnf("Could not unmarshal site_configuration into map for YAML metadata: %v", errCfgUnmarshal)
-			siteConfigMap = nil
-		}
-	}
-
-	om.metadataMutex.Lock()
-	pagesToMarshal := make([]models.PageMetadata, len(om.collectedPageMetadata))
-	copy(pagesToMarshal, om.collectedPageMetadata)
-	om.metadataMutex.Unlock()
-
-	metadata := models.CrawlMetadata{
-		SiteKey:           om.siteKey,
-		AllowedDomain:     om.siteCfg.AllowedDomain,
-		CrawlStartTime:    om.crawlStartTime,
-		CrawlEndTime:      time.Now(),
-		TotalPagesSaved:   len(pagesToMarshal),
-		SiteConfiguration: siteConfigMap,
-		Pages:             pagesToMarshal,
-	}
-
-	yamlData, errMarshal := yaml.Marshal(&metadata)
-	if errMarshal != nil {
-		om.log.Errorf("Failed to marshal crawl metadata to YAML: %v", errMarshal)
-		return fmt.Errorf("failed to marshal crawl metadata to YAML for site '%s': %w", om.siteKey, errMarshal)
-	}
-
-	errWrite := os.WriteFile(yamlFilePath, yamlData, 0644)
-	if errWrite != nil {
-		om.log.Errorf("Failed to write metadata YAML file '%s': %v", yamlFilePath, errWrite)
-		return fmt.Errorf("failed to write metadata YAML file '%s' for site '%s': %w", yamlFilePath, om.siteKey, errWrite)
-	}
-
-	om.log.Infof("Successfully wrote crawl metadata (%d pages) to %s", metadata.TotalPagesSaved, yamlFilePath)
 	return nil
 }

@@ -184,42 +184,6 @@ func TestAppConfig_Validate_RetryDelayInversion(t *testing.T) {
 	assert.Equal(t, 10*time.Second, cfg.InitialRetryDelay) // Should be clamped
 }
 
-func TestAppConfig_Validate_OutputMappingFilename(t *testing.T) {
-	cfg := AppConfig{
-		NumWorkers:          1,
-		MaxRequests:         1,
-		MaxRequestsPerHost:  1,
-		OutputBaseDir:       "/out",
-		StateDir:            "/state",
-		EnableOutputMapping: true,
-		// OutputMappingFilename is empty
-	}
-
-	warnings, err := cfg.Validate()
-
-	require.NoError(t, err)
-	assert.True(t, containsWarning(warnings, "enable_output_mapping"))
-	assert.Equal(t, "url_to_file_map.tsv", cfg.OutputMappingFilename)
-}
-
-func TestAppConfig_Validate_MetadataYAMLFilename(t *testing.T) {
-	cfg := AppConfig{
-		NumWorkers:         1,
-		MaxRequests:        1,
-		MaxRequestsPerHost: 1,
-		OutputBaseDir:      "/out",
-		StateDir:           "/state",
-		EnableMetadataYAML: true,
-		// MetadataYAMLFilename is empty
-	}
-
-	warnings, err := cfg.Validate()
-
-	require.NoError(t, err)
-	assert.True(t, containsWarning(warnings, "enable_metadata_yaml"))
-	assert.Equal(t, "metadata.yaml", cfg.MetadataYAMLFilename)
-}
-
 func TestSiteConfig_Validate_RequiredFields(t *testing.T) {
 	tests := []struct {
 		name    string

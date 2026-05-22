@@ -34,32 +34,18 @@ type ImageData struct {
 	Caption     string // Image caption/alt text
 }
 
-// CrawlMetadata holds all metadata for a single crawl session of a site.
-type CrawlMetadata struct {
-	SiteKey           string                 `yaml:"site_key"`
-	AllowedDomain     string                 `yaml:"allowed_domain"`
-	CrawlStartTime    time.Time              `yaml:"crawl_start_time"`
-	CrawlEndTime      time.Time              `yaml:"crawl_end_time"`
-	TotalPagesSaved   int                    `yaml:"total_pages_saved"`
-	SiteConfiguration map[string]interface{} `yaml:"site_configuration,omitempty"` // For a flexible dump of SiteConfig
-	Pages             []PageMetadata         `yaml:"pages"`
-}
+// JSONL record types. The page-level JSONL output file carries both per-page
+// records and a single crawl-level summary; the record_type field lets a
+// consumer tell them apart while streaming the file line by line.
+const (
+	RecordTypePage      = "page"
+	RecordTypeCrawlMeta = "crawl_meta"
+)
 
-// PageMetadata holds metadata for a single scraped page.
-type PageMetadata struct {
-	OriginalURL   string    `yaml:"original_url"`
-	NormalizedURL string    `yaml:"normalized_url"`
-	LocalFilePath string    `yaml:"local_file_path"` // Relative to site_output_dir
-	Title         string    `yaml:"title,omitempty"`
-	Depth         int       `yaml:"depth"`
-	ProcessedAt   time.Time `yaml:"processed_at"`
-	ContentHash   string    `yaml:"content_hash,omitempty"` // SHA-256 hex string
-	ImageCount    int       `yaml:"image_count,omitempty"`  // Count of images processed for this page
-	// LinkedFrom    []string  `yaml:"linked_from,omitempty"` // Deferring for now
-}
-
-// PageJSONL represents a single page for JSONL output (RAG pipeline ingestion).
+// PageJSONL represents a single crawled page in the JSONL output (RAG pipeline
+// ingestion). RecordType is always RecordTypePage.
 type PageJSONL struct {
+	RecordType  string   `json:"record_type"`
 	URL         string   `json:"url"`
 	Title       string   `json:"title"`
 	Content     string   `json:"content"`
@@ -69,6 +55,20 @@ type PageJSONL struct {
 	ContentHash string   `json:"content_hash"`
 	CrawledAt   string   `json:"crawled_at"`
 	Depth       int      `json:"depth"`
+}
+
+// CrawlMetaJSONL is the crawl-level summary record. Exactly one is appended as
+// the final line of the JSONL file when a crawl finishes. A resumed crawl
+// appends a fresh record rather than rewriting the original, so consumers
+// should treat the last crawl_meta record in the file as authoritative.
+// RecordType is always RecordTypeCrawlMeta.
+type CrawlMetaJSONL struct {
+	RecordType     string `json:"record_type"`
+	SiteKey        string `json:"site_key"`
+	AllowedDomain  string `json:"allowed_domain"`
+	CrawlStartedAt string `json:"crawl_started_at"`
+	CrawlEndedAt   string `json:"crawl_ended_at"`
+	TotalPages     int    `json:"total_pages"`
 }
 
 // ChunkJSONL represents a single chunk for JSONL output (RAG vector ingestion).

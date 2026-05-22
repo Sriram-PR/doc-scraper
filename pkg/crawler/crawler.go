@@ -237,7 +237,7 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	// --- DEFER CLEANUP ACTIONS ---
 	defer func() {
 		if err := c.output.Close(); err != nil {
-			c.log.WithFields(runLogFields).Errorf("Failed to write final metadata YAML: %v", err)
+			c.log.WithFields(runLogFields).Errorf("Error finalizing output files: %v", err)
 		}
 	}()
 
@@ -756,10 +756,9 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	// 7. Process & Save Content: Extract content, process images/links, convert to MD, save.
 	var tempPageTitle, tempSavedPath string // Use temp vars for return values from contentProcessor
 	var tempMarkdownBytes []byte
-	var tempImageCount int
 	var contentErr error
 	// pageTitle and savedContentPath (function-scoped) will be set from these if successful.
-	tempPageTitle, tempSavedPath, tempMarkdownBytes, tempImageCount, contentErr = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, taskCtx)
+	tempPageTitle, tempSavedPath, tempMarkdownBytes, _, contentErr = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, taskLog, taskCtx)
 	if handleTaskError(contentErr) { // If content processing/saving fails, set taskErr and exit.
 		return
 	}
@@ -767,9 +766,9 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	pageTitle = tempPageTitle
 	savedContentPath = tempSavedPath // This is the ABSOLUTE path to the saved .md file.
 
-	// --- After successful content saving, record all output formats ---
+	// --- After successful content saving, record JSONL and chunk output ---
 	if savedContentPath != "" {
-		c.output.RecordPageOutput(finalURL.String(), normalizedURLString, savedContentPath, tempMarkdownBytes, pageTitle, currentDepth, tempImageCount, taskLog)
+		c.output.RecordPageOutput(finalURL.String(), tempMarkdownBytes, pageTitle, currentDepth, taskLog)
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.

@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
 )
 
@@ -110,6 +112,70 @@ func TestRecordJSONL_StreamsInResumeMode(t *testing.T) {
 	assert.Empty(t, om.collectedPageJSONL, "resume-mode records must not be buffered")
 	got := readJSONLURLs(t, jsonlPath)
 	assert.Len(t, got, 2, "both records should have been streamed to disk")
+}
+
+func TestClose_AppendsCrawlMetaRecordAsFinalLine(t *testing.T) {
+	tmpDir := t.TempDir()
+	jsonlPath := filepath.Join(tmpDir, "pages.jsonl")
+	f, err := os.Create(jsonlPath)
+	require.NoError(t, err)
+
+	om := &OutputManager{
+		log:            silentLogger(),
+		siteKey:        "example",
+		siteCfg:        &config.SiteConfig{AllowedDomain: "example.com"},
+		resolved:       &config.ResolvedSiteConfig{},
+		jsonlFile:      f,
+		jsonlFilePath:  jsonlPath,
+		bufferOutput:   true,
+		crawlStartTime: time.Now(),
+		collectedPageJSONL: []models.PageJSONL{
+			{RecordType: models.RecordTypePage, URL: "https://example.com/b"},
+			{RecordType: models.RecordTypePage, URL: "https://example.com/a"},
+		},
+	}
+	om.pagesRecorded.Store(2)
+
+	require.NoError(t, om.Close())
+
+	lines := readJSONLLines(t, jsonlPath)
+	require.Len(t, lines, 3, "two page records plus one crawl_meta record")
+
+	// First two lines are page records, sorted by URL.
+	for i, wantURL := range []string{"https://example.com/a", "https://example.com/b"} {
+		var page models.PageJSONL
+		require.NoError(t, json.Unmarshal([]byte(lines[i]), &page))
+		assert.Equal(t, models.RecordTypePage, page.RecordType)
+		assert.Equal(t, wantURL, page.URL)
+	}
+
+	// Final line is the crawl_meta summary.
+	var meta models.CrawlMetaJSONL
+	require.NoError(t, json.Unmarshal([]byte(lines[2]), &meta))
+	assert.Equal(t, models.RecordTypeCrawlMeta, meta.RecordType)
+	assert.Equal(t, "example", meta.SiteKey)
+	assert.Equal(t, "example.com", meta.AllowedDomain)
+	assert.Equal(t, 2, meta.TotalPages)
+	assert.NotEmpty(t, meta.CrawlStartedAt)
+	assert.NotEmpty(t, meta.CrawlEndedAt)
+}
+
+// readJSONLLines returns the non-empty lines of a JSONL file in file order.
+func readJSONLLines(t *testing.T, path string) []string {
+	t.Helper()
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if line := scanner.Text(); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	require.NoError(t, scanner.Err())
+	return lines
 }
 
 // readJSONLURLs returns the URL field of each JSONL line.

@@ -18,10 +18,6 @@ type SiteConfig struct {
 	MaxImageSizeBytes       *int64             `yaml:"max_image_size_bytes,omitempty"`
 	AllowedImageDomains     []string           `yaml:"allowed_image_domains,omitempty"`
 	DisallowedImageDomains  []string           `yaml:"disallowed_image_domains,omitempty"`
-	EnableOutputMapping     *bool              `yaml:"enable_output_mapping,omitempty"`
-	OutputMappingFilename   string             `yaml:"output_mapping_filename,omitempty"`
-	EnableMetadataYAML      *bool              `yaml:"enable_metadata_yaml,omitempty"`
-	MetadataYAMLFilename    string             `yaml:"metadata_yaml_filename,omitempty"`
 	EnableJSONLOutput       *bool              `yaml:"enable_jsonl_output,omitempty"`
 	JSONLOutputFilename     string             `yaml:"jsonl_output_filename,omitempty"`
 	Chunking                SiteChunkingConfig `yaml:"chunking,omitempty"`
@@ -48,10 +44,6 @@ type AppConfig struct {
 	MaxPageSizeBytes        int64                  `yaml:"max_page_size_bytes,omitempty"` // Max HTML page body size in bytes (0 = 50MB default)
 	HTTPClientSettings      HTTPClientConfig       `yaml:"http_client_settings,omitempty"`
 	Sites                   map[string]*SiteConfig `yaml:"sites"`
-	EnableOutputMapping     bool                   `yaml:"enable_output_mapping,omitempty"`
-	OutputMappingFilename   string                 `yaml:"output_mapping_filename,omitempty"`
-	EnableMetadataYAML      bool                   `yaml:"enable_metadata_yaml,omitempty"`
-	MetadataYAMLFilename    string                 `yaml:"metadata_yaml_filename,omitempty"`
 	EnableJSONLOutput       bool                   `yaml:"enable_jsonl_output,omitempty"`
 	JSONLOutputFilename     string                 `yaml:"jsonl_output_filename,omitempty"`
 	DBGCInterval            time.Duration          `yaml:"db_gc_interval,omitempty"`     // Interval for BadgerDB value log GC (default: 10m)
@@ -136,47 +128,6 @@ func GetEffectiveMaxImageSize(siteCfg *SiteConfig, appCfg *AppConfig) int64 {
 	return appCfg.MaxImageSizeBytes
 }
 
-// GetEffectiveEnableOutputMapping determines the effective setting for enabling the mapping file
-func GetEffectiveEnableOutputMapping(siteCfg *SiteConfig, appCfg *AppConfig) bool {
-	if siteCfg.EnableOutputMapping != nil {
-		return *siteCfg.EnableOutputMapping
-	}
-	return appCfg.EnableOutputMapping // Fallback to global setting
-}
-
-// GetEffectiveOutputMappingFilename determines the effective filename for the mapping file
-// Site config (if non-empty) overrides global
-// If both site and global are empty, a hardcoded default is returned
-func GetEffectiveOutputMappingFilename(siteCfg *SiteConfig, appCfg *AppConfig) string {
-	if siteCfg.OutputMappingFilename != "" {
-		return siteCfg.OutputMappingFilename
-	}
-	if appCfg.OutputMappingFilename != "" {
-		return appCfg.OutputMappingFilename
-	}
-	// Fallback to a hardcoded default if neither global nor site-specific filename is provided
-	return "url_to_file_map.tsv"
-}
-
-// GetEffectiveEnableMetadataYAML determines if YAML metadata should be generated.
-func GetEffectiveEnableMetadataYAML(siteCfg *SiteConfig, appCfg *AppConfig) bool {
-	if siteCfg.EnableMetadataYAML != nil {
-		return *siteCfg.EnableMetadataYAML
-	}
-	return appCfg.EnableMetadataYAML
-}
-
-// GetEffectiveMetadataYAMLFilename determines the filename for the YAML metadata.
-func GetEffectiveMetadataYAMLFilename(siteCfg *SiteConfig, appCfg *AppConfig) string {
-	if siteCfg.MetadataYAMLFilename != "" {
-		return siteCfg.MetadataYAMLFilename
-	}
-	if appCfg.MetadataYAMLFilename != "" {
-		return appCfg.MetadataYAMLFilename
-	}
-	return "metadata.yaml"
-}
-
 // GetEffectiveEnableJSONLOutput determines if JSONL output should be generated.
 func GetEffectiveEnableJSONLOutput(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.EnableJSONLOutput != nil {
@@ -249,16 +200,12 @@ func getEffectiveDelayPerHost(siteCfg *SiteConfig, appCfg *AppConfig) time.Durat
 // resolved once from site-specific overrides and app-level defaults.
 type ResolvedSiteConfig struct {
 	UserAgent              string
-	OutputMappingFilename  string
-	MetadataYAMLFilename   string
 	JSONLOutputFilename    string
 	ChunkingOutputFilename string
 	DelayPerHost           time.Duration
 	MaxPageSizeBytes       int64
 	MaxImageSizeBytes      int64
 	SkipImages             bool
-	EnableOutputMapping    bool
-	EnableMetadataYAML     bool
 	EnableJSONLOutput      bool
 	ChunkingEnabled        bool
 	ChunkingMaxSize        int
@@ -269,16 +216,12 @@ type ResolvedSiteConfig struct {
 func NewResolvedSiteConfig(siteCfg *SiteConfig, appCfg *AppConfig) *ResolvedSiteConfig {
 	return &ResolvedSiteConfig{
 		UserAgent:              GetEffectiveUserAgent(siteCfg, appCfg),
-		OutputMappingFilename:  GetEffectiveOutputMappingFilename(siteCfg, appCfg),
-		MetadataYAMLFilename:   GetEffectiveMetadataYAMLFilename(siteCfg, appCfg),
 		JSONLOutputFilename:    GetEffectiveJSONLOutputFilename(siteCfg, appCfg),
 		ChunkingOutputFilename: GetEffectiveChunkingOutputFilename(siteCfg, appCfg),
 		DelayPerHost:           getEffectiveDelayPerHost(siteCfg, appCfg),
 		MaxPageSizeBytes:       GetEffectiveMaxPageSize(appCfg),
 		MaxImageSizeBytes:      GetEffectiveMaxImageSize(siteCfg, appCfg),
 		SkipImages:             GetEffectiveSkipImages(siteCfg, appCfg),
-		EnableOutputMapping:    GetEffectiveEnableOutputMapping(siteCfg, appCfg),
-		EnableMetadataYAML:     GetEffectiveEnableMetadataYAML(siteCfg, appCfg),
 		EnableJSONLOutput:      GetEffectiveEnableJSONLOutput(siteCfg, appCfg),
 		ChunkingEnabled:        GetEffectiveChunkingEnabled(siteCfg, appCfg),
 		ChunkingMaxSize:        GetEffectiveChunkingMaxSize(siteCfg, appCfg),

@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 func TestPageDBEntry_JSONRoundTrip(t *testing.T) {
@@ -77,6 +76,7 @@ func TestImageDBEntry_OmitEmpty(t *testing.T) {
 
 func TestPageJSONL_JSONRoundTrip(t *testing.T) {
 	entry := PageJSONL{
+		RecordType:  RecordTypePage,
 		URL:         "https://example.com",
 		Title:       "Example",
 		Content:     "Hello world",
@@ -114,81 +114,37 @@ func TestChunkJSONL_JSONRoundTrip(t *testing.T) {
 	assert.Equal(t, entry, got)
 }
 
-func TestCrawlMetadata_YAMLRoundTrip(t *testing.T) {
-	now := time.Now().Truncate(time.Second).UTC()
-	meta := CrawlMetadata{
-		SiteKey:         "example",
-		AllowedDomain:   "example.com",
-		CrawlStartTime:  now,
-		CrawlEndTime:    now.Add(time.Minute),
-		TotalPagesSaved: 5,
-		Pages: []PageMetadata{
-			{
-				OriginalURL:   "https://example.com",
-				NormalizedURL: "example.com",
-				LocalFilePath: "index.md",
-				Depth:         0,
-				ProcessedAt:   now,
-			},
-		},
+func TestCrawlMetaJSONL_JSONRoundTrip(t *testing.T) {
+	entry := CrawlMetaJSONL{
+		RecordType:     RecordTypeCrawlMeta,
+		SiteKey:        "example",
+		AllowedDomain:  "example.com",
+		CrawlStartedAt: "2025-01-01T00:00:00Z",
+		CrawlEndedAt:   "2025-01-01T00:05:00Z",
+		TotalPages:     42,
 	}
 
-	data, err := yaml.Marshal(meta)
+	data, err := json.Marshal(entry)
 	require.NoError(t, err)
 
-	var got CrawlMetadata
-	require.NoError(t, yaml.Unmarshal(data, &got))
-	assert.Equal(t, meta, got)
+	var got CrawlMetaJSONL
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, entry, got)
 }
 
-func TestCrawlMetadata_OmitEmpty(t *testing.T) {
-	meta := CrawlMetadata{
-		SiteKey: "test",
-	}
-
-	data, err := yaml.Marshal(meta)
+// TestJSONLRecordTypeDiscriminator confirms a crawl_meta line and a page line
+// can be told apart by record_type after being marshaled into the same stream.
+func TestJSONLRecordTypeDiscriminator(t *testing.T) {
+	pageData, err := json.Marshal(PageJSONL{RecordType: RecordTypePage, URL: "https://example.com"})
+	require.NoError(t, err)
+	metaData, err := json.Marshal(CrawlMetaJSONL{RecordType: RecordTypeCrawlMeta, SiteKey: "example"})
 	require.NoError(t, err)
 
-	raw := string(data)
-	assert.NotContains(t, raw, "site_configuration")
-}
-
-func TestPageMetadata_YAMLRoundTrip(t *testing.T) {
-	now := time.Now().Truncate(time.Second).UTC()
-	page := PageMetadata{
-		OriginalURL:   "https://example.com/page",
-		NormalizedURL: "example.com/page",
-		LocalFilePath: "page.md",
-		Title:         "A Page",
-		Depth:         2,
-		ProcessedAt:   now,
-		ContentHash:   "abc123",
-		ImageCount:    3,
+	var probe struct {
+		RecordType string `json:"record_type"`
 	}
-
-	data, err := yaml.Marshal(page)
-	require.NoError(t, err)
-
-	var got PageMetadata
-	require.NoError(t, yaml.Unmarshal(data, &got))
-	assert.Equal(t, page, got)
-}
-
-func TestPageMetadata_OmitEmpty(t *testing.T) {
-	page := PageMetadata{
-		OriginalURL:   "https://example.com",
-		NormalizedURL: "example.com",
-		LocalFilePath: "index.md",
-		Depth:         0,
-		ProcessedAt:   time.Now().UTC(),
-	}
-
-	data, err := yaml.Marshal(page)
-	require.NoError(t, err)
-
-	raw := string(data)
-	assert.NotContains(t, raw, "title")
-	assert.NotContains(t, raw, "content_hash")
-	assert.NotContains(t, raw, "image_count")
-	assert.NotContains(t, raw, "token_count")
+	require.NoError(t, json.Unmarshal(pageData, &probe))
+	assert.Equal(t, RecordTypePage, probe.RecordType)
+	require.NoError(t, json.Unmarshal(metaData, &probe))
+	assert.Equal(t, RecordTypeCrawlMeta, probe.RecordType)
 }

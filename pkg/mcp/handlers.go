@@ -19,7 +19,6 @@ import (
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/mark3labs/mcp-go/mcp"
-	"gopkg.in/yaml.v3"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
@@ -399,6 +398,10 @@ func (s *Server) searchJSONL(query string, sites map[string]*config.SiteConfig, 
 			if err := parseJSONLine(line, &page); err != nil {
 				continue
 			}
+			// Skip the crawl_meta summary record; only page records are searchable.
+			if page.RecordType == models.RecordTypeCrawlMeta {
+				continue
+			}
 
 			// Search in content, title, and headings
 			contentLower := strings.ToLower(page.Content)
@@ -445,22 +448,40 @@ func (s *Server) searchJSONL(query string, sites map[string]*config.SiteConfig, 
 	return results
 }
 
-// getLastCrawledTime gets the last crawl time from metadata file
+// getLastCrawledTime returns the end time of the most recent crawl by scanning
+// the site's JSONL output for crawl_meta records. The last such record in the
+// file is authoritative (a resumed crawl appends a fresh one). Returns the zero
+// time if the file is absent or contains no crawl_meta record.
 func (s *Server) getLastCrawledTime(_ string, siteCfg *config.SiteConfig) time.Time {
 	siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
-	metadataPath := filepath.Join(siteOutputDir, config.GetEffectiveMetadataYAMLFilename(siteCfg, s.cfg.AppConfig))
+	jsonlPath := filepath.Join(siteOutputDir, config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig))
 
-	data, err := os.ReadFile(metadataPath)
+	file, err := os.Open(jsonlPath)
 	if err != nil {
 		return time.Time{}
 	}
+	defer file.Close()
 
-	var metadata models.CrawlMetadata
-	if err := yaml.Unmarshal(data, &metadata); err != nil {
-		return time.Time{}
+	var lastEnded time.Time
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.Contains(line, models.RecordTypeCrawlMeta) {
+			continue
+		}
+		var meta models.CrawlMetaJSONL
+		if err := json.Unmarshal([]byte(line), &meta); err != nil {
+			continue
+		}
+		if meta.RecordType != models.RecordTypeCrawlMeta {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, meta.CrawlEndedAt); err == nil {
+			lastEnded = t
+		}
 	}
-
-	return metadata.CrawlEndTime
+	return lastEnded
 }
 
 // extractSnippet extracts a snippet around the query match, slicing on rune

@@ -102,22 +102,6 @@ func (c *AppConfig) Validate() (warnings []string, err error) {
 	// HTTPClientSettings defaults
 	c.validateHTTPClientSettings()
 
-	// Output mapping filename
-	if c.EnableOutputMapping && c.OutputMappingFilename == "" {
-		warnings = append(warnings,
-			"Global 'enable_output_mapping' is true but 'output_mapping_filename' is empty. "+
-				"Defaulting to 'url_to_file_map.tsv'")
-		c.OutputMappingFilename = "url_to_file_map.tsv"
-	}
-
-	// Metadata YAML filename
-	if c.EnableMetadataYAML && c.MetadataYAMLFilename == "" {
-		warnings = append(warnings,
-			"Global 'enable_metadata_yaml' is true but 'metadata_yaml_filename' is empty. "+
-				"Defaulting to 'metadata.yaml'")
-		c.MetadataYAMLFilename = "metadata.yaml"
-	}
-
 	return warnings, nil // AppConfig validation never fails fatally
 }
 

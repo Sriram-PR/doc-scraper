@@ -1,5 +1,9 @@
 # doc-scraper Configuration
 # 3 working examples demonstrating all configuration variations
+#
+# Output is two artifacts: the Markdown files, and an optional JSONL file.
+# The JSONL file carries one record per page plus a final crawl_meta summary
+# record (record_type: "crawl_meta"); consumers tell them apart via record_type.
 
 # --- Global Settings ---
 default_delay_per_host: 500ms
@@ -22,7 +26,7 @@ per_page_timeout: 60s           # Per-page timeout
 
 # Size limits
 max_page_size_bytes: 52428800   # 50 MiB (max HTML page body size, 0 = 50 MiB default)
-max_image_size_bytes: 10485760  # 10 MiB
+max_image_size_bytes: 10485760  # 10 MiB (applies only when images are downloaded)
 
 # Global image defaults
 # Image downloading is opt-in. When skip_images is unset, images are skipped
@@ -30,15 +34,9 @@ max_image_size_bytes: 10485760  # 10 MiB
 # download and localize images for offline consumption.
 skip_images: true
 
-# Global output settings
-enable_output_mapping: true
-output_mapping_filename: "url_to_file_map.tsv"
-enable_metadata_yaml: true
-metadata_yaml_filename: "crawl_meta.yaml"
-
-# JSONL output (required for MCP search_crawled tool)
-# enable_jsonl_output: true
-# jsonl_output_filename: "pages.jsonl"
+# JSONL output: one record per page plus a final crawl_meta summary record.
+enable_jsonl_output: true
+jsonl_output_filename: "pages.jsonl"
 
 # Incremental crawling (skip unchanged pages)
 # enable_incremental: false
@@ -69,8 +67,7 @@ sites:
   # ============================================================================
   # EXAMPLE 1: flask_docs
   # - Auto content detection (Sphinx framework auto-detected)
-  # - Images enabled with domain filtering
-  # - Full metadata output
+  # - Images downloaded with domain filtering (opt-in)
   # - Polite rate limiting
   # ============================================================================
   flask_docs:
@@ -86,7 +83,7 @@ sites:
     delay_per_host: 500ms           # Polite crawling
     respect_nofollow: true
 
-    # Image handling
+    # Image handling: opt in to downloading images for this site
     skip_images: false
     max_image_size_bytes: 5242880   # 5 MiB limit
     allowed_image_domains:
@@ -98,17 +95,10 @@ sites:
       - "/en/stable/api/.*"
       - "/en/stable/changes/.*"
 
-    # Output: all features enabled
-    enable_output_mapping: true
-    output_mapping_filename: "flask_manifest.tsv"
-    enable_metadata_yaml: true
-    metadata_yaml_filename: "flask_metadata.yaml"
-
   # ============================================================================
   # EXAMPLE 2: click_docs
   # - Explicit CSS selector for Pallets/Flask-style docs
-  # - No images (text-only for LLM training)
-  # - Minimal output (no metadata yaml)
+  # - Text-only (images skipped, the default)
   # - Limited depth, fast crawling
   # ============================================================================
   click_docs:
@@ -124,19 +114,10 @@ sites:
     delay_per_host: 300ms           # Faster crawling
     respect_nofollow: false         # Follow all links
 
-    # No images - text only for LLM ingestion
-    skip_images: true
-
-    # Minimal output - just the TSV mapping
-    enable_output_mapping: true
-    output_mapping_filename: "click_urls.tsv"
-    enable_metadata_yaml: false     # Disabled for this site
-
   # ============================================================================
   # EXAMPLE 3: rust_cli_book
   # - Explicit selector for mdBook framework
   # - Custom link extraction selectors
-  # - Full output with custom filenames
   # - Moderate settings
   # ============================================================================
   rust_cli_book:
@@ -158,16 +139,7 @@ sites:
     delay_per_host: 500ms           # Default delay
     respect_nofollow: true
 
-    # Images enabled, use global settings
-    skip_images: false
-
     # Exclude print page and non-content
     disallowed_path_patterns:
       - "/book/print\\.html$"
       - "/book/.*\\?.*"
-
-    # Full output
-    enable_output_mapping: true
-    output_mapping_filename: "rust_cli_manifest.tsv"
-    enable_metadata_yaml: true
-    metadata_yaml_filename: "rust_cli_metadata.yaml"

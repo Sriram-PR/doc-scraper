@@ -37,12 +37,11 @@ The main objective of this tool is to automate the often tedious process of gath
 | **HTML-to-Markdown** | Converts extracted HTML to clean Markdown |
 | **Image Handling** | Opt-in downloading and local rewriting of image links with domain and size filtering (disabled by default; doc-scraper is text-first) |
 | **Link Rewriting** | Rewrites internal links to relative paths for local structure |
-| **URL-to-File Mapping** | Optional TSV file logging saved file paths and their corresponding original URLs |
-| **YAML Metadata Output**  | Optional detailed YAML file per site with crawl stats and per-page metadata (including content hashes) |
+| **JSONL Output** | Optional one-record-per-page JSONL with a trailing crawl-summary record, for RAG ingestion |
 | **Concurrency** | Configurable worker pools and semaphore-based request limits (global and per-host) |
 | **Rate Limiting** | Configurable per-host delays with jitter |
 | **Robots.txt & Sitemaps** | Respects `robots.txt` and processes discovered sitemaps |
-| **State Persistence** | Uses BadgerDB for state; supports resuming crawls via `resume` subcommand |
+| **State Persistence** | Uses BadgerDB for state; supports resuming crawls via `crawl --resume` |
 | **Graceful Shutdown** | Handles `SIGINT`/`SIGTERM` with proper cleanup |
 | **HTTP Retries** | Exponential backoff with jitter for transient errors |
 | **Observability** | Structured logging (`logrus`); optional `pprof` endpoint (build with `-tags pprof`) |
@@ -139,10 +138,8 @@ semaphore_acquire_timeout: 30s
 global_crawl_timeout: 0s
 skip_images: true # Default. Set to false to download and localize images
 max_image_size_bytes: 10485760 # 10 MiB (applies only when images are downloaded)
-enable_output_mapping: true
-output_mapping_filename: "global_url_map.tsv"
-enable_metadata_yaml: true
-metadata_yaml_filename: "crawl_meta.yaml"
+enable_jsonl_output: true
+jsonl_output_filename: "pages.jsonl"
 
 # HTTP Client Settings
 http_client_settings:
@@ -160,9 +157,6 @@ sites:
     content_selector: "article.pytorch-article .body"
     max_depth: 0 # 0 for unlimited depth
     skip_images: false # Opt in to downloading images for this site
-    # Override global mapping filename for this site
-    output_mapping_filename: "pytorch_docs_map.txt"
-    metadata_yaml_filename: "pytorch_metadata_output.yaml"
     disallowed_path_patterns:
       - "/docs/stable/.*/_modules/.*"
       - "/docs/stable/.*\.html#.*"
@@ -176,9 +170,8 @@ sites:
     content_selector: ".devsite-article-body"
     max_depth: 0
     delay_per_host: 1s  # Site-specific override
-    # Disable mapping for this site, overriding global
-    enable_output_mapping: false
-    enable_metadata_yaml: false
+    # Disable JSONL output for this site, overriding global
+    enable_jsonl_output: false
     disallowed_path_patterns:
       - "/install/.*"
       - "/js/.*"
@@ -205,11 +198,7 @@ sites:
 | `skip_images` | Boolean | Whether to skip downloading images. Image downloading is opt-in | `true` (skip) |
 | `max_image_size_bytes` | Integer | Maximum allowed image size (applies only when images are downloaded) | `0` (unlimited) |
 | `max_page_size_bytes` | Integer | Maximum HTML page body size | `52428800` (50 MiB) |
-| `enable_output_mapping` | Boolean | Enable URL-to-file mapping log | `false` |
-| `output_mapping_filename` | String | Filename for the URL-to-file mapping log | `"url_to_file_map.tsv"` |
-| `enable_metadata_yaml` | Boolean | Enable detailed YAML metadata output file | `false` |
-| `metadata_yaml_filename` | String | Filename for the YAML metadata output file | `"metadata.yaml"` |
-| `enable_jsonl_output` | Boolean | Enable JSONL page output for RAG pipelines | `false` |
+| `enable_jsonl_output` | Boolean | Enable JSONL page output (one record per page plus a trailing crawl_meta record) for RAG pipelines | `false` |
 | `jsonl_output_filename` | String | Filename for JSONL output | `"pages.jsonl"` |
 | `enable_incremental` | Boolean | Enable incremental crawling globally | `false` |
 | `db_gc_interval` | Duration | BadgerDB garbage collection interval | `10m` |
@@ -249,10 +238,6 @@ sites:
 - `max_image_size_bytes`: Integer. Override global max image size for this site
 - `allowed_image_domains`: Array of domains from which to download images
 - `disallowed_image_domains`: Array of domains to block image downloads from
-- `enable_output_mapping`: `true` or `false`. Override global URL-to-file mapping enablement for this site
-- `output_mapping_filename`: String. Override global URL-to-file mapping filename for this site
-- `enable_metadata_yaml`: `true` or `false`. Override global YAML metadata output enablement for this site
-- `metadata_yaml_filename`: String. Override global YAML metadata filename for this site
 - `enable_jsonl_output`: `true` or `false`. Override global JSONL output enablement for this site
 - `jsonl_output_filename`: String. Override global JSONL output filename for this site
 - `chunking.enabled`: `true` or `false`. Override global chunking enablement for this site
@@ -272,8 +257,7 @@ Execute the compiled binary from the project root directory:
 
 | Command | Description |
 |---------|-------------|
-| `crawl` | Start a fresh crawl |
-| `resume` | Resume an interrupted crawl |
+| `crawl` | Start a crawl (add `--resume` to continue an interrupted one) |
 | `validate` | Validate configuration file without crawling |
 | `list-sites` | List available site keys from config |
 | `mcp-server` | Start MCP server for AI tool integration |
@@ -282,7 +266,7 @@ Execute the compiled binary from the project root directory:
 
 ### Command Options
 
-**crawl / resume:**
+**crawl:**
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -290,6 +274,7 @@ Execute the compiled binary from the project root directory:
 | `-site <key>` | Site key from config (single site) | - |
 | `-sites <keys>` | Comma-separated site keys for parallel crawling | - |
 | `--all-sites` | Crawl all configured sites in parallel | `false` |
+| `--resume` | Resume an interrupted crawl from existing state | `false` |
 | `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`, `fatal`) | `info` |
 | `-pprof <addr>` | pprof server address. Only effective in builds with `-tags pprof`; default builds log a warning and ignore the flag | `""` (disabled) |
 | `-incremental` | Enable incremental crawling (skip unchanged pages) | `false` |
@@ -343,7 +328,7 @@ Execute the compiled binary from the project root directory:
 **Resume a Large Crawl:**
 
 ```bash
-./doc-scraper resume -site pytorch_docs -loglevel info
+./doc-scraper crawl -site pytorch_docs --resume -loglevel info
 ```
 
 **Validate Configuration:**
@@ -406,8 +391,7 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
     │   ├── image1.png
     │   └── image2.jpg
     ├── index.md                      # Markdown for the root path
-    ├── <metadata_yaml_filename>      # If enable_metadata_yaml: true
-    ├── <output_mapping_filename>     # If enable_output_mapping: true
+    ├── images/                       # Only present if skip_images: false
     ├── <jsonl_output_filename>       # If enable_jsonl_output: true
     ├── <chunking.output_filename>    # If chunking.enabled: true
     ├── topic_one/
@@ -426,25 +410,9 @@ Each generated Markdown file contains:
 - Local image references (if images are enabled)
 - A footer with metadata including source URL and crawl timestamp
 
-## URL-to-File Mapping Output
-
-When enabled via configuration, the crawler generates a mapping file (typically a `.tsv` or `.txt` file) for each crawled site. This file logs each successfully processed page's final absolute URL and the corresponding local filesystem path where its content was saved.
-
-**Format:**
-Each line in the file typically follows a tab-separated format:
-`<FINAL_ABSOLUTE_URL><TAB><LOCAL_FILESYSTEM_PATH>`
-
-This feature is controlled by the `enable_output_mapping` and `output_mapping_filename` settings in `config.yaml`.
-
-## YAML Metadata Output
-
-In addition to (or instead of) the simple TSV mapping, the crawler can generate a comprehensive YAML file for each crawled site. This file (`metadata.yaml` by default, configurable) contains overall crawl statistics and detailed metadata for every successfully processed page.
-
-The filename can be configured globally and overridden per site using `enable_metadata_yaml` and `metadata_yaml_filename` in `config.yaml`.
-
 ## JSONL Output
 
-When enabled, the crawler writes one JSON object per line per page to a JSONL file. This format is designed for ingestion into RAG pipelines and is required by the MCP `search_crawled` tool.
+When enabled, the crawler writes one JSON object per line to a JSONL file. This format is designed for ingestion into RAG pipelines and is required by the MCP `search_crawled` tool.
 
 **Enable it:**
 
@@ -453,10 +421,16 @@ enable_jsonl_output: true
 jsonl_output_filename: "pages.jsonl"  # default
 ```
 
-**Fields per line** (from `PageJSONL`):
+The file mixes two record kinds, distinguished by the `record_type` field:
+
+- **`page`** records, one per crawled page.
+- A single **`crawl_meta`** record appended as the final line, holding the crawl-level summary. A resumed crawl appends a fresh `crawl_meta` record rather than rewriting the original, so a consumer should treat the **last** `crawl_meta` record in the file as authoritative.
+
+**`page` record fields** (from `PageJSONL`):
 
 | Field | Description |
 |-------|-------------|
+| `record_type` | Always `"page"` |
 | `url` | Final absolute URL of the page |
 | `title` | Page title |
 | `content` | Full markdown content |
@@ -466,6 +440,17 @@ jsonl_output_filename: "pages.jsonl"  # default
 | `content_hash` | SHA-256 hash of the content (used for incremental crawling) |
 | `crawled_at` | Timestamp of when the page was crawled |
 | `depth` | Crawl depth from the start URL |
+
+**`crawl_meta` record fields** (from `CrawlMetaJSONL`):
+
+| Field | Description |
+|-------|-------------|
+| `record_type` | Always `"crawl_meta"` |
+| `site_key` | Site key from the config |
+| `allowed_domain` | The crawled domain |
+| `crawl_started_at` | Crawl start timestamp |
+| `crawl_ended_at` | Crawl end timestamp |
+| `total_pages` | Number of pages recorded in this crawl |
 
 The output file is written to each site's output directory. Both the enable flag and filename can be overridden per site.
 
@@ -543,7 +528,7 @@ Crawl multiple documentation sites concurrently with shared resource management.
 ./doc-scraper crawl --all-sites
 
 # Resume parallel crawl
-./doc-scraper resume -sites pytorch_docs,tensorflow_docs
+./doc-scraper crawl -sites pytorch_docs,tensorflow_docs --resume
 ```
 
 ### Resource Sharing
