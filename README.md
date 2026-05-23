@@ -575,6 +575,7 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 | `get_page` | Fetch a single URL and return content as markdown |
 | `crawl_site` | Start a background crawl for a site (returns job ID) |
 | `get_job_status` | Check the status of a background crawl job |
+| `cancel_crawl` | Cancel a running or pending crawl job by job ID |
 | `list_pages` | Enumerate crawled pages for a site (paginated, metadata only) |
 
 ### Usage
@@ -639,6 +640,14 @@ Result: Returns status, pages processed, and completion info
 Tool: list_pages
 Arguments: { "site_key": "pytorch_docs", "max_results": 50, "offset": 0 }
 Result: Returns up to 50 page entries (URL, title, depth, crawled_at, content_length), sorted by URL. Use offset for pagination.
+```
+
+**Cancel a running crawl:**
+
+```
+Tool: cancel_crawl
+Arguments: { "job_id": "abc-123-def" }
+Result: Returns cancelled: true/false and the job's current status. Has no effect on jobs already in a terminal state.
 ```
 
 ## Contributing

@@ -36,6 +36,7 @@ Available MCP Tools:
   get_page        Fetch a single URL as markdown
   crawl_site      Start a background crawl for a site
   get_job_status  Check the status of a crawl job
+  cancel_crawl    Cancel a running or pending crawl job
   list_pages      Enumerate crawled pages for a site (paginated, metadata only)
 `)
 	}

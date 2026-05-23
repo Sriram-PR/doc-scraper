@@ -268,6 +268,66 @@ func TestHandleDescribeServer_IncludesRecentJobsNewestFirst(t *testing.T) {
 	assert.Equal(t, "alpha", jobs[2].(map[string]any)["site_key"])
 }
 
+func callCancelCrawl(t *testing.T, s *Server, args map[string]any) map[string]any {
+	t.Helper()
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = args
+	result, err := s.handleCancelCrawl(context.Background(), req)
+	require.NoError(t, err)
+	require.Len(t, result.Content, 1)
+	tc, ok := result.Content[0].(mcpgo.TextContent)
+	require.True(t, ok)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &got))
+	return got
+}
+
+func TestHandleCancelCrawl_MissingJobID(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = map[string]any{}
+	result, err := s.handleCancelCrawl(context.Background(), req)
+	require.NoError(t, err)
+	tc := result.Content[0].(mcpgo.TextContent)
+	assert.Contains(t, tc.Text, "job_id parameter is required")
+}
+
+func TestHandleCancelCrawl_UnknownJob(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	got := callCancelCrawl(t, s, map[string]any{"job_id": "nope"})
+	assert.Equal(t, false, got["cancelled"])
+	assert.Equal(t, "job not found", got["message"])
+}
+
+func TestHandleCancelCrawl_RunningJobCancelled(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	job, err := s.jobManager.CreateJob("docs", false)
+	require.NoError(t, err)
+	s.jobManager.UpdateStatus(job.ID, JobStatusRunning, "")
+
+	got := callCancelCrawl(t, s, map[string]any{"job_id": job.ID})
+	assert.Equal(t, true, got["cancelled"])
+	assert.Equal(t, string(JobStatusCancelled), got["status"])
+	assert.Equal(t, "docs", got["site_key"])
+
+	// Verify state at the source: the job is now Cancelled in JobManager.
+	stored := s.jobManager.GetJob(job.ID)
+	require.NotNil(t, stored)
+	assert.Equal(t, JobStatusCancelled, stored.Status)
+}
+
+func TestHandleCancelCrawl_TerminalJobNotCancellable(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	job, err := s.jobManager.CreateJob("docs", false)
+	require.NoError(t, err)
+	s.jobManager.UpdateStatus(job.ID, JobStatusCompleted, "")
+
+	got := callCancelCrawl(t, s, map[string]any{"job_id": job.ID})
+	assert.Equal(t, false, got["cancelled"])
+	assert.Equal(t, string(JobStatusCompleted), got["status"])
+	assert.Contains(t, got["message"], "terminal state")
+}
+
 func TestHandleListPages_ClampsMaxResults(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
 	writeJSONLRecords(t, jsonlPath, []interface{}{

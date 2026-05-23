@@ -71,6 +71,46 @@ func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolReques
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }
 
+// handleCancelCrawl handles the cancel_crawl tool. Wires the existing
+// JobManager.CancelJob through MCP so agents can reclaim resources when a
+// crawl was started by mistake or is no longer wanted. Returns cancelled=false
+// for unknown jobs and for jobs already in a terminal state (completed,
+// failed, already-cancelled), with a status field so the agent can tell which
+// case occurred.
+func (s *Server) handleCancelCrawl(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	jobID := request.GetString("job_id", "")
+	if jobID == "" {
+		return mcp.NewToolResultError("job_id parameter is required"), nil
+	}
+
+	job := s.jobManager.GetJob(jobID)
+	if job == nil {
+		result := map[string]interface{}{
+			"job_id":    jobID,
+			"cancelled": false,
+			"message":   "job not found",
+		}
+		return mcp.NewToolResultText(formatJSON(result)), nil
+	}
+
+	cancelled := s.jobManager.CancelJob(jobID)
+	// Re-read post-cancel to pick up the updated status/completed_at if any.
+	job = s.jobManager.GetJob(jobID)
+
+	result := map[string]interface{}{
+		"job_id":    jobID,
+		"cancelled": cancelled,
+		"site_key":  job.SiteKey,
+		"status":    job.Status,
+	}
+	if cancelled {
+		result["message"] = "job cancelled"
+	} else {
+		result["message"] = fmt.Sprintf("job is in terminal state %q and cannot be cancelled", job.Status)
+	}
+	return mcp.NewToolResultText(formatJSON(result)), nil
+}
+
 // handleDescribeServer handles the describe_server tool. It returns a single
 // orientation payload an agent can fetch on connection to discover what this
 // server can do without having to chain list_sites + N x get_job_status. The

@@ -115,6 +115,16 @@ func (s *Server) registerTools() {
 	)
 	s.mcpServer.AddTool(getJobStatusTool, s.handleGetJobStatus)
 
+	// cancel_crawl - Cancel a running crawl job
+	cancelCrawlTool := mcp.NewTool("cancel_crawl",
+		mcp.WithDescription("Cancel a running or pending crawl job by job ID. Has no effect on jobs already in a terminal state."),
+		mcp.WithString("job_id",
+			mcp.Required(),
+			mcp.Description("The job ID returned by crawl_site"),
+		),
+	)
+	s.mcpServer.AddTool(cancelCrawlTool, s.handleCancelCrawl)
+
 	// describe_server - Orientation manifest; intended to be called first
 	describeServerTool := mcp.NewTool("describe_server",
 		mcp.WithDescription("Returns server identity, configured sites, and recent crawl jobs in one call. Call this first to orient yourself: it consolidates what would otherwise require list_sites plus several get_job_status calls. The MCP tool list is already advertised by the protocol so it is not duplicated here."),
@@ -137,7 +147,7 @@ func (s *Server) registerTools() {
 	)
 	s.mcpServer.AddTool(listPagesTool, s.handleListPages)
 
-	s.log.Infof("Registered %d MCP tools", 6)
+	s.log.Infof("Registered %d MCP tools", 7)
 }
 
 // Run starts the MCP server over the stdio transport.
