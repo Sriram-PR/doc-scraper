@@ -25,7 +25,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/watch"
 )
 
-const version = "2.0.1"
+const version = "2.0.2"
 
 func main() {
 	if len(os.Args) < 2 {
