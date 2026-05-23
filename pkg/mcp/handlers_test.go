@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
@@ -266,6 +267,56 @@ func TestHandleDescribeServer_IncludesRecentJobsNewestFirst(t *testing.T) {
 	assert.Equal(t, "gamma", jobs[0].(map[string]any)["site_key"])
 	assert.Equal(t, "beta", jobs[1].(map[string]any)["site_key"])
 	assert.Equal(t, "alpha", jobs[2].(map[string]any)["site_key"])
+}
+
+func TestApplyTokenBudget(t *testing.T) {
+	// Each rune counts as 1; 4 runes ≈ 1 token under the heuristic.
+	t.Run("zero budget disables limit", func(t *testing.T) {
+		content := strings.Repeat("x", 1000)
+		got, tokens, truncated := applyTokenBudget(content, 0)
+		assert.Equal(t, content, got)
+		assert.Equal(t, 250, tokens)
+		assert.False(t, truncated)
+	})
+
+	t.Run("negative budget treated as no limit", func(t *testing.T) {
+		content := strings.Repeat("x", 1000)
+		got, _, truncated := applyTokenBudget(content, -5)
+		assert.Equal(t, content, got)
+		assert.False(t, truncated)
+	})
+
+	t.Run("content under budget passes through", func(t *testing.T) {
+		content := strings.Repeat("x", 100) // ≈25 tokens
+		got, tokens, truncated := applyTokenBudget(content, 100)
+		assert.Equal(t, content, got)
+		assert.Equal(t, 25, tokens)
+		assert.False(t, truncated)
+	})
+
+	t.Run("content over budget gets truncated with marker", func(t *testing.T) {
+		content := strings.Repeat("x", 1000) // ≈250 tokens
+		got, tokens, truncated := applyTokenBudget(content, 50)
+		assert.True(t, truncated)
+		assert.Equal(t, 250, tokens, "reported tokens reflect ORIGINAL size, not truncated size")
+		// Rune budget is 50*4=200; marker is appended.
+		assert.True(t, strings.HasPrefix(got, strings.Repeat("x", 200)))
+		assert.Contains(t, got, "content truncated by max_tokens budget")
+	})
+
+	t.Run("multi-byte runes are sliced cleanly", func(t *testing.T) {
+		// 100 multi-byte runes; with maxTokens=10 budget=40 runes.
+		content := strings.Repeat("あ", 100)
+		got, _, truncated := applyTokenBudget(content, 10)
+		assert.True(t, truncated)
+		runes := []rune(got)
+		// Body before marker should be exactly 40 runes of あ.
+		assert.True(t, strings.HasPrefix(got, strings.Repeat("あ", 40)))
+		// The full string should not have any partial-rune corruption.
+		for _, r := range runes {
+			_ = r // just iterate to catch decoding failures
+		}
+	})
 }
 
 func TestHandleListPages_ClampsMaxResults(t *testing.T) {

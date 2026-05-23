@@ -81,13 +81,16 @@ func (s *Server) registerTools() {
 
 	// get_page - Fetch a single URL as markdown
 	getPageTool := mcp.NewTool("get_page",
-		mcp.WithDescription("Fetch a single URL and return its content as markdown"),
+		mcp.WithDescription("Fetch a single URL and return its content as markdown. Optionally bound the response with max_tokens to protect a small context window."),
 		mcp.WithString("url",
 			mcp.Required(),
 			mcp.Description("The URL to fetch"),
 		),
 		mcp.WithString("content_selector",
 			mcp.Description("CSS selector for main content (defaults to 'body')"),
+		),
+		mcp.WithNumber("max_tokens",
+			mcp.Description("If > 0, cap the returned content at approximately this many tokens (rune-based heuristic). Response includes truncated: true and a marker when truncation occurred."),
 		),
 	)
 	s.mcpServer.AddTool(getPageTool, s.handleGetPage)
