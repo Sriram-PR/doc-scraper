@@ -20,7 +20,6 @@ initial_retry_delay: 1s
 max_retry_delay: 30s
 
 # Timeout settings
-semaphore_acquire_timeout: 30s
 global_crawl_timeout: 0s        # 0 = no timeout
 per_page_timeout: 60s           # Per-page timeout
 
@@ -41,9 +40,6 @@ jsonl_output_filename: "pages.jsonl"
 # Incremental crawling (skip unchanged pages)
 # enable_incremental: false
 
-# BadgerDB GC interval
-# db_gc_interval: 10m
-
 # Content chunking for RAG vector ingestion
 # chunking:
 #   enabled: false
@@ -51,15 +47,12 @@ jsonl_output_filename: "pages.jsonl"
 #   chunk_overlap: 50
 #   output_filename: "chunks.jsonl"
 
-# HTTP client settings
+# HTTP client settings (only the three knobs real users tune are exposed;
+# pool, dialer, and TLS timings are baked into pkg/fetch with sane defaults).
 http_client_settings:
   timeout: 45s
-  max_idle_conns: 100
   max_idle_conns_per_host: 6
-  idle_conn_timeout: 90s
-  tls_handshake_timeout: 10s
-  dialer_timeout: 15s
-  dialer_keep_alive: 30s
+  # allow_private_networks: false   # set true ONLY to crawl internal docs (disables SSRF guard)
 
 # --- Site Configurations ---
 sites:

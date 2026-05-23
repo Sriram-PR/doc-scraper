@@ -134,7 +134,6 @@ state_dir: "./crawler_state"
 max_retries: 4
 initial_retry_delay: 1s
 max_retry_delay: 30s
-semaphore_acquire_timeout: 30s
 global_crawl_timeout: 0s
 skip_images: true # Default. Set to false to download and localize images
 max_image_size_bytes: 10485760 # 10 MiB (applies only when images are downloaded)
@@ -192,7 +191,6 @@ sites:
 | `max_retries` | Integer | Maximum retry attempts for HTTP requests | `3` |
 | `initial_retry_delay` | Duration | Initial delay for retry backoff | `1s` |
 | `max_retry_delay` | Duration | Maximum delay for retry backoff | `30s` |
-| `semaphore_acquire_timeout` | Duration | Timeout for acquiring the global semaphore | `30s` |
 | `global_crawl_timeout` | Duration | Overall timeout for the entire crawl | `0s` (no timeout) |
 | `per_page_timeout` | Duration | Timeout for processing a single page | `0s` (no timeout) |
 | `skip_images` | Boolean | Whether to skip downloading images. Image downloading is opt-in | `true` (skip) |
@@ -201,7 +199,6 @@ sites:
 | `enable_jsonl_output` | Boolean | Enable JSONL page output (one record per page plus a trailing crawl_meta record) for RAG pipelines | `false` |
 | `jsonl_output_filename` | String | Filename for JSONL output | `"pages.jsonl"` |
 | `enable_incremental` | Boolean | Enable incremental crawling globally | `false` |
-| `db_gc_interval` | Duration | BadgerDB garbage collection interval | `10m` |
 | `chunking.enabled` | Boolean | Enable token-aware content chunking | `false` |
 | `chunking.max_chunk_size` | Integer | Max chunk size in tokens | `512` |
 | `chunking.chunk_overlap` | Integer | Overlap between chunks in tokens | `50` |
@@ -210,17 +207,11 @@ sites:
 | `sites` | Map | Site-specific configurations | *(required)* |
 
 **HTTP Client Settings:**
-*(These are global and cannot be overridden per site in the current structure)*
+*(Global; cannot be overridden per site. Pool, dialer, and TLS timings are baked into `pkg/fetch` with sane defaults and are not exposed as config knobs.)*
 
-- `timeout`: Overall request timeout (Default in code: `45s`)
-- `max_idle_conns`: Total idle connections (Default in code: `100`)
-- `max_idle_conns_per_host`: Idle connections per host (Default in code: `2`)
-- `idle_conn_timeout`: Timeout for idle connections (Default in code: `90s`)
-- `tls_handshake_timeout`: TLS handshake timeout (Default in code: `10s`)
-- `expect_continue_timeout`: "100 Continue" timeout (Default in code: `1s`)
-- `force_attempt_http2`: `null` (use Go default), `true`, or `false`. (Default in code: `null`)
-- `dialer_timeout`: TCP connection timeout (Default in code: `15s`)
-- `dialer_keep_alive`: TCP keep-alive interval (Default in code: `30s`)
+- `timeout`: Overall request timeout (default `45s`)
+- `max_idle_conns_per_host`: Idle connections per host (default `2`)
+- `allow_private_networks`: Disables the SSRF guard that blocks dials to loopback / private / link-local / CGNAT / multicast addresses. Default `false`. Set to `true` only if you intentionally crawl internal documentation servers reachable via private IPs.
 
 **Site-Specific Configuration Options:**
 

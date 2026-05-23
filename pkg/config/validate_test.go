@@ -27,17 +27,10 @@ func TestAppConfig_Validate_Defaults(t *testing.T) {
 	assert.Equal(t, 3, cfg.MaxRetries)
 	assert.Equal(t, 1*time.Second, cfg.InitialRetryDelay)
 	assert.Equal(t, 30*time.Second, cfg.MaxRetryDelay)
-	assert.Equal(t, 30*time.Second, cfg.SemaphoreAcquireTimeout)
 
 	// Check HTTP client defaults
 	assert.Equal(t, 45*time.Second, cfg.HTTPClientSettings.Timeout)
-	assert.Equal(t, 100, cfg.HTTPClientSettings.MaxIdleConns)
 	assert.Equal(t, 2, cfg.HTTPClientSettings.MaxIdleConnsPerHost)
-	assert.Equal(t, 90*time.Second, cfg.HTTPClientSettings.IdleConnTimeout)
-	assert.Equal(t, 10*time.Second, cfg.HTTPClientSettings.TLSHandshakeTimeout)
-	assert.Equal(t, 1*time.Second, cfg.HTTPClientSettings.ExpectContinueTimeout)
-	assert.Equal(t, 15*time.Second, cfg.HTTPClientSettings.DialerTimeout)
-	assert.Equal(t, 30*time.Second, cfg.HTTPClientSettings.DialerKeepAlive)
 
 	// Check warnings generated
 	assert.True(t, containsWarning(warnings, "num_workers should be > 0"))
@@ -60,8 +53,8 @@ func TestAppConfig_Validate_ValidConfig(t *testing.T) {
 		InitialRetryDelay:  2 * time.Second,
 		MaxRetryDelay:      60 * time.Second,
 		HTTPClientSettings: HTTPClientConfig{
-			Timeout:      30 * time.Second,
-			MaxIdleConns: 50,
+			Timeout:             30 * time.Second,
+			MaxIdleConnsPerHost: 8,
 		},
 	}
 

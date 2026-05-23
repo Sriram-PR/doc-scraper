@@ -36,7 +36,6 @@ type AppConfig struct {
 	MaxRetries              int                    `yaml:"max_retries,omitempty"`
 	InitialRetryDelay       time.Duration          `yaml:"initial_retry_delay,omitempty"`
 	MaxRetryDelay           time.Duration          `yaml:"max_retry_delay,omitempty"`
-	SemaphoreAcquireTimeout time.Duration          `yaml:"semaphore_acquire_timeout,omitempty"`
 	GlobalCrawlTimeout      time.Duration          `yaml:"global_crawl_timeout,omitempty"`
 	PerPageTimeout          time.Duration          `yaml:"per_page_timeout,omitempty"` // Timeout for processing a single page (0 = no timeout)
 	SkipImages              *bool                  `yaml:"skip_images,omitempty"`       // Global image-download default; nil means skip (text-first default)
@@ -46,7 +45,6 @@ type AppConfig struct {
 	Sites                   map[string]*SiteConfig `yaml:"sites"`
 	EnableJSONLOutput       bool                   `yaml:"enable_jsonl_output,omitempty"`
 	JSONLOutputFilename     string                 `yaml:"jsonl_output_filename,omitempty"`
-	DBGCInterval            time.Duration          `yaml:"db_gc_interval,omitempty"`     // Interval for BadgerDB value log GC (default: 10m)
 	EnableIncremental       bool                   `yaml:"enable_incremental,omitempty"` // Enable incremental crawling (skip unchanged pages)
 	Chunking                ChunkingConfig         `yaml:"chunking,omitempty"`
 }
@@ -67,17 +65,12 @@ type SiteChunkingConfig struct {
 	OutputFilename string `yaml:"output_filename,omitempty"`
 }
 
-// HTTPClientConfig holds settings for the shared HTTP client
+// HTTPClientConfig holds settings for the shared HTTP client. The Go-default
+// connection-pool, dialer, and TLS timings are baked into pkg/fetch and not
+// exposed here; only the three knobs that real users actually tune remain.
 type HTTPClientConfig struct {
-	Timeout               time.Duration `yaml:"timeout,omitempty"`                 // Overall request timeout
-	MaxIdleConns          int           `yaml:"max_idle_conns,omitempty"`          // Max total idle connections
-	MaxIdleConnsPerHost   int           `yaml:"max_idle_conns_per_host,omitempty"` // Max idle connections per host
-	IdleConnTimeout       time.Duration `yaml:"idle_conn_timeout,omitempty"`       // Timeout for idle connections
-	TLSHandshakeTimeout   time.Duration `yaml:"tls_handshake_timeout,omitempty"`   // Timeout for TLS handshake
-	ExpectContinueTimeout time.Duration `yaml:"expect_continue_timeout,omitempty"` // Timeout for 100-continue
-	ForceAttemptHTTP2     *bool         `yaml:"force_attempt_http2,omitempty"`     // Explicitly enable/disable HTTP/2 attempt (use pointer for tri-state: nil=default, true=force, false=disable)
-	DialerTimeout         time.Duration `yaml:"dialer_timeout,omitempty"`          // Connection dial timeout
-	DialerKeepAlive       time.Duration `yaml:"dialer_keep_alive,omitempty"`       // TCP keep-alive interval
+	Timeout             time.Duration `yaml:"timeout,omitempty"`                 // Overall request timeout (default 45s)
+	MaxIdleConnsPerHost int           `yaml:"max_idle_conns_per_host,omitempty"` // Max idle connections per host (default 2)
 	// AllowPrivateNetworks disables the SSRF guard that blocks outbound
 	// connections to private/loopback/link-local/CGNAT/multicast addresses.
 	// Default false. Set to true only if you intentionally crawl internal
@@ -88,6 +81,12 @@ type HTTPClientConfig struct {
 const (
 	// DefaultMaxPageSizeBytes is the default maximum page body size (50 MB).
 	DefaultMaxPageSizeBytes int64 = 50 * 1024 * 1024
+
+	// DefaultSemaphoreAcquireTimeout is how long crawler/fetch/sitemap/image
+	// code waits to acquire a global or per-host semaphore before giving up.
+	// Previously exposed via the semaphore_acquire_timeout config key; that
+	// key was an internal mechanic with no realistic reason to tune.
+	DefaultSemaphoreAcquireTimeout = 30 * time.Second
 )
 
 // GetEffectiveMaxPageSize returns the configured max page size, or the default if unset.

@@ -309,7 +309,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 		return
 	}
 	defer store.Close()
-	go store.RunGC(jobCtx, s.cfg.AppConfig.DBGCInterval)
+	go store.RunGC(jobCtx, 0) // 0 = use the store's built-in default (10m)
 
 	// Set incremental mode
 	appCfgCopy := *s.cfg.AppConfig

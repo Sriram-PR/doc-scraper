@@ -91,7 +91,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	robotsLog.Info("Fetching robots.txt...") // Log only on cache miss
 
 	// 3. Acquire Global Semaphore
-	semTimeout := rh.cfg.SemaphoreAcquireTimeout
+	semTimeout := config.DefaultSemaphoreAcquireTimeout
 	acquiredSemaphore := false
 	robotsLog.Debug("Acquiring global semaphore...")
 	ctxAcquire, cancelAcquire := context.WithTimeout(ctx, semTimeout)

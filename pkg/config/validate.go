@@ -76,11 +76,6 @@ func (c *AppConfig) Validate() (warnings []string, err error) {
 		c.InitialRetryDelay = c.MaxRetryDelay
 	}
 
-	// SemaphoreAcquireTimeout
-	if c.SemaphoreAcquireTimeout <= 0 {
-		c.SemaphoreAcquireTimeout = 30 * time.Second
-	}
-
 	// GlobalCrawlTimeout
 	if c.GlobalCrawlTimeout < 0 {
 		warnings = append(warnings, "global_crawl_timeout cannot be negative, disabling timeout")
@@ -111,26 +106,8 @@ func (c *AppConfig) validateHTTPClientSettings() {
 	if h.Timeout <= 0 {
 		h.Timeout = 45 * time.Second
 	}
-	if h.MaxIdleConns <= 0 {
-		h.MaxIdleConns = 100
-	}
 	if h.MaxIdleConnsPerHost <= 0 {
 		h.MaxIdleConnsPerHost = 2
-	}
-	if h.IdleConnTimeout <= 0 {
-		h.IdleConnTimeout = 90 * time.Second
-	}
-	if h.TLSHandshakeTimeout <= 0 {
-		h.TLSHandshakeTimeout = 10 * time.Second
-	}
-	if h.ExpectContinueTimeout <= 0 {
-		h.ExpectContinueTimeout = 1 * time.Second
-	}
-	if h.DialerTimeout <= 0 {
-		h.DialerTimeout = 15 * time.Second
-	}
-	if h.DialerKeepAlive <= 0 {
-		h.DialerKeepAlive = 30 * time.Second
 	}
 }
 

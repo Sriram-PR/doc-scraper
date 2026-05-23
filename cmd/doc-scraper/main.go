@@ -610,7 +610,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 	}
 	defer store.Close()
 
-	go store.RunGC(crawlCtx, appCfg.DBGCInterval)
+	go store.RunGC(crawlCtx, 0) // 0 = use the store's built-in default (10m)
 
 	// --- HTTP Fetching Components ---
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, logEntry)
@@ -669,17 +669,16 @@ func logAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
 		appCfg.DefaultDelayPerHost, appCfg.StateDir, appCfg.OutputBaseDir)
 	log.Infof("Global Config Retries: Max:%d, InitialDelay:%v, MaxDelay:%v",
 		appCfg.MaxRetries, appCfg.InitialRetryDelay, appCfg.MaxRetryDelay)
-	log.Infof("Global Config Timeouts: SemaphoreAcquire:%v, GlobalCrawl:%v, PerPage:%v",
-		appCfg.SemaphoreAcquireTimeout, appCfg.GlobalCrawlTimeout, appCfg.PerPageTimeout)
+	log.Infof("Global Config Timeouts: GlobalCrawl:%v, PerPage:%v",
+		appCfg.GlobalCrawlTimeout, appCfg.PerPageTimeout)
 	globalSkipImages := true // Default: skip image downloads (text-first)
 	if appCfg.SkipImages != nil {
 		globalSkipImages = *appCfg.SkipImages
 	}
 	log.Infof("Global Config Images: Skip(default):%t, MaxSize:%d bytes",
 		globalSkipImages, appCfg.MaxImageSizeBytes)
-	log.Infof("Global Config HTTP Client: Timeout:%v, MaxIdle:%d, MaxIdlePerHost:%d, IdleTimeout:%v, TLSTimeout:%v, DialerTimeout:%v",
-		appCfg.HTTPClientSettings.Timeout, appCfg.HTTPClientSettings.MaxIdleConns, appCfg.HTTPClientSettings.MaxIdleConnsPerHost,
-		appCfg.HTTPClientSettings.IdleConnTimeout, appCfg.HTTPClientSettings.TLSHandshakeTimeout, appCfg.HTTPClientSettings.DialerTimeout)
+	log.Infof("Global Config HTTP Client: Timeout:%v, MaxIdlePerHost:%d, AllowPrivateNetworks:%t",
+		appCfg.HTTPClientSettings.Timeout, appCfg.HTTPClientSettings.MaxIdleConnsPerHost, appCfg.HTTPClientSettings.AllowPrivateNetworks)
 	log.Infof("Global Config JSONL Output: Enabled Globally:%t, Default Global Filename:'%s'",
 		appCfg.EnableJSONLOutput, appCfg.JSONLOutputFilename)
 }

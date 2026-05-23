@@ -852,7 +852,7 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 		}
 	}
 
-	semTimeout := c.appCfg.SemaphoreAcquireTimeout // Get timeout from app config
+	semTimeout := config.DefaultSemaphoreAcquireTimeout
 
 	// 1. Acquire Host-Specific Semaphore
 	ctxHost, cancelHost := context.WithTimeout(c.crawlCtx, semTimeout) // Context for acquiring host semaphore

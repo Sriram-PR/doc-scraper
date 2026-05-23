@@ -100,7 +100,7 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 	}()
 
 	userAgent := sp.appCfg.DefaultUserAgent // Use default UA for sitemaps
-	semTimeout := sp.appCfg.SemaphoreAcquireTimeout
+	semTimeout := config.DefaultSemaphoreAcquireTimeout
 
 	for {
 		select {

@@ -128,7 +128,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 		return result
 	}
 	defer store.Close()
-	go store.RunGC(siteCtx, o.appCfg.DBGCInterval)
+	go store.RunGC(siteCtx, 0) // 0 = use the store's built-in default (10m)
 
 	// Create crawler with shared semaphore
 	opts := &crawler.CrawlerOptions{

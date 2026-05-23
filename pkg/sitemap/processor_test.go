@@ -102,9 +102,8 @@ func defaultSiteCfg() *config.SiteConfig {
 
 func defaultAppCfg() *config.AppConfig {
 	return &config.AppConfig{
-		DefaultUserAgent:        "test-agent",
-		DefaultDelayPerHost:     0,
-		SemaphoreAcquireTimeout: 5 * time.Second,
+		DefaultUserAgent:    "test-agent",
+		DefaultDelayPerHost: 0,
 	}
 }
 

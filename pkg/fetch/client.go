@@ -4,21 +4,33 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 
 	"github.com/sirupsen/logrus"
 )
 
+// Baked-in HTTP transport timings. These were exposed as config knobs prior to
+// v2.0; in practice nobody tuned them and Go's defaults are appropriate for a
+// doc scraper, so they are now constants. If you genuinely need to change one,
+// edit this file rather than threading another YAML key through.
+const (
+	maxIdleConns          = 100
+	idleConnTimeout       = 90 * time.Second
+	tlsHandshakeTimeout   = 10 * time.Second
+	expectContinueTimeout = 1 * time.Second
+	dialerTimeout         = 15 * time.Second
+	dialerKeepAlive       = 30 * time.Second
+)
+
 // NewClient creates a new HTTP client based on the provided configuration.
 func NewClient(cfg config.HTTPClientConfig, log *logrus.Entry) *http.Client {
 	log.Info("Initializing HTTP client...")
 
-	// Create custom dialer with configured timeouts
 	dialer := &net.Dialer{
-		Timeout:   cfg.DialerTimeout,
-		KeepAlive: cfg.DialerKeepAlive,
-		// DualStack support is enabled by default
+		Timeout:   dialerTimeout,
+		KeepAlive: dialerKeepAlive,
 	}
 
 	// Wrap with SSRF guard unless explicitly disabled. Blocks dials to
@@ -27,34 +39,29 @@ func NewClient(cfg config.HTTPClientConfig, log *logrus.Entry) *http.Client {
 	// IP directly to prevent DNS-rebinding races.
 	dialContext := dialer.DialContext
 	if cfg.AllowPrivateNetworks {
-		log.Warn("HTTP client: allow_private_networks=true — SSRF guard disabled, dials to private IPs are permitted")
+		log.Warn("HTTP client: allow_private_networks=true, SSRF guard disabled, dials to private IPs are permitted")
 	} else {
 		dialContext = SafeDialContext(dialer)
 	}
 
-	// Create custom transport using configured settings
 	transport := &http.Transport{
 		Proxy:                  http.ProxyFromEnvironment, // Use system proxy settings
 		DialContext:            dialContext,               // SSRF-guarded dialer (unless opted out)
-		ForceAttemptHTTP2:      true,                      // Default to true unless explicitly disabled
-		MaxIdleConns:           cfg.MaxIdleConns,
+		ForceAttemptHTTP2:      true,
+		MaxIdleConns:           maxIdleConns,
 		MaxIdleConnsPerHost:    cfg.MaxIdleConnsPerHost,
-		IdleConnTimeout:        cfg.IdleConnTimeout,
-		TLSHandshakeTimeout:    cfg.TLSHandshakeTimeout,
-		ExpectContinueTimeout:  cfg.ExpectContinueTimeout,
-		MaxResponseHeaderBytes: 1 << 20, // Default: 1MB max header size
-		WriteBufferSize:        4096,    // Default
-		ReadBufferSize:         4096,    // Default
-		DisableKeepAlives:      false,   // Keep-alives enabled by default
-	}
-	// Handle explicit setting for ForceAttemptHTTP2 if provided
-	if cfg.ForceAttemptHTTP2 != nil {
-		transport.ForceAttemptHTTP2 = *cfg.ForceAttemptHTTP2
+		IdleConnTimeout:        idleConnTimeout,
+		TLSHandshakeTimeout:    tlsHandshakeTimeout,
+		ExpectContinueTimeout:  expectContinueTimeout,
+		MaxResponseHeaderBytes: 1 << 20, // 1 MiB max header size
+		WriteBufferSize:        4096,
+		ReadBufferSize:         4096,
+		DisableKeepAlives:      false,
 	}
 
 	client := &http.Client{
-		Timeout:   cfg.Timeout, // Use configured overall timeout
-		Transport: transport,   // Use our custom transport
+		Timeout:   cfg.Timeout,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Default Go behavior is 10 redirects max
 			if len(via) >= 10 {

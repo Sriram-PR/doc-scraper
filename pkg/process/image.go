@@ -405,7 +405,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 	// --- Determine Effective Settings ---
 	userAgent := ip.resolved.UserAgent
 	imgHostDelay := ip.resolved.DelayPerHost
-	semTimeout := ip.appCfg.SemaphoreAcquireTimeout
+	semTimeout := config.DefaultSemaphoreAcquireTimeout
 	effectiveMaxBytes := ip.resolved.MaxImageSizeBytes
 
 	// --- Acquire Semaphores & Apply Rate Limit ---
