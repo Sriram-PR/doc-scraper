@@ -64,14 +64,14 @@ func (om *OutputManager) OpenFiles(resume bool) {
 
 	if om.resolved.EnableJSONLOutput {
 		om.jsonlFilePath = filepath.Join(om.siteOutputDir, om.resolved.JSONLOutputFilename)
-		om.log.Info(fmt.Sprintf("JSONL output enabled. Output file: %s", om.jsonlFilePath))
+		om.log.Info("JSONL output enabled", "path", om.jsonlFilePath)
 		if resume {
 			priorPages, err := stripLeftoverCrawlMeta(om.jsonlFilePath)
 			if err != nil {
-				om.log.Warn(fmt.Sprintf("Resume: failed to rewrite %s without leftover crawl_meta records, file may contain duplicates: %v", om.jsonlFilePath, err))
+				om.log.Warn("Resume: failed to rewrite JSONL without leftover crawl_meta records, file may contain duplicates", "path", om.jsonlFilePath, "err", err)
 			} else if priorPages > 0 {
 				om.pagesRecorded.Store(priorPages)
-				om.log.Info(fmt.Sprintf("Resume: counted %d prior page records and stripped any leftover crawl_meta", priorPages))
+				om.log.Info("Resume: counted prior page records and stripped any leftover crawl_meta", "prior_pages", priorPages)
 			}
 		}
 		om.jsonlFile = openOutputFile(om.log, om.jsonlFilePath, "JSONL", resume)
@@ -85,15 +85,15 @@ func (om *OutputManager) OpenFiles(resume bool) {
 func openOutputFile(log *slog.Logger, path, label string, resume bool) *os.File {
 	openFlags := os.O_CREATE | os.O_WRONLY
 	if resume {
-		log.Info(fmt.Sprintf("Resume mode: Appending to %s file: %s", label, path))
+		log.Info("Resume mode: appending to file", "label", label, "path", path)
 		openFlags |= os.O_APPEND
 	} else {
-		log.Info(fmt.Sprintf("Non-resume mode: Truncating %s file: %s", label, path))
+		log.Info("Non-resume mode: truncating file", "label", label, "path", path)
 		openFlags |= os.O_TRUNC
 	}
 	file, err := os.OpenFile(path, openFlags, 0644)
 	if err != nil {
-		log.Error(fmt.Sprintf("Failed to open/create %s file '%s': %v. %s output will be disabled.", label, path, err, label))
+		log.Error("Failed to open/create output file; output for this label will be disabled", "label", label, "path", path, "err", err)
 		return nil
 	}
 	return file
@@ -188,12 +188,12 @@ func (om *OutputManager) closeJSONLFile() {
 	defer om.jsonlFileMu.Unlock()
 
 	if om.jsonlFile != nil {
-		om.log.Info(fmt.Sprintf("Syncing and closing JSONL output file: %s", om.jsonlFilePath))
+		om.log.Info("Syncing and closing JSONL output file", "path", om.jsonlFilePath)
 		if err := om.jsonlFile.Sync(); err != nil {
-			om.log.Error(fmt.Sprintf("Error syncing JSONL file '%s': %v", om.jsonlFilePath, err))
+			om.log.Error("Error syncing JSONL file", "path", om.jsonlFilePath, "err", err)
 		}
 		if err := om.jsonlFile.Close(); err != nil {
-			om.log.Error(fmt.Sprintf("Error closing JSONL file '%s': %v", om.jsonlFilePath, err))
+			om.log.Error("Error closing JSONL file", "path", om.jsonlFilePath, "err", err)
 		}
 		om.jsonlFile = nil
 	}
@@ -211,7 +211,7 @@ func (om *OutputManager) recordJSONL(page models.PageJSONL, taskLog *slog.Logger
 		return
 	}
 	if err := writeJSONLLine(om.jsonlFile, page); err != nil {
-		taskLog.With("jsonl_file", om.jsonlFilePath).Error(fmt.Sprintf("Failed to write to JSONL file: %v", err))
+		taskLog.Error("Failed to write to JSONL file", "jsonl_file", om.jsonlFilePath, "err", err)
 	}
 }
 
@@ -229,10 +229,10 @@ func (om *OutputManager) flushBufferedJSONL() {
 
 	for _, page := range om.collectedPageJSONL {
 		if err := writeJSONLLine(om.jsonlFile, page); err != nil {
-			om.log.Error(fmt.Sprintf("Failed to flush JSONL record for %s: %v", page.URL, err))
+			om.log.Error("Failed to flush JSONL record", "url", page.URL, "err", err)
 		}
 	}
-	om.log.Info(fmt.Sprintf("Flushed %d sorted JSONL records to %s", len(om.collectedPageJSONL), om.jsonlFilePath))
+	om.log.Info("Flushed sorted JSONL records", "count", len(om.collectedPageJSONL), "path", om.jsonlFilePath)
 	om.collectedPageJSONL = nil
 }
 
@@ -255,10 +255,10 @@ func (om *OutputManager) writeCrawlMetaRecord() {
 		TotalPages:     int(om.pagesRecorded.Load()),
 	}
 	if err := writeJSONLLine(om.jsonlFile, meta); err != nil {
-		om.log.Error(fmt.Sprintf("Failed to write crawl_meta record to %s: %v", om.jsonlFilePath, err))
+		om.log.Error("Failed to write crawl_meta record", "path", om.jsonlFilePath, "err", err)
 		return
 	}
-	om.log.Info(fmt.Sprintf("Wrote crawl_meta record (%d pages) to %s", meta.TotalPages, om.jsonlFilePath))
+	om.log.Info("Wrote crawl_meta record", "total_pages", meta.TotalPages, "path", om.jsonlFilePath)
 }
 
 func writeJSONLLine(f *os.File, v interface{}) error {

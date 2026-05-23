@@ -43,13 +43,13 @@ func NewBadgerStore(ctx context.Context, stateDir, siteDomain string, resume boo
 	dbPath := filepath.Join(stateDir, dbDirName)
 
 	if !resume {
-		logger.Warn(fmt.Sprintf("Resume flag is false. REMOVING existing state directory: %s", dbPath))
+		logger.Warn("Resume flag is false. REMOVING existing state directory", "path", dbPath)
 		if err := os.RemoveAll(dbPath); err != nil {
-			logger.Error(fmt.Sprintf("Failed to remove existing state directory %s: %v", dbPath, err))
+			logger.Error("Failed to remove existing state directory", "path", dbPath, "err", err)
 		}
 	}
 
-	logger.Info(fmt.Sprintf("Initializing visited URL database at: %s (Resume: %v)", dbPath, resume))
+	logger.Info("Initializing visited URL database", "path", dbPath, "resume", resume)
 
 	if err := os.MkdirAll(dbPath, 0755); err != nil {
 		return nil, fmt.Errorf("cannot create state directory %s: %w", dbPath, err)
@@ -69,10 +69,10 @@ func NewBadgerStore(ctx context.Context, stateDir, siteDomain string, resume boo
 	if resume {
 		count, err := store.countKeys()
 		if err != nil {
-			logger.Warn(fmt.Sprintf("Failed to count existing keys on resume: %v", err))
+			logger.Warn("Failed to count existing keys on resume", "err", err)
 		} else {
 			store.keyCount.Store(int64(count))
-			logger.Info(fmt.Sprintf("Loaded existing key count on resume: %d", count))
+			logger.Info("Loaded existing key count on resume", "count", count)
 		}
 	}
 
@@ -107,7 +107,7 @@ func (s *BadgerStore) dbUpdate(fn func(txn *badger.Txn) error) error {
 		if !errors.Is(err, badger.ErrConflict) {
 			return err
 		}
-		s.log.Debug(fmt.Sprintf("BadgerDB transaction conflict (attempt %d/%d), retrying", i+1, maxConflictRetries))
+		s.log.Debug("BadgerDB transaction conflict, retrying", "attempt", i+1, "max_attempts", maxConflictRetries)
 	}
 	return fmt.Errorf("%w: transaction conflict not resolved after %d retries", utils.ErrDatabase, maxConflictRetries)
 }
@@ -134,7 +134,7 @@ func (s *BadgerStore) MarkPageVisited(normalizedPageURL string) (bool, error) {
 	})
 
 	if err != nil {
-		s.log.Error(fmt.Sprintf("DB Update error in MarkPageVisited: %v", err), "key", string(key))
+		s.log.Error("DB Update error in MarkPageVisited", "key", string(key), "err", err)
 		return false, fmt.Errorf("%w: marking page key '%s': %w", utils.ErrDatabase, string(key), err)
 	}
 	if added {
@@ -168,20 +168,20 @@ func (s *BadgerStore) CheckPageStatus(normalizedPageURL string) (models.PageStat
 
 			var decodedEntry models.PageDBEntry
 			if errJson := json.Unmarshal(val, &decodedEntry); errJson != nil {
-				s.log.Warn(fmt.Sprintf("Failed to unmarshal PageDBEntry for key '%s': %v. Treating as 'pending'.", string(key), errJson))
+				s.log.Warn("Failed to unmarshal PageDBEntry, treating as 'pending'", "key", string(key), "err", errJson)
 				status = models.PageStatusPending
 				return nil
 			}
 
 			entry = &decodedEntry
 			status = decodedEntry.Status
-			s.log.Debug(fmt.Sprintf("Page key '%s' found, decoded status: %s", string(key), status))
+			s.log.Debug("Page key found", "key", string(key), "status", status)
 			return nil
 		})
 	})
 
 	if errView != nil {
-		s.log.Error(fmt.Sprintf("DB View error in CheckPageStatus for key '%s': %v", string(key), errView))
+		s.log.Error("DB View error in CheckPageStatus", "key", string(key), "err", errView)
 		status = models.PageStatusDBError
 		return status, nil, errView
 	}
@@ -199,7 +199,7 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 	entryBytes, errJson := json.Marshal(entry)
 	if errJson != nil {
 		wrappedErr := fmt.Errorf("%w: failed to marshal PageDBEntry for key '%s': %w", utils.ErrParsing, string(key), errJson)
-		s.log.Error(wrappedErr.Error())
+		s.log.Error("marshal failed", "key", string(key), "err", wrappedErr)
 		return wrappedErr
 	}
 
@@ -214,14 +214,14 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 	})
 
 	if err != nil {
-		s.log.Error(fmt.Sprintf("DB Update error in UpdatePageStatus: %v", err), "key", string(key))
+		s.log.Error("DB Update error in UpdatePageStatus", "key", string(key), "err", err)
 		return fmt.Errorf("%w: failed setting page status for key '%s': %w", utils.ErrDatabase, string(key), err)
 	}
 	if isNew {
 		s.keyCount.Add(1)
 	}
 
-	s.log.Debug(fmt.Sprintf("Successfully updated page status for key '%s' to '%s'", string(key), entry.Status))
+	s.log.Debug("Successfully updated page status", "key", string(key), "status", entry.Status)
 	return nil
 }
 
@@ -257,14 +257,14 @@ func (s *BadgerStore) CheckImageStatus(normalizedImgURL string) (models.ImageSta
 
 		return item.Value(func(val []byte) error {
 			if len(val) == 0 { // image entries should always have a value
-				s.log.Warn(fmt.Sprintf("Image key '%s' found with empty value, invalid state. Treating as 'not_found'.", string(key)))
+				s.log.Warn("Image key found with empty value, invalid state. Treating as 'not_found'.", "key", string(key))
 				status = models.ImageStatusNotFound
 				return nil
 			}
 
 			var decodedEntry models.ImageDBEntry
 			if errJson := json.Unmarshal(val, &decodedEntry); errJson != nil {
-				s.log.Warn(fmt.Sprintf("Failed to unmarshal ImageDBEntry for key '%s': %v. Treating as 'not_found'.", string(key), errJson))
+				s.log.Warn("Failed to unmarshal ImageDBEntry, treating as 'not_found'", "key", string(key), "err", errJson)
 				status = models.ImageStatusNotFound
 				return nil
 			}
@@ -276,7 +276,7 @@ func (s *BadgerStore) CheckImageStatus(normalizedImgURL string) (models.ImageSta
 	})
 
 	if errView != nil {
-		s.log.Error(fmt.Sprintf("DB View error in CheckImageStatus for key '%s': %v", string(key), errView))
+		s.log.Error("DB View error in CheckImageStatus", "key", string(key), "err", errView)
 		status = models.ImageStatusDBError
 		return status, nil, errView
 	}
@@ -294,7 +294,7 @@ func (s *BadgerStore) UpdateImageStatus(normalizedImgURL string, entry *models.I
 	entryBytes, errJson := json.Marshal(entry)
 	if errJson != nil {
 		wrappedErr := fmt.Errorf("%w: failed to marshal ImageDBEntry for key '%s': %w", utils.ErrParsing, string(key), errJson)
-		s.log.Error(wrappedErr.Error())
+		s.log.Error("marshal failed", "key", string(key), "err", wrappedErr)
 		return wrappedErr
 	}
 
@@ -309,7 +309,7 @@ func (s *BadgerStore) UpdateImageStatus(normalizedImgURL string, entry *models.I
 	})
 
 	if err != nil {
-		s.log.With("key", string(key)).Error(fmt.Sprintf("DB Update error in UpdateImageStatus: %v", err))
+		s.log.Error("DB Update error in UpdateImageStatus", "key", string(key), "err", err)
 		return fmt.Errorf("%w: failed setting image status for key '%s': %w", utils.ErrDatabase, string(key), err)
 	}
 	if isNew {
@@ -356,11 +356,11 @@ func (s *BadgerStore) RunGC(ctx context.Context, interval time.Duration) {
 			if errors.Is(err, badger.ErrNoRewrite) {
 				s.log.Info("BadgerDB GC finished (no rewrite needed).")
 			} else {
-				s.log.Error(fmt.Sprintf("BadgerDB GC error: %v", err))
+				s.log.Error("BadgerDB GC error", "err", err)
 			}
 
 		case <-ctx.Done():
-			s.log.Info(fmt.Sprintf("Stopping BadgerDB garbage collection goroutine due to context cancellation: %v", ctx.Err()))
+			s.log.Info("Stopping BadgerDB garbage collection goroutine due to context cancellation", "err", ctx.Err())
 			return
 		}
 	}
@@ -385,7 +385,7 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 			// Check context cancellation within the loop
 			select {
 			case <-ctx.Done():
-				s.log.Warn(fmt.Sprintf("Resume scan interrupted by context cancellation: %v", ctx.Err()))
+				s.log.Warn("Resume scan interrupted by context cancellation", "err", ctx.Err())
 				return ctx.Err() // Stop iteration
 			default:
 			}
@@ -402,18 +402,18 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 				requeueDepth := 0
 
 				if len(valCopy) == 0 {
-					s.log.Debug(fmt.Sprintf("Resume Scan: Found empty value for '%s'. Requeueing (Depth 0).", urlToRequeue))
+					s.log.Debug("Resume scan: empty value, requeueing", "url", urlToRequeue, "depth", 0)
 					shouldRequeue = true
 					requeueDepth = 0
 				} else {
 					var entry models.PageDBEntry
 					if errJson := json.Unmarshal(valCopy, &entry); errJson != nil {
-						s.log.Error(fmt.Sprintf("Resume Scan: Failed unmarshal PageDBEntry for '%s': %v. Skipping.", urlToRequeue, errJson))
+						s.log.Error("Resume scan: failed to unmarshal PageDBEntry, skipping", "url", urlToRequeue, "err", errJson)
 						scanErrors++
 						return nil
 					}
 					if entry.Status == models.PageStatusFailure || entry.Status == models.PageStatusPending {
-						s.log.Debug(fmt.Sprintf("Resume Scan: Requeueing '%s' (Status: %s, Depth: %d)", urlToRequeue, entry.Status, entry.Depth))
+						s.log.Debug("Resume scan: requeueing", "url", urlToRequeue, "status", entry.Status, "depth", entry.Depth)
 						shouldRequeue = true
 						requeueDepth = entry.Depth
 					}
@@ -425,7 +425,7 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 					case workChan <- models.WorkItem{URL: urlToRequeue, Depth: requeueDepth}:
 						requeuedCount++
 					case <-ctx.Done():
-						s.log.Warn(fmt.Sprintf("Resume scan interrupted while sending '%s' to queue: %v", urlToRequeue, ctx.Err()))
+						s.log.Warn("Resume scan interrupted while sending to queue", "url", urlToRequeue, "err", ctx.Err())
 						return ctx.Err() // Stop iteration
 					}
 				}
@@ -436,7 +436,7 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 				if errors.Is(errGetValue, context.Canceled) || errors.Is(errGetValue, context.DeadlineExceeded) {
 					return errGetValue
 				}
-				s.log.Error(fmt.Sprintf("Resume Scan: Error getting value for key '%s': %v", urlToRequeue, errGetValue))
+				s.log.Error("Resume scan: error getting value", "url", urlToRequeue, "err", errGetValue)
 				scanErrors++
 			}
 		}
@@ -445,9 +445,9 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 
 	durationScan := time.Since(scanStartTime)
 	if scanErr != nil && !errors.Is(scanErr, context.Canceled) && !errors.Is(scanErr, context.DeadlineExceeded) {
-		s.log.Error(fmt.Sprintf("Error during DB scan for resume: %v.", scanErr))
+		s.log.Error("Error during DB scan for resume", "err", scanErr)
 	}
-	s.log.Info(fmt.Sprintf("Resume Scan Complete: Requeued %d tasks in %v. Errors: %d.", requeuedCount, durationScan, scanErrors))
+	s.log.Info("Resume scan complete", "requeued", requeuedCount, "duration", durationScan, "errors", scanErrors)
 
 	return requeuedCount, scanErrors, scanErr
 }
@@ -458,7 +458,7 @@ func (s *BadgerStore) Close() error {
 		s.log.Info("Closing visited DB...")
 		err := s.db.Close()
 		if err != nil {
-			s.log.Error(fmt.Sprintf("Error closing visited DB: %v", err))
+			s.log.Error("Error closing visited DB", "err", err)
 			return err
 		}
 		s.log.Info("Visited DB closed.")

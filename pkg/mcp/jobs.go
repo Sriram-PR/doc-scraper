@@ -3,8 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"log/slog"
 )
 
 type JobStatus string
@@ -94,14 +93,14 @@ func (m *JobManager) load() {
 	data, err := os.ReadFile(m.persistPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) && m.log != nil {
-			m.log.Warn(fmt.Sprintf("failed to read jobs file %s: %v", m.persistPath, err))
+			m.log.Warn("failed to read jobs file", "path", m.persistPath, "err", err)
 		}
 		return
 	}
 	var file jobsFile
 	if err := json.Unmarshal(data, &file); err != nil {
 		if m.log != nil {
-			m.log.Warn(fmt.Sprintf("failed to parse jobs file %s: %v", m.persistPath, err))
+			m.log.Warn("failed to parse jobs file", "path", m.persistPath, "err", err)
 		}
 		return
 	}
@@ -126,7 +125,7 @@ func (m *JobManager) load() {
 		m.jobs[job.ID] = job
 	}
 	if m.log != nil {
-		m.log.Info(fmt.Sprintf("loaded %d MCP jobs from %s", len(m.jobs), m.persistPath))
+		m.log.Info("loaded MCP jobs", "count", len(m.jobs), "path", m.persistPath)
 	}
 }
 
@@ -155,7 +154,7 @@ func (m *JobManager) flush() {
 	data, err := json.MarshalIndent(&file, "", "  ")
 	if err != nil {
 		if m.log != nil {
-			m.log.Warn(fmt.Sprintf("failed to marshal jobs: %v", err))
+			m.log.Warn("failed to marshal jobs", "err", err)
 		}
 		return
 	}
@@ -165,20 +164,20 @@ func (m *JobManager) flush() {
 
 	if err := os.MkdirAll(filepath.Dir(m.persistPath), 0o755); err != nil {
 		if m.log != nil {
-			m.log.Warn(fmt.Sprintf("failed to create state dir for jobs file: %v", err))
+			m.log.Warn("failed to create state dir for jobs file", "err", err)
 		}
 		return
 	}
 	tmp := m.persistPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		if m.log != nil {
-			m.log.Warn(fmt.Sprintf("failed to write jobs tmp file: %v", err))
+			m.log.Warn("failed to write jobs tmp file", "err", err)
 		}
 		return
 	}
 	if err := os.Rename(tmp, m.persistPath); err != nil {
 		if m.log != nil {
-			m.log.Warn(fmt.Sprintf("failed to rename jobs tmp file: %v", err))
+			m.log.Warn("failed to rename jobs tmp file", "err", err)
 		}
 		_ = os.Remove(tmp)
 		return
