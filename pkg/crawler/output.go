@@ -38,13 +38,6 @@ type OutputManager struct {
 	jsonlFilePath      string
 	collectedPageJSONL []models.PageJSONL
 
-	// Chunks output. Same buffer-vs-stream behavior as JSONL above; on
-	// buffered close, sorted by (URL, ChunkIndex).
-	chunksFile      *os.File
-	chunksFileMu    sync.Mutex
-	chunksFilePath  string
-	collectedChunks []models.ChunkJSONL
-
 	// bufferOutput selects between buffer-and-sort (fresh crawls, deterministic
 	// output) and stream-write (resume crawls). Set by OpenFiles.
 	bufferOutput bool
@@ -67,12 +60,12 @@ func NewOutputManager(log *logrus.Entry, resolved *config.ResolvedSiteConfig, si
 	}
 }
 
-// OpenFiles opens all configured output files (JSONL, chunks).
+// OpenFiles opens the JSONL output file when enabled.
 // Must be called after the output directory exists and has been cleaned if needed.
 func (om *OutputManager) OpenFiles(resume bool) {
-	// Fresh crawls buffer JSONL and chunk records in memory and write them
-	// sorted at Close(). Resume crawls stream directly to disk so we don't
-	// overwrite existing content of the resumed-into file.
+	// Fresh crawls buffer JSONL records in memory and write them sorted at
+	// Close(). Resume crawls stream directly to disk so we don't overwrite
+	// existing content of the resumed-into file.
 	om.bufferOutput = !resume
 
 	// --- Initialize JSONL Output File (if enabled) ---
@@ -82,15 +75,6 @@ func (om *OutputManager) OpenFiles(resume bool) {
 		om.jsonlFile = openOutputFile(om.log, om.jsonlFilePath, "JSONL", resume)
 	} else {
 		om.log.Info("JSONL output is disabled.")
-	}
-
-	// --- Initialize Chunks Output File (if chunking enabled) ---
-	if om.resolved.ChunkingEnabled {
-		om.chunksFilePath = filepath.Join(om.siteOutputDir, om.resolved.ChunkingOutputFilename)
-		om.log.Infof("Chunking enabled. Output file: %s", om.chunksFilePath)
-		om.chunksFile = openOutputFile(om.log, om.chunksFilePath, "chunks", resume)
-	} else {
-		om.log.Info("Chunking output is disabled.")
 	}
 }
 
@@ -114,16 +98,13 @@ func openOutputFile(log *logrus.Entry, path, label string, resume bool) *os.File
 }
 
 // Close flushes buffered records, appends the crawl_meta summary line, then
-// syncs and closes all output files. For fresh crawls (bufferOutput=true),
-// JSONL and chunk records buffered in memory are sorted (by URL, and by
-// URL+ChunkIndex respectively) and written out first. Resume crawls have
-// already streamed their records during the crawl.
+// syncs and closes the JSONL output file. For fresh crawls (bufferOutput=true),
+// records buffered in memory are sorted by URL and written out first. Resume
+// crawls have already streamed their records during the crawl.
 func (om *OutputManager) Close() error {
 	om.flushBufferedJSONL()
-	om.flushBufferedChunks()
 	om.writeCrawlMetaRecord()
 	om.closeJSONLFile()
-	om.closeChunksFile()
 	om.writeLLMsTxtFiles()
 	return nil
 }
@@ -133,14 +114,13 @@ func (om *OutputManager) PagesSaved() int {
 	return int(om.pagesRecorded.Load())
 }
 
-// RecordPageOutput handles all post-save output: JSONL write and chunks write.
-// Called after content is successfully saved to disk. markdownBytes is the
-// already-written markdown content, passed through to avoid re-reading the file.
+// RecordPageOutput handles post-save JSONL output for a single page. Called
+// after content is successfully saved to disk. markdownBytes is the already-
+// written markdown content, passed through to avoid re-reading the file.
 func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte, pageTitle string, currentDepth int, taskLog *logrus.Entry) {
 	om.pagesRecorded.Add(1)
 	crawledAtStr := time.Now().Format(time.RFC3339)
 
-	// JSONL output (buffer for fresh crawls, stream for resume)
 	if om.resolved.EnableJSONLOutput && om.jsonlFile != nil && markdownBytes != nil {
 		var contentHash string
 		if len(markdownBytes) > 0 {
@@ -163,33 +143,6 @@ func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte,
 		}
 		om.recordJSONL(pageJSONL, taskLog)
 	}
-
-	// Chunks output (buffer for fresh crawls, stream for resume)
-	if om.resolved.ChunkingEnabled && om.chunksFile != nil && markdownBytes != nil {
-		chunkCfg := process.ChunkerConfig{
-			MaxChunkSize: om.resolved.ChunkingMaxSize,
-			ChunkOverlap: om.resolved.ChunkingOverlap,
-		}
-
-		chunks, chunkErr := process.ChunkMarkdown(string(markdownBytes), chunkCfg)
-		if chunkErr != nil {
-			taskLog.Warnf("Failed to chunk markdown content: %v", chunkErr)
-		} else if len(chunks) > 0 {
-			chunkJSONLs := make([]models.ChunkJSONL, len(chunks))
-			for i, chunk := range chunks {
-				chunkJSONLs[i] = models.ChunkJSONL{
-					URL:              finalURL,
-					ChunkIndex:       i,
-					Content:          chunk.Content,
-					HeadingHierarchy: chunk.HeadingHierarchy,
-					PageTitle:        pageTitle,
-					CrawledAt:        crawledAtStr,
-				}
-			}
-			om.recordChunks(chunkJSONLs, taskLog)
-			taskLog.Debugf("Wrote %d chunks for page", len(chunks))
-		}
-	}
 }
 
 // closeJSONLFile closes the JSONL output file handle if it was opened.
@@ -209,23 +162,6 @@ func (om *OutputManager) closeJSONLFile() {
 	}
 }
 
-// closeChunksFile closes the chunks output file handle if it was opened.
-func (om *OutputManager) closeChunksFile() {
-	om.chunksFileMu.Lock()
-	defer om.chunksFileMu.Unlock()
-
-	if om.chunksFile != nil {
-		om.log.Infof("Syncing and closing chunks output file: %s", om.chunksFilePath)
-		if err := om.chunksFile.Sync(); err != nil {
-			om.log.Errorf("Error syncing chunks file '%s': %v", om.chunksFilePath, err)
-		}
-		if err := om.chunksFile.Close(); err != nil {
-			om.log.Errorf("Error closing chunks file '%s': %v", om.chunksFilePath, err)
-		}
-		om.chunksFile = nil
-	}
-}
-
 // recordJSONL either buffers the page record for deterministic flush at Close()
 // (fresh crawl) or streams it straight to disk (resume crawl).
 func (om *OutputManager) recordJSONL(page models.PageJSONL, taskLog *logrus.Entry) {
@@ -241,26 +177,6 @@ func (om *OutputManager) recordJSONL(page models.PageJSONL, taskLog *logrus.Entr
 	}
 	if err := writeJSONLLine(om.jsonlFile, page); err != nil {
 		taskLog.WithField("jsonl_file", om.jsonlFilePath).Errorf("Failed to write to JSONL file: %v", err)
-	}
-}
-
-// recordChunks either buffers chunk records for deterministic flush at Close()
-// (fresh crawl) or streams them straight to disk (resume crawl).
-func (om *OutputManager) recordChunks(chunks []models.ChunkJSONL, taskLog *logrus.Entry) {
-	om.chunksFileMu.Lock()
-	defer om.chunksFileMu.Unlock()
-
-	if om.chunksFile == nil {
-		return
-	}
-	if om.bufferOutput {
-		om.collectedChunks = append(om.collectedChunks, chunks...)
-		return
-	}
-	for _, chunk := range chunks {
-		if err := writeJSONLLine(om.chunksFile, chunk); err != nil {
-			taskLog.WithField("chunks_file", om.chunksFilePath).Errorf("Failed to write to chunks file: %v", err)
-		}
 	}
 }
 
@@ -286,33 +202,6 @@ func (om *OutputManager) flushBufferedJSONL() {
 	}
 	om.log.Infof("Flushed %d sorted JSONL records to %s", len(om.collectedPageJSONL), om.jsonlFilePath)
 	om.collectedPageJSONL = nil
-}
-
-// flushBufferedChunks writes all buffered chunk records to the chunks file in
-// (URL, ChunkIndex) order. No-op for resume crawls and when chunking is
-// disabled.
-func (om *OutputManager) flushBufferedChunks() {
-	om.chunksFileMu.Lock()
-	defer om.chunksFileMu.Unlock()
-
-	if !om.bufferOutput || om.chunksFile == nil || len(om.collectedChunks) == 0 {
-		return
-	}
-
-	sort.Slice(om.collectedChunks, func(i, j int) bool {
-		if om.collectedChunks[i].URL != om.collectedChunks[j].URL {
-			return om.collectedChunks[i].URL < om.collectedChunks[j].URL
-		}
-		return om.collectedChunks[i].ChunkIndex < om.collectedChunks[j].ChunkIndex
-	})
-
-	for _, chunk := range om.collectedChunks {
-		if err := writeJSONLLine(om.chunksFile, chunk); err != nil {
-			om.log.Errorf("Failed to flush chunk record for %s#%d: %v", chunk.URL, chunk.ChunkIndex, err)
-		}
-	}
-	om.log.Infof("Flushed %d sorted chunk records to %s", len(om.collectedChunks), om.chunksFilePath)
-	om.collectedChunks = nil
 }
 
 // writeCrawlMetaRecord appends the crawl-level summary as the final line of the

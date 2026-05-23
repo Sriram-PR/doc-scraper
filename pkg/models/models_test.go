@@ -96,24 +96,6 @@ func TestPageJSONL_JSONRoundTrip(t *testing.T) {
 	assert.Equal(t, entry, got)
 }
 
-func TestChunkJSONL_JSONRoundTrip(t *testing.T) {
-	entry := ChunkJSONL{
-		URL:              "https://example.com",
-		ChunkIndex:       2,
-		Content:          "chunk content",
-		HeadingHierarchy: []string{"H1", "H2"},
-		PageTitle:        "Example",
-		CrawledAt:        "2025-01-01T00:00:00Z",
-	}
-
-	data, err := json.Marshal(entry)
-	require.NoError(t, err)
-
-	var got ChunkJSONL
-	require.NoError(t, json.Unmarshal(data, &got))
-	assert.Equal(t, entry, got)
-}
-
 func TestCrawlMetaJSONL_JSONRoundTrip(t *testing.T) {
 	entry := CrawlMetaJSONL{
 		RecordType:     RecordTypeCrawlMeta,

@@ -20,7 +20,6 @@ type SiteConfig struct {
 	DisallowedImageDomains  []string           `yaml:"disallowed_image_domains,omitempty"`
 	EnableJSONLOutput       *bool              `yaml:"enable_jsonl_output,omitempty"`
 	JSONLOutputFilename     string             `yaml:"jsonl_output_filename,omitempty"`
-	Chunking                SiteChunkingConfig `yaml:"chunking,omitempty"`
 }
 
 // AppConfig holds the global application configuration
@@ -46,23 +45,6 @@ type AppConfig struct {
 	EnableJSONLOutput       bool                   `yaml:"enable_jsonl_output,omitempty"`
 	JSONLOutputFilename     string                 `yaml:"jsonl_output_filename,omitempty"`
 	EnableIncremental       bool                   `yaml:"enable_incremental,omitempty"` // Enable incremental crawling (skip unchanged pages)
-	Chunking                ChunkingConfig         `yaml:"chunking,omitempty"`
-}
-
-// ChunkingConfig holds configuration for content chunking.
-type ChunkingConfig struct {
-	Enabled        bool   `yaml:"enabled,omitempty"`         // Enable chunking output
-	MaxChunkSize   int    `yaml:"max_chunk_size,omitempty"`  // Max chunk size in tokens (default: 512)
-	ChunkOverlap   int    `yaml:"chunk_overlap,omitempty"`   // Overlap between chunks in tokens (default: 50)
-	OutputFilename string `yaml:"output_filename,omitempty"` // Output filename (default: chunks.jsonl)
-}
-
-// SiteChunkingConfig holds site-specific chunking overrides (uses pointers for tri-state).
-type SiteChunkingConfig struct {
-	Enabled        *bool  `yaml:"enabled,omitempty"`
-	MaxChunkSize   *int   `yaml:"max_chunk_size,omitempty"`
-	ChunkOverlap   *int   `yaml:"chunk_overlap,omitempty"`
-	OutputFilename string `yaml:"output_filename,omitempty"`
 }
 
 // HTTPClientConfig holds settings for the shared HTTP client. The Go-default
@@ -146,47 +128,6 @@ func GetEffectiveJSONLOutputFilename(siteCfg *SiteConfig, appCfg *AppConfig) str
 	return "pages.jsonl"
 }
 
-// GetEffectiveChunkingEnabled determines if chunking should be enabled.
-func GetEffectiveChunkingEnabled(siteCfg *SiteConfig, appCfg *AppConfig) bool {
-	if siteCfg.Chunking.Enabled != nil {
-		return *siteCfg.Chunking.Enabled
-	}
-	return appCfg.Chunking.Enabled
-}
-
-// GetEffectiveChunkingMaxSize returns the effective max chunk size in tokens.
-func GetEffectiveChunkingMaxSize(siteCfg *SiteConfig, appCfg *AppConfig) int {
-	if siteCfg.Chunking.MaxChunkSize != nil {
-		return *siteCfg.Chunking.MaxChunkSize
-	}
-	if appCfg.Chunking.MaxChunkSize > 0 {
-		return appCfg.Chunking.MaxChunkSize
-	}
-	return 512 // Default: 512 tokens
-}
-
-// GetEffectiveChunkingOverlap returns the effective chunk overlap in tokens.
-func GetEffectiveChunkingOverlap(siteCfg *SiteConfig, appCfg *AppConfig) int {
-	if siteCfg.Chunking.ChunkOverlap != nil {
-		return *siteCfg.Chunking.ChunkOverlap
-	}
-	if appCfg.Chunking.ChunkOverlap > 0 {
-		return appCfg.Chunking.ChunkOverlap
-	}
-	return 50 // Default: 50 tokens (10% of 512)
-}
-
-// GetEffectiveChunkingOutputFilename returns the effective chunks output filename.
-func GetEffectiveChunkingOutputFilename(siteCfg *SiteConfig, appCfg *AppConfig) string {
-	if siteCfg.Chunking.OutputFilename != "" {
-		return siteCfg.Chunking.OutputFilename
-	}
-	if appCfg.Chunking.OutputFilename != "" {
-		return appCfg.Chunking.OutputFilename
-	}
-	return "chunks.jsonl"
-}
-
 // getEffectiveDelayPerHost returns the site-specific delay if positive, else the global default.
 func getEffectiveDelayPerHost(siteCfg *SiteConfig, appCfg *AppConfig) time.Duration {
 	if siteCfg.DelayPerHost > 0 {
@@ -198,32 +139,24 @@ func getEffectiveDelayPerHost(siteCfg *SiteConfig, appCfg *AppConfig) time.Durat
 // ResolvedSiteConfig holds all effective configuration values for a site,
 // resolved once from site-specific overrides and app-level defaults.
 type ResolvedSiteConfig struct {
-	UserAgent              string
-	JSONLOutputFilename    string
-	ChunkingOutputFilename string
-	DelayPerHost           time.Duration
-	MaxPageSizeBytes       int64
-	MaxImageSizeBytes      int64
-	SkipImages             bool
-	EnableJSONLOutput      bool
-	ChunkingEnabled        bool
-	ChunkingMaxSize        int
-	ChunkingOverlap        int
+	UserAgent           string
+	JSONLOutputFilename string
+	DelayPerHost        time.Duration
+	MaxPageSizeBytes    int64
+	MaxImageSizeBytes   int64
+	SkipImages          bool
+	EnableJSONLOutput   bool
 }
 
 // NewResolvedSiteConfig resolves all effective configuration values for a site.
 func NewResolvedSiteConfig(siteCfg *SiteConfig, appCfg *AppConfig) *ResolvedSiteConfig {
 	return &ResolvedSiteConfig{
-		UserAgent:              GetEffectiveUserAgent(siteCfg, appCfg),
-		JSONLOutputFilename:    GetEffectiveJSONLOutputFilename(siteCfg, appCfg),
-		ChunkingOutputFilename: GetEffectiveChunkingOutputFilename(siteCfg, appCfg),
-		DelayPerHost:           getEffectiveDelayPerHost(siteCfg, appCfg),
-		MaxPageSizeBytes:       GetEffectiveMaxPageSize(appCfg),
-		MaxImageSizeBytes:      GetEffectiveMaxImageSize(siteCfg, appCfg),
-		SkipImages:             GetEffectiveSkipImages(siteCfg, appCfg),
-		EnableJSONLOutput:      GetEffectiveEnableJSONLOutput(siteCfg, appCfg),
-		ChunkingEnabled:        GetEffectiveChunkingEnabled(siteCfg, appCfg),
-		ChunkingMaxSize:        GetEffectiveChunkingMaxSize(siteCfg, appCfg),
-		ChunkingOverlap:        GetEffectiveChunkingOverlap(siteCfg, appCfg),
+		UserAgent:           GetEffectiveUserAgent(siteCfg, appCfg),
+		JSONLOutputFilename: GetEffectiveJSONLOutputFilename(siteCfg, appCfg),
+		DelayPerHost:        getEffectiveDelayPerHost(siteCfg, appCfg),
+		MaxPageSizeBytes:    GetEffectiveMaxPageSize(appCfg),
+		MaxImageSizeBytes:   GetEffectiveMaxImageSize(siteCfg, appCfg),
+		SkipImages:          GetEffectiveSkipImages(siteCfg, appCfg),
+		EnableJSONLOutput:   GetEffectiveEnableJSONLOutput(siteCfg, appCfg),
 	}
 }

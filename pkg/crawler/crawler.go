@@ -75,7 +75,7 @@ type Crawler struct {
 	foundSitemaps   map[string]bool // Tracks sitemaps discovered by robots.txt
 	foundSitemapsMu sync.Mutex      // Protects foundSitemaps
 
-	// Output file management (TSV, JSONL, chunks, YAML metadata)
+	// Output file management (Markdown files + JSONL + llms.txt)
 	output *OutputManager
 
 	// Optional periodic progress reporter (e.g. MCP job status updates).
@@ -766,7 +766,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	pageTitle = tempPageTitle
 	savedContentPath = tempSavedPath // This is the ABSOLUTE path to the saved .md file.
 
-	// --- After successful content saving, record JSONL and chunk output ---
+	// --- After successful content saving, record JSONL output ---
 	if savedContentPath != "" {
 		c.output.RecordPageOutput(finalURL.String(), tempMarkdownBytes, pageTitle, currentDepth, taskLog)
 	}

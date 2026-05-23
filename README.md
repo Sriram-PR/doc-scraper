@@ -199,10 +199,6 @@ sites:
 | `enable_jsonl_output` | Boolean | Enable JSONL page output (one record per page plus a trailing crawl_meta record) for RAG pipelines | `false` |
 | `jsonl_output_filename` | String | Filename for JSONL output | `"pages.jsonl"` |
 | `enable_incremental` | Boolean | Enable incremental crawling globally | `false` |
-| `chunking.enabled` | Boolean | Enable token-aware content chunking | `false` |
-| `chunking.max_chunk_size` | Integer | Max chunk size in tokens | `512` |
-| `chunking.chunk_overlap` | Integer | Overlap between chunks in tokens | `50` |
-| `chunking.output_filename` | String | Chunks output filename | `"chunks.jsonl"` |
 | `http_client_settings` | Object | HTTP client configuration | *(see below)* |
 | `sites` | Map | Site-specific configurations | *(required)* |
 
@@ -231,10 +227,6 @@ sites:
 - `disallowed_image_domains`: Array of domains to block image downloads from
 - `enable_jsonl_output`: `true` or `false`. Override global JSONL output enablement for this site
 - `jsonl_output_filename`: String. Override global JSONL output filename for this site
-- `chunking.enabled`: `true` or `false`. Override global chunking enablement for this site
-- `chunking.max_chunk_size`: Integer. Override global max chunk size for this site
-- `chunking.chunk_overlap`: Integer. Override global chunk overlap for this site
-- `chunking.output_filename`: String. Override global chunks output filename for this site
 
 ## Usage
 
@@ -376,7 +368,6 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
     ├── index.md                      # Markdown for the root path
     ├── images/                       # Only present if skip_images: false
     ├── <jsonl_output_filename>       # If enable_jsonl_output: true
-    ├── <chunking.output_filename>    # If chunking.enabled: true
     ├── llms.txt                      # Manifest of pages (auto-generated, when JSONL is enabled)
     ├── llms-full.txt                 # Full content concatenated (auto-generated, when JSONL is enabled)
     ├── topic_one/
@@ -442,35 +433,6 @@ The file mixes two record kinds, distinguished by the `record_type` field:
 | `total_pages` | Number of pages recorded in this crawl |
 
 The output file is written to each site's output directory. Both the enable flag and filename can be overridden per site.
-
-## Content Chunking
-
-The chunking pipeline splits crawled markdown content into chunks suitable for RAG vector store ingestion. Content is split by headings; sections that exceed the configured size are further split using a recursive separator strategy (paragraph, line, sentence, word) with overlap between consecutive chunks.
-
-Chunk sizes are estimated using a "1 token per 4 characters" heuristic. doc-scraper does not ship a tokenizer because the available public tokenizers (cl100k_base, o200k_base) are OpenAI-specific and would misrepresent Claude and most non-OpenAI targets. If you need precise per-model token counts, tokenize the output yourself with your target model's tokenizer.
-
-**Enable it:**
-
-```yaml
-chunking:
-  enabled: true
-  max_chunk_size: 512    # Max tokens per chunk
-  chunk_overlap: 50      # Overlap between consecutive chunks
-  output_filename: "chunks.jsonl"  # default
-```
-
-**Output format** (from `ChunkJSONL`, one JSON object per line):
-
-| Field | Description |
-|-------|-------------|
-| `url` | Source page URL |
-| `chunk_index` | Index of this chunk within the page |
-| `content` | Chunk content (includes heading context) |
-| `heading_hierarchy` | Array of headings leading to this chunk |
-| `page_title` | Title of the source page |
-| `crawled_at` | Timestamp of crawl |
-
-Chunking settings can be overridden per site.
 
 ## Auto Content Detection
 

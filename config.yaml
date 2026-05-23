@@ -40,13 +40,6 @@ jsonl_output_filename: "pages.jsonl"
 # Incremental crawling (skip unchanged pages)
 # enable_incremental: false
 
-# Content chunking for RAG vector ingestion
-# chunking:
-#   enabled: false
-#   max_chunk_size: 512
-#   chunk_overlap: 50
-#   output_filename: "chunks.jsonl"
-
 # HTTP client settings (only the three knobs real users tune are exposed;
 # pool, dialer, and TLS timings are baked into pkg/fetch with sane defaults).
 http_client_settings:
