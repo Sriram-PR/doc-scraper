@@ -390,6 +390,7 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 		for k := range s.cfg.AppConfig.Sites {
 			availableKeys = append(availableKeys, k)
 		}
+		sort.Strings(availableKeys)
 		return mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", siteKey, availableKeys)), nil
 	}
 
