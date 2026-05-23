@@ -71,6 +71,79 @@ func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolReques
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }
 
+// handleDescribeServer handles the describe_server tool. It returns a single
+// orientation payload an agent can fetch on connection to discover what this
+// server can do without having to chain list_sites + N x get_job_status. The
+// MCP protocol already advertises tool schemas, so this response intentionally
+// does NOT duplicate them; it provides the dynamic info (sites + jobs) plus a
+// small server identity block.
+func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	siteKeys := make([]string, 0, len(s.cfg.AppConfig.Sites))
+	for k := range s.cfg.AppConfig.Sites {
+		siteKeys = append(siteKeys, k)
+	}
+	sort.Strings(siteKeys)
+
+	sites := make([]map[string]interface{}, 0, len(siteKeys))
+	for _, key := range siteKeys {
+		siteCfg := s.cfg.AppConfig.Sites[key]
+		entry := map[string]interface{}{
+			"key":    key,
+			"domain": siteCfg.AllowedDomain,
+		}
+		if lastCrawled := s.getLastCrawledTime(key, siteCfg); !lastCrawled.IsZero() {
+			entry["last_crawled"] = lastCrawled.Format(time.RFC3339)
+		}
+		if s.jobManager.IsRunning(key) {
+			entry["status"] = "running"
+		}
+		sites = append(sites, entry)
+	}
+
+	// Recent jobs: sort newest first by StartedAt, cap at 20 so the orientation
+	// payload stays small even after a long-running server has run many crawls.
+	allJobs := s.jobManager.ListJobs()
+	sort.Slice(allJobs, func(i, j int) bool {
+		return allJobs[i].StartedAt.After(allJobs[j].StartedAt)
+	})
+	const maxJobs = 20
+	if len(allJobs) > maxJobs {
+		allJobs = allJobs[:maxJobs]
+	}
+	jobs := make([]map[string]interface{}, 0, len(allJobs))
+	for _, j := range allJobs {
+		entry := map[string]interface{}{
+			"job_id":          j.ID,
+			"site_key":        j.SiteKey,
+			"status":          j.Status,
+			"started_at":      j.StartedAt.Format(time.RFC3339),
+			"pages_processed": j.PagesProcessed,
+		}
+		if !j.CompletedAt.IsZero() {
+			entry["completed_at"] = j.CompletedAt.Format(time.RFC3339)
+		}
+		if j.ErrorMessage != "" {
+			entry["error_message"] = j.ErrorMessage
+		}
+		jobs = append(jobs, entry)
+	}
+
+	result := map[string]interface{}{
+		"server": map[string]interface{}{
+			"name":        serverName,
+			"version":     serverVersion,
+			"config_path": s.cfg.ConfigPath,
+		},
+		"sites":         sites,
+		"recent_jobs":   jobs,
+		"total_sites":   len(sites),
+		"total_jobs":    len(jobs),
+		"jobs_capped":   len(s.jobManager.ListJobs()) > maxJobs,
+		"next_actions":  "Use list_sites for full site config, list_pages to enumerate crawled pages, crawl_site to start a crawl, get_job_status to check a job, get_page to fetch a single URL.",
+	}
+	return mcp.NewToolResultText(formatJSON(result)), nil
+}
+
 // pageListEntry is the per-page metadata shape returned by handleListPages.
 // Kept narrow on purpose: full page content is intentionally omitted (use
 // get_page for that), so the response stays small even for sites with

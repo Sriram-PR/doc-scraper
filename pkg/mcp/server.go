@@ -115,6 +115,12 @@ func (s *Server) registerTools() {
 	)
 	s.mcpServer.AddTool(getJobStatusTool, s.handleGetJobStatus)
 
+	// describe_server - Orientation manifest; intended to be called first
+	describeServerTool := mcp.NewTool("describe_server",
+		mcp.WithDescription("Returns server identity, configured sites, and recent crawl jobs in one call. Call this first to orient yourself: it consolidates what would otherwise require list_sites plus several get_job_status calls. The MCP tool list is already advertised by the protocol so it is not duplicated here."),
+	)
+	s.mcpServer.AddTool(describeServerTool, s.handleDescribeServer)
+
 	// list_pages - Enumerate crawled pages for a site
 	listPagesTool := mcp.NewTool("list_pages",
 		mcp.WithDescription("List crawled pages for a site, paginated and sorted by URL. Returns metadata only (URL, title, depth, crawled_at, content_length); use get_page to fetch a specific page's full content."),
@@ -131,7 +137,7 @@ func (s *Server) registerTools() {
 	)
 	s.mcpServer.AddTool(listPagesTool, s.handleListPages)
 
-	s.log.Infof("Registered %d MCP tools", 5)
+	s.log.Infof("Registered %d MCP tools", 6)
 }
 
 // Run starts the MCP server over the stdio transport.

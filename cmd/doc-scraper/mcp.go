@@ -31,6 +31,7 @@ Example:
   doc-scraper mcp-server -config config.yaml
 
 Available MCP Tools:
+  describe_server Orientation manifest: sites + recent jobs (call this first)
   list_sites      List all configured sites
   get_page        Fetch a single URL as markdown
   crawl_site      Start a background crawl for a site

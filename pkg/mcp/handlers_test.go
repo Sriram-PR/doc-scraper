@@ -208,6 +208,66 @@ func TestHandleListPages_NoCrawlYet(t *testing.T) {
 	assert.Contains(t, got["message"], "No crawl output found")
 }
 
+func TestHandleDescribeServer_BasicShape(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = map[string]any{}
+	result, err := s.handleDescribeServer(context.Background(), req)
+	require.NoError(t, err)
+	tc, ok := result.Content[0].(mcpgo.TextContent)
+	require.True(t, ok)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &got))
+
+	server, ok := got["server"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, serverName, server["name"])
+	assert.Equal(t, serverVersion, server["version"])
+
+	sites, ok := got["sites"].([]any)
+	require.True(t, ok)
+	require.Len(t, sites, 1)
+	assert.Equal(t, "docs", sites[0].(map[string]any)["key"])
+	assert.Equal(t, "docs.example.com", sites[0].(map[string]any)["domain"])
+
+	jobs, ok := got["recent_jobs"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, jobs, "no jobs run yet")
+
+	assert.Equal(t, float64(1), got["total_sites"])
+	assert.Equal(t, float64(0), got["total_jobs"])
+	assert.Equal(t, false, got["jobs_capped"])
+	assert.NotEmpty(t, got["next_actions"])
+}
+
+func TestHandleDescribeServer_IncludesRecentJobsNewestFirst(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	// Seed several jobs into the in-memory JobManager. CreateJob uses
+	// time.Now() at insertion, so insertion order == StartedAt order. We
+	// expect the response to reverse that (newest first).
+	for _, k := range []string{"alpha", "beta", "gamma"} {
+		s.cfg.AppConfig.Sites[k] = &config.SiteConfig{AllowedDomain: k + ".example.com"}
+		_, err := s.jobManager.CreateJob(k, false)
+		require.NoError(t, err)
+	}
+
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = map[string]any{}
+	result, err := s.handleDescribeServer(context.Background(), req)
+	require.NoError(t, err)
+	tc := result.Content[0].(mcpgo.TextContent)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &got))
+
+	jobs := got["recent_jobs"].([]any)
+	require.Len(t, jobs, 3)
+	// Newest first: gamma was created last.
+	assert.Equal(t, "gamma", jobs[0].(map[string]any)["site_key"])
+	assert.Equal(t, "beta", jobs[1].(map[string]any)["site_key"])
+	assert.Equal(t, "alpha", jobs[2].(map[string]any)["site_key"])
+}
+
 func TestHandleListPages_ClampsMaxResults(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
 	writeJSONLRecords(t, jsonlPath, []interface{}{

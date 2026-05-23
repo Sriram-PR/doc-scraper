@@ -570,6 +570,7 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 
 | Tool | Description |
 |------|-------------|
+| `describe_server` | Orientation manifest: server identity + sites + recent jobs in one call (call this first) |
 | `list_sites` | List all configured sites from config file |
 | `get_page` | Fetch a single URL and return content as markdown |
 | `crawl_site` | Start a background crawl for a site (returns job ID) |
