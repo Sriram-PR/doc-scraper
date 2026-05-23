@@ -295,9 +295,13 @@ func TestHandleCancelCrawl_MissingJobID(t *testing.T) {
 
 func TestHandleCancelCrawl_UnknownJob(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
-	got := callCancelCrawl(t, s, map[string]any{"job_id": "nope"})
-	assert.Equal(t, false, got["cancelled"])
-	assert.Equal(t, "job not found", got["message"])
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"job_id": "nope"}
+	result, err := s.handleCancelCrawl(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	tc := result.Content[0].(mcpgo.TextContent)
+	assert.Contains(t, tc.Text, "job 'nope' not found")
 }
 
 func TestHandleCancelCrawl_RunningJobCancelled(t *testing.T) {

@@ -71,8 +71,9 @@ func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolReques
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }
 
-// handleCancelCrawl returns cancelled=false (plus status) for unknown jobs and
-// jobs already in a terminal state.
+// handleCancelCrawl returns an error for an unknown job_id (matching
+// get_job_status) and cancelled=false with a status field for jobs already
+// in a terminal state.
 func (s *Server) handleCancelCrawl(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	jobID := request.GetString("job_id", "")
 	if jobID == "" {
@@ -81,12 +82,7 @@ func (s *Server) handleCancelCrawl(ctx context.Context, request mcp.CallToolRequ
 
 	job := s.jobManager.GetJob(jobID)
 	if job == nil {
-		result := map[string]interface{}{
-			"job_id":    jobID,
-			"cancelled": false,
-			"message":   "job not found",
-		}
-		return mcp.NewToolResultText(formatJSON(result)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("job '%s' not found", jobID)), nil
 	}
 
 	cancelled := s.jobManager.CancelJob(jobID)
