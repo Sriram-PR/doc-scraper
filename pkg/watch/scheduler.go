@@ -82,7 +82,9 @@ func (s *Scheduler) runDueSites() {
 
 	s.log.Infof("Running crawl for %d due sites: %v", len(dueSites), dueSites)
 
-	orch := orchestrate.NewOrchestrator(s.appCfg, dueSites, false, s.log)
+	// Watch is incremental by construction (see executeWatch); pass resume=true
+	// so scheduled re-crawls reuse the persisted visited DB instead of wiping it.
+	orch := orchestrate.NewOrchestrator(s.appCfg, dueSites, true, s.log)
 
 	s.wg.Add(1)
 	go func() {

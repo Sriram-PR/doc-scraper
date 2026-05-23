@@ -118,7 +118,14 @@ func runCrawl(args []string) {
 		os.Exit(1)
 	}
 
-	isResume := *resume
+	if *incrementalMode && *fullMode {
+		fmt.Fprintln(os.Stderr, "Error: --incremental and --full are mutually exclusive")
+		os.Exit(1)
+	}
+
+	// --incremental implies --resume; an incremental crawl is meaningless if
+	// state gets wiped first.
+	isResume := *resume || *incrementalMode
 
 	// Determine which sites to crawl
 	var siteKeys []string
