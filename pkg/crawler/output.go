@@ -1,4 +1,3 @@
-// FILE: pkg/crawler/output.go
 package crawler
 
 import (
@@ -19,37 +18,31 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
-// OutputManager owns all output file handles and metadata collection for a crawl.
+// OutputManager owns the JSONL output file and the crawl_meta summary.
 type OutputManager struct {
 	log           *logrus.Entry
 	resolved      *config.ResolvedSiteConfig
-	siteCfg       *config.SiteConfig // retained for the crawl_meta record (allowed_domain)
+	siteCfg       *config.SiteConfig
 	siteKey       string
 	siteOutputDir string
 
-	// JSONL output. When bufferOutput is true (fresh crawls), records are
-	// collected into collectedPageJSONL and written sorted by URL at Close()
-	// for deterministic, diffable output. When false (resume crawls), records
-	// stream directly to disk under jsonlFileMu so we don't fight the existing
-	// content of the file. A single crawl_meta summary record is appended as
-	// the final line at Close() in both modes.
 	jsonlFile          *os.File
 	jsonlFileMu        sync.Mutex
 	jsonlFilePath      string
 	collectedPageJSONL []models.PageJSONL
 
-	// bufferOutput selects between buffer-and-sort (fresh crawls, deterministic
-	// output) and stream-write (resume crawls). Set by OpenFiles.
+	// bufferOutput=true (fresh crawls) buffers records and writes them sorted
+	// by URL at Close() for deterministic, diffable output. false (resume)
+	// streams records straight to disk so we don't overwrite existing content.
 	bufferOutput bool
 
-	// crawlStartTime is set by the crawler before Run; pagesRecorded counts
-	// pages passed to RecordPageOutput. Both feed the crawl_meta record.
+	// Set by the crawler before Run; both feed the crawl_meta record at Close.
 	crawlStartTime time.Time
 	pagesRecorded  atomic.Int64
 }
 
-// NewOutputManager creates an OutputManager without opening files.
-// Call OpenFiles after the output directory is ready (e.g. after cleanSiteOutputDir).
+// NewOutputManager creates an OutputManager. Call OpenFiles once the output
+// directory exists.
 func NewOutputManager(log *logrus.Entry, resolved *config.ResolvedSiteConfig, siteCfg *config.SiteConfig, siteKey, siteOutputDir string) *OutputManager {
 	return &OutputManager{
 		log:           log,
@@ -60,15 +53,11 @@ func NewOutputManager(log *logrus.Entry, resolved *config.ResolvedSiteConfig, si
 	}
 }
 
-// OpenFiles opens the JSONL output file when enabled.
-// Must be called after the output directory exists and has been cleaned if needed.
+// OpenFiles opens the JSONL output file when enabled. Must run after the
+// output directory exists and has been cleaned if needed.
 func (om *OutputManager) OpenFiles(resume bool) {
-	// Fresh crawls buffer JSONL records in memory and write them sorted at
-	// Close(). Resume crawls stream directly to disk so we don't overwrite
-	// existing content of the resumed-into file.
 	om.bufferOutput = !resume
 
-	// --- Initialize JSONL Output File (if enabled) ---
 	if om.resolved.EnableJSONLOutput {
 		om.jsonlFilePath = filepath.Join(om.siteOutputDir, om.resolved.JSONLOutputFilename)
 		om.log.Infof("JSONL output enabled. Output file: %s", om.jsonlFilePath)
@@ -78,8 +67,8 @@ func (om *OutputManager) OpenFiles(resume bool) {
 	}
 }
 
-// openOutputFile opens an output file for writing, with append or truncate based on resume mode.
-// Returns nil on error (caller should treat nil as "output disabled").
+// openOutputFile opens path for writing; appends in resume mode, truncates
+// otherwise. Returns nil on error (treat as "output disabled").
 func openOutputFile(log *logrus.Entry, path, label string, resume bool) *os.File {
 	openFlags := os.O_CREATE | os.O_WRONLY
 	if resume {
@@ -97,10 +86,8 @@ func openOutputFile(log *logrus.Entry, path, label string, resume bool) *os.File
 	return file
 }
 
-// Close flushes buffered records, appends the crawl_meta summary line, then
-// syncs and closes the JSONL output file. For fresh crawls (bufferOutput=true),
-// records buffered in memory are sorted by URL and written out first. Resume
-// crawls have already streamed their records during the crawl.
+// Close flushes buffered records, appends crawl_meta, closes the file, then
+// writes llms.txt/llms-full.txt from the resulting JSONL.
 func (om *OutputManager) Close() error {
 	om.flushBufferedJSONL()
 	om.writeCrawlMetaRecord()
@@ -114,9 +101,8 @@ func (om *OutputManager) PagesSaved() int {
 	return int(om.pagesRecorded.Load())
 }
 
-// RecordPageOutput handles post-save JSONL output for a single page. Called
-// after content is successfully saved to disk. markdownBytes is the already-
-// written markdown content, passed through to avoid re-reading the file.
+// RecordPageOutput emits a JSONL record for a saved page. markdownBytes is
+// passed through to avoid re-reading the file from disk.
 func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte, pageTitle string, currentDepth int, taskLog *logrus.Entry) {
 	om.pagesRecorded.Add(1)
 	crawledAtStr := time.Now().Format(time.RFC3339)
@@ -145,7 +131,6 @@ func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte,
 	}
 }
 
-// closeJSONLFile closes the JSONL output file handle if it was opened.
 func (om *OutputManager) closeJSONLFile() {
 	om.jsonlFileMu.Lock()
 	defer om.jsonlFileMu.Unlock()
@@ -162,8 +147,6 @@ func (om *OutputManager) closeJSONLFile() {
 	}
 }
 
-// recordJSONL either buffers the page record for deterministic flush at Close()
-// (fresh crawl) or streams it straight to disk (resume crawl).
 func (om *OutputManager) recordJSONL(page models.PageJSONL, taskLog *logrus.Entry) {
 	om.jsonlFileMu.Lock()
 	defer om.jsonlFileMu.Unlock()
@@ -180,9 +163,6 @@ func (om *OutputManager) recordJSONL(page models.PageJSONL, taskLog *logrus.Entr
 	}
 }
 
-// flushBufferedJSONL writes all buffered page records to the JSONL file in URL
-// order. No-op for resume crawls (records were streamed during the crawl) and
-// when JSONL output is disabled.
 func (om *OutputManager) flushBufferedJSONL() {
 	om.jsonlFileMu.Lock()
 	defer om.jsonlFileMu.Unlock()
@@ -204,10 +184,9 @@ func (om *OutputManager) flushBufferedJSONL() {
 	om.collectedPageJSONL = nil
 }
 
-// writeCrawlMetaRecord appends the crawl-level summary as the final line of the
-// JSONL file. Consumers treat the last crawl_meta record in the file as
-// authoritative (a resumed crawl appends a fresh one). No-op when JSONL output
-// is disabled.
+// writeCrawlMetaRecord appends the crawl summary as the final JSONL line.
+// Resumed crawls append a fresh record; consumers treat the last one as
+// authoritative.
 func (om *OutputManager) writeCrawlMetaRecord() {
 	om.jsonlFileMu.Lock()
 	defer om.jsonlFileMu.Unlock()
@@ -230,7 +209,6 @@ func (om *OutputManager) writeCrawlMetaRecord() {
 	om.log.Infof("Wrote crawl_meta record (%d pages) to %s", meta.TotalPages, om.jsonlFilePath)
 }
 
-// writeJSONLLine marshals a value to JSON and writes it as one line.
 func writeJSONLLine(f *os.File, v interface{}) error {
 	jsonBytes, err := json.Marshal(v)
 	if err != nil {

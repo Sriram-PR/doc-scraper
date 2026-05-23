@@ -16,15 +16,9 @@ const (
 	llmsFullTxtFilename = "llms-full.txt"
 )
 
-// writeLLMsTxtFiles emits llms.txt (a navigable manifest of pages) and
-// llms-full.txt (the concatenated full content of every page) into the site
-// output directory, following the convention at https://llmstxt.org/.
-//
-// Source of truth is the already-flushed JSONL file: we stream it line-by-line
-// to keep memory bounded for large crawls. crawl_meta records are skipped. The
-// pass collects (title, url) pairs in memory for llms.txt while streaming each
-// page's full content into llms-full.txt. No-op when JSONL output is disabled
-// or the JSONL file is unreadable.
+// writeLLMsTxtFiles emits llms.txt and llms-full.txt per https://llmstxt.org/,
+// streaming from the already-flushed JSONL so memory stays bounded for large
+// crawls. No-op if JSONL is disabled or unreadable.
 func (om *OutputManager) writeLLMsTxtFiles() {
 	if om.jsonlFilePath == "" || om.siteOutputDir == "" {
 		return
@@ -60,9 +54,7 @@ func (om *OutputManager) writeLLMsTxtFiles() {
 		if line == "" {
 			continue
 		}
-		// Cheap discriminator to avoid Unmarshal cost on non-page records
-		// (we expect at most one crawl_meta record per file, but other consumers
-		// may eventually add records).
+		// Cheap pre-filter to avoid Unmarshal cost on non-page records.
 		if !strings.Contains(line, `"record_type":"page"`) {
 			continue
 		}
@@ -105,10 +97,8 @@ func (om *OutputManager) writeLLMsTxtFiles() {
 	om.log.Infof("Wrote llms.txt (%d pages) and llms-full.txt to %s", len(pages), om.siteOutputDir)
 }
 
-// escapeLinkText escapes characters that would break the text portion of a
-// markdown link: square brackets and backslashes. URLs are not escaped; well-
-// formed URLs from the crawler do not contain bare ')' that would close the
-// link.
+// escapeLinkText escapes brackets, backslashes, and newlines in markdown link
+// text. URLs are assumed well-formed and are not escaped.
 func escapeLinkText(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `[`, `\[`)
@@ -117,8 +107,7 @@ func escapeLinkText(s string) string {
 	return s
 }
 
-// escapeHeading collapses embedded newlines so a multi-line page title cannot
-// break the H1 line that anchors a section of llms-full.txt.
+// escapeHeading collapses embedded newlines so a multi-line title stays on one H1.
 func escapeHeading(s string) string {
 	return strings.ReplaceAll(s, "\n", " ")
 }

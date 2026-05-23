@@ -13,7 +13,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
 )
 
-// Scheduler manages periodic crawling of sites
+// Scheduler manages periodic crawling of sites.
 type Scheduler struct {
 	appCfg       *config.AppConfig
 	siteKeys     []string
@@ -26,7 +26,7 @@ type Scheduler struct {
 	wg     sync.WaitGroup
 }
 
-// NewScheduler creates a new watch scheduler
+// NewScheduler creates a new watch scheduler.
 func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Duration, log *logrus.Entry) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -41,9 +41,8 @@ func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Dur
 	}
 }
 
-// Run starts the watch scheduler and blocks until stopped
+// Run starts the watch scheduler and blocks until stopped.
 func (s *Scheduler) Run() error {
-	// Load existing state
 	if err := s.stateManager.Load(); err != nil {
 		s.log.Warnf("Failed to load watch state: %v (starting fresh)", err)
 	}
@@ -51,10 +50,8 @@ func (s *Scheduler) Run() error {
 	s.log.Infof("Starting watch mode for %d sites with interval %v", len(s.siteKeys), s.interval)
 	s.logSchedule()
 
-	// Run initial crawl for sites that need it
 	s.runDueSites()
 
-	// Start the ticker for periodic checks
 	ticker := time.NewTicker(s.calculateTickInterval())
 	defer ticker.Stop()
 
@@ -70,13 +67,12 @@ func (s *Scheduler) Run() error {
 	}
 }
 
-// Stop stops the watch scheduler
+// Stop stops the watch scheduler.
 func (s *Scheduler) Stop() {
 	s.log.Info("Stopping watch scheduler...")
 	s.cancel()
 }
 
-// runDueSites runs all sites that are due for a crawl
 func (s *Scheduler) runDueSites() {
 	dueSites := s.getDueSites()
 	if len(dueSites) == 0 {
@@ -86,17 +82,14 @@ func (s *Scheduler) runDueSites() {
 
 	s.log.Infof("Running crawl for %d due sites: %v", len(dueSites), dueSites)
 
-	// Use the orchestrator for parallel crawling
 	orch := orchestrate.NewOrchestrator(s.appCfg, dueSites, false, s.log)
 
-	// Run in a goroutine so we can handle shutdown
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 
 		results := orch.Run()
 
-		// Update state for each site
 		for _, result := range results {
 			errorMsg := ""
 			if result.Error != nil {
@@ -105,7 +98,6 @@ func (s *Scheduler) runDueSites() {
 			s.stateManager.UpdateSiteState(result.SiteKey, result.Success, result.PagesProcessed, errorMsg)
 		}
 
-		// Save state
 		if err := s.stateManager.Save(); err != nil {
 			s.log.Errorf("Failed to save watch state: %v", err)
 		}
@@ -114,7 +106,6 @@ func (s *Scheduler) runDueSites() {
 	}()
 }
 
-// getDueSites returns sites that are due for a crawl
 func (s *Scheduler) getDueSites() []string {
 	var due []string
 	for _, siteKey := range s.siteKeys {
@@ -125,9 +116,8 @@ func (s *Scheduler) getDueSites() []string {
 	return due
 }
 
-// calculateTickInterval returns how often to check for due sites
+// calculateTickInterval returns the polling interval (1/10th of crawl interval, clamped to 1-10 min).
 func (s *Scheduler) calculateTickInterval() time.Duration {
-	// Check at least every minute, or every 1/10th of the interval
 	checkInterval := s.interval / 10
 	if checkInterval < time.Minute {
 		checkInterval = time.Minute
@@ -138,7 +128,6 @@ func (s *Scheduler) calculateTickInterval() time.Duration {
 	return checkInterval
 }
 
-// logSchedule logs the current schedule
 func (s *Scheduler) logSchedule() {
 	s.log.Info("Watch schedule:")
 	for _, siteKey := range s.siteKeys {
@@ -161,7 +150,6 @@ func (s *Scheduler) logSchedule() {
 	}
 }
 
-// logNextRun logs when the next run will occur
 func (s *Scheduler) logNextRun() {
 	nextRuns := make([]struct {
 		site string
@@ -176,7 +164,6 @@ func (s *Scheduler) logNextRun() {
 		}{siteKey, nextRun})
 	}
 
-	// Sort by next run time
 	sort.Slice(nextRuns, func(i, j int) bool {
 		return nextRuns[i].time.Before(nextRuns[j].time)
 	})
@@ -191,7 +178,7 @@ func (s *Scheduler) logNextRun() {
 	}
 }
 
-// GetStatus returns the current status of all watched sites
+// GetStatus returns the current status of all watched sites.
 func (s *Scheduler) GetStatus() map[string]SiteStatus {
 	status := make(map[string]SiteStatus)
 
@@ -213,7 +200,7 @@ func (s *Scheduler) GetStatus() map[string]SiteStatus {
 	return status
 }
 
-// SiteStatus contains the status of a watched site
+// SiteStatus contains the status of a watched site.
 type SiteStatus struct {
 	SiteKey        string
 	LastRunTime    time.Time
@@ -224,7 +211,7 @@ type SiteStatus struct {
 	NeverRun       bool
 }
 
-// FormatInterval formats a duration for display
+// FormatInterval formats a duration as a compact human-readable string.
 func FormatInterval(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
@@ -248,15 +235,13 @@ func FormatInterval(d time.Duration) string {
 	return fmt.Sprintf("%dd", days)
 }
 
-// ParseInterval parses a duration string with support for days
+// ParseInterval parses a duration string with added support for day suffixes (e.g. "7d", "1d12h").
 func ParseInterval(s string) (time.Duration, error) {
-	// Try standard parsing first
 	d, err := time.ParseDuration(s)
 	if err == nil {
 		return d, nil
 	}
 
-	// Check for day suffix
 	var days int
 	var remaining string
 	n, _ := fmt.Sscanf(s, "%dd%s", &days, &remaining)

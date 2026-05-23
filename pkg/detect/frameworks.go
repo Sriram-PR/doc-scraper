@@ -6,7 +6,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// FrameworkSignature defines detection patterns for a documentation framework
+// FrameworkSignature defines detection patterns for a documentation framework.
 type FrameworkSignature struct {
 	Framework    Framework
 	Selector     string   // CSS selector for main content
@@ -16,20 +16,17 @@ type FrameworkSignature struct {
 	HTMLPatterns []string // Substring patterns to look for in raw HTML
 }
 
-// Matches returns true if the document matches this framework's signature
+// Matches reports whether the document matches this framework's signature.
 func (sig *FrameworkSignature) Matches(doc *goquery.Document, html string) bool {
-	// Check for attribute presence
 	for _, attr := range sig.Attributes {
 		if doc.Find("["+attr+"]").Length() > 0 {
 			return true
 		}
 	}
 
-	// Check for class presence
 	for _, class := range sig.Classes {
-		// Handle class patterns with wildcards
 		if strings.Contains(class, "*") {
-			// Convert glob to prefix match (e.g., "gitbook*" matches class starting with "gitbook")
+			// glob pattern: "gitbook*" matches any class starting with "gitbook"
 			prefix := strings.TrimSuffix(class, "*")
 			found := false
 			doc.Find("[class]").Each(func(i int, s *goquery.Selection) {
@@ -54,7 +51,6 @@ func (sig *FrameworkSignature) Matches(doc *goquery.Document, html string) bool 
 		}
 	}
 
-	// Check for script patterns
 	for _, pattern := range sig.Scripts {
 		found := false
 		doc.Find("script[src]").Each(func(i int, s *goquery.Selection) {
@@ -71,7 +67,6 @@ func (sig *FrameworkSignature) Matches(doc *goquery.Document, html string) bool 
 		}
 	}
 
-	// Check for HTML patterns
 	htmlLower := strings.ToLower(html)
 	for _, pattern := range sig.HTMLPatterns {
 		if strings.Contains(htmlLower, strings.ToLower(pattern)) {
@@ -82,11 +77,9 @@ func (sig *FrameworkSignature) Matches(doc *goquery.Document, html string) bool 
 	return false
 }
 
-// frameworkSignatures contains detection patterns for known documentation frameworks
-// Order matters: more specific patterns should come first
+// frameworkSignatures contains detection patterns in priority order (most-specific first).
 var frameworkSignatures = []FrameworkSignature{
-	// Docusaurus v2/v3
-	{
+	{ // Docusaurus v2/v3
 		Framework: FrameworkDocusaurus,
 		Selector:  "article[class*='theme-doc'], .theme-doc-markdown, article.markdown, main article",
 		Attributes: []string{
@@ -103,8 +96,7 @@ var frameworkSignatures = []FrameworkSignature{
 		},
 	},
 
-	// MkDocs Material
-	{
+	{ // MkDocs Material
 		Framework: FrameworkMkDocs,
 		Selector:  "article.md-content__inner, .md-content article, .md-content",
 		Attributes: []string{
@@ -121,8 +113,7 @@ var frameworkSignatures = []FrameworkSignature{
 		},
 	},
 
-	// ReadTheDocs (check before Sphinx since RTD often uses Sphinx)
-	{
+	{ // ReadTheDocs (before Sphinx — RTD often uses Sphinx underneath)
 		Framework: FrameworkReadTheDocs,
 		Selector:  ".rst-content, div[role='main'], .document",
 		Classes: []string{
@@ -140,8 +131,7 @@ var frameworkSignatures = []FrameworkSignature{
 		},
 	},
 
-	// Sphinx (standalone)
-	{
+	{ // Sphinx (standalone)
 		Framework: FrameworkSphinx,
 		Selector:  "div.document, div.body, article.bd-article, main.bd-main",
 		Classes: []string{
@@ -160,8 +150,7 @@ var frameworkSignatures = []FrameworkSignature{
 		},
 	},
 
-	// GitBook
-	{
+	{ // GitBook
 		Framework: FrameworkGitBook,
 		Selector:  "section.normal.markdown-section, .page-inner section, main[class*='gitbook']",
 		Classes: []string{
@@ -175,7 +164,7 @@ var frameworkSignatures = []FrameworkSignature{
 	},
 }
 
-// GetFrameworkSelector returns the recommended selector for a known framework
+// GetFrameworkSelector returns the recommended CSS selector for a known framework.
 func GetFrameworkSelector(fw Framework) string {
 	for _, sig := range frameworkSignatures {
 		if sig.Framework == fw {

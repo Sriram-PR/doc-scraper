@@ -10,10 +10,10 @@ import (
 	"github.com/go-shiori/go-readability"
 )
 
-// ReadabilityExtractor extracts main content using Mozilla's Readability algorithm
+// ReadabilityExtractor extracts main content using Mozilla's Readability algorithm.
 type ReadabilityExtractor struct{}
 
-// NewReadabilityExtractor creates a new readability-based content extractor
+// NewReadabilityExtractor creates a new ReadabilityExtractor.
 func NewReadabilityExtractor() *ReadabilityExtractor {
 	return &ReadabilityExtractor{}
 }

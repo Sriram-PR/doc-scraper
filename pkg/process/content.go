@@ -18,7 +18,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
-// ContentProcessor handles extracting, cleaning, processing (images, links), converting to Markdown, and saving of page content
+// ContentProcessor handles content extraction, image/link processing, Markdown conversion, and saving.
 type ContentProcessor struct {
 	imgProcessor         *ImageProcessor
 	log                  *logrus.Entry
@@ -27,7 +27,7 @@ type ContentProcessor struct {
 	readabilityExtractor *detect.ReadabilityExtractor
 }
 
-// NewContentProcessor creates a ContentProcessor
+// NewContentProcessor creates a ContentProcessor.
 func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig, log *logrus.Entry) *ContentProcessor {
 	return &ContentProcessor{
 		imgProcessor:         imgProcessor,
@@ -38,18 +38,17 @@ func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig,
 	}
 }
 
-// ExtractProcessAndSaveContent extracts content using the configured selector, processes images and
-// internal links, converts to Markdown, and saves to a path derived from finalURL and siteOutputDir.
-// Returns the extracted page title and any critical error encountered during processing or saving.
+// ExtractProcessAndSaveContent extracts content using the configured selector, processes images
+// and internal links, converts to Markdown, and saves to a path derived from finalURL and siteOutputDir.
 func (cp *ContentProcessor) ExtractProcessAndSaveContent(
-	doc *goquery.Document, // Parsed document of the fetched page
-	finalURL *url.URL, // Final URL after redirects
-	siteCfg *config.SiteConfig, // Site-specific configuration
-	siteOutputDir string, // Base output directory for this site
-	taskLog *logrus.Entry, // Logger with task-specific context
-	ctx context.Context, // Context for cancellation propagation
+	doc *goquery.Document,
+	finalURL *url.URL,
+	siteCfg *config.SiteConfig,
+	siteOutputDir string,
+	taskLog *logrus.Entry,
+	ctx context.Context,
 ) (pageTitle string, savedFilePath string, markdownBytes []byte, imageCount int, err error) {
-	taskLog.Debug("Extracting, processing, and saving content...")
+	taskLog.Debug("Extracting, processing, and saving content.")
 
 	pageTitle = strings.TrimSpace(doc.Find("title").First().Text())
 	if pageTitle == "" {
@@ -60,12 +59,10 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	var mainContent *goquery.Selection
 	var actualSelector string
 
-	// Handle auto content selector detection
 	if detect.IsAutoSelector(siteCfg.ContentSelector) {
 		result := cp.detector.Detect(doc, finalURL)
 
 		if result.Fallback {
-			// Use readability extraction
 			taskLog.Debug("Using readability extraction for content")
 			extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
 			if extractErr != nil {
@@ -80,7 +77,6 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 			}
 			taskLog.Debugf("Extracted content using readability (framework: %s)", result.Framework)
 		} else {
-			// Use detected framework selector
 			actualSelector = result.Selector
 			taskLog.Debugf("Auto-detected selector for %s: %s", result.Framework, actualSelector)
 
@@ -107,14 +103,12 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 			}
 		}
 	} else {
-		// Use explicitly configured selector
 		mainContentSelection := doc.Find(siteCfg.ContentSelector)
 		if mainContentSelection.Length() == 0 {
 			err = fmt.Errorf("%w: selector '%s' not found on page '%s'", utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String())
 			taskLog.Warn(err.Error())
 			return pageTitle, "", nil, 0, err
 		}
-		// Clone selection to modify images/links without affecting original doc needed for link extraction
 		mainContent = mainContentSelection.First().Clone()
 		taskLog.Debugf("Found main content using selector '%s'", siteCfg.ContentSelector)
 	}
@@ -128,16 +122,13 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 
 	currentPageOutputDir := filepath.Dir(currentPageFullOutputPath)
 
-	// ProcessImages finds images, attempts downloads/checks cache via workers, and sets 'data-crawl-status' attribute on mainContent tags
 	imageMap, _ := cp.imgProcessor.ProcessImages(mainContent, finalURL, siteCfg, siteOutputDir, taskLog, ctx)
-	// Ignore non-fatal image processing errors (already logged by ImageProcessor)
 
-	// Rewrite or remove img tags based on the status set by ProcessImages
 	imgRewriteCount, imgRemoveCount, imgSkippedCount := 0, 0, 0
 	mainContent.Find("img").Each(func(i int, element *goquery.Selection) {
 		status, _ := element.Attr("data-crawl-status")
 		originalSrc, srcExists := element.Attr("src")
-		element.RemoveAttr("data-crawl-status") // Cleanup attribute
+		element.RemoveAttr("data-crawl-status")
 
 		switch status {
 		case "success", "pending-download": // Check map for actual result
@@ -156,10 +147,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 			}
 
 			if imgData, ok := imageMap[absImgURL.String()]; ok && imgData.LocalPath != "" {
-
-				// 1. Construct the absolute path to the saved image file
 				absoluteImagePath := filepath.Join(siteOutputDir, imgData.LocalPath)
-				// 2. Calculate the path relative from the current MD file's directory to the image file
 				relativeImagePath, relErr := filepath.Rel(currentPageOutputDir, absoluteImagePath)
 				if relErr != nil {
 					taskLog.Warnf("Could not calculate relative image path from '%s' to '%s' for src '%s': %v. Removing image tag.", currentPageOutputDir, absoluteImagePath, originalSrc, relErr)
@@ -168,9 +156,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 					return
 				}
 
-				// 3. Use the calculated relative path (ensure forward slashes for web/markdown)
 				finalImageSrc := filepath.ToSlash(relativeImagePath)
-				// Rewrite src to local path and update alt from caption
 				element.SetAttr("src", finalImageSrc)
 				if imgData.Caption != "" {
 					element.SetAttr("alt", imgData.Caption)
@@ -185,33 +171,26 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 				taskLog.Debugf("Removing image tag for failed download/lookup: src='%s' (Status: %s)", originalSrc, status)
 			}
 		case "error-parse", "error-normalize", "error-db", "error-filesystem":
-			// Fatal error during initial checks
 			element.Remove()
 			imgRemoveCount++
 			taskLog.Debugf("Removing image tag due to fatal error: src='%s' (Status: %s)", originalSrc, status)
 		case "skipped-config", "skipped-empty-src", "skipped-data-uri", "skipped-scheme", "skipped-domain", "skipped-robots":
-			// Non-fatal skip, leave original tag
 			imgSkippedCount++
 			taskLog.Debugf("Leaving skipped image tag: src='%s' (Status: %s)", originalSrc, status)
 		default:
-			// Unknown or unexpected status, leave tag
 			imgSkippedCount++
 			taskLog.Warnf("Image tag with unexpected status '%s': src='%s'. Leaving tag.", status, originalSrc)
 		}
 	})
 	taskLog.Debugf("Image handling complete: Rewrote %d, Removed %d, Left Skipped %d.", imgRewriteCount, imgRemoveCount, imgSkippedCount)
 
-	// Rewrite internal links to relative markdown paths
 	_, linkRewriteErr := cp.rewriteInternalLinks(mainContent, finalURL, currentPageFullOutputPath, siteCfg, siteOutputDir, taskLog)
 	if linkRewriteErr != nil {
-		// Log non-fatal link rewriting errors
 		taskLog.Warnf("Non-fatal error during internal link rewriting: %v", linkRewriteErr)
 	}
 
-	// Clean up HTML before conversion (remove Sphinx headerlinks, etc.)
 	cp.cleanupHTML(mainContent)
 
-	// Convert the processed content to Markdown
 	modifiedHTML, outerHtmlErr := goquery.OuterHtml(mainContent)
 	if outerHtmlErr != nil {
 		err = fmt.Errorf("failed getting modified HTML: %w", outerHtmlErr)
@@ -227,7 +206,6 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 		return pageTitle, "", nil, 0, err
 	}
 
-	// Save the Markdown file
 	outputDirForFile := filepath.Dir(currentPageFullOutputPath)
 	if mkdirErr := os.MkdirAll(outputDirForFile, 0755); mkdirErr != nil {
 		err = fmt.Errorf("%w: creating output directory '%s': %w", utils.ErrFilesystem, outputDirForFile, mkdirErr)
@@ -244,26 +222,25 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 
 	taskLog.Infof("Saved Markdown (%d bytes): %s", len(markdownContent), currentPageFullOutputPath)
 	taskLog.Debug("Content extraction, processing, and saving complete.")
-	return pageTitle, currentPageFullOutputPath, []byte(markdownContent), imgRewriteCount, nil // Success
+	return pageTitle, currentPageFullOutputPath, []byte(markdownContent), imgRewriteCount, nil
 }
 
-// getOutputPathForURL calculates the local filesystem path for a crawled URL, performing scope checks and mapping URLs to sanitized file/directory structures
-// Returns the absolute output path and true if the URL is in scope, otherwise empty path and false
+// getOutputPathForURL maps a crawled URL to a sanitized local filesystem path, performing scope
+// checks. Returns the absolute output path and true if in scope, otherwise ("", false).
 func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *config.SiteConfig, siteOutputDir string) (string, bool) {
-	// Scope checks: scheme, domain, path prefix
 	if (targetURL.Scheme != "http" && targetURL.Scheme != "https") ||
 		targetURL.Hostname() != siteCfg.AllowedDomain {
 		return "", false
 	}
 	targetPath := targetURL.Path
 	if targetPath == "" {
-		targetPath = "/" // Treat root URL as "/"
+		targetPath = "/"
 	}
 	if !strings.HasPrefix(targetPath, siteCfg.AllowedPathPrefix) {
 		return "", false
 	}
 
-	outputFilename := "index.md" // Default for directory-like URLs
+	outputFilename := "index.md"
 	outputSubDir := siteOutputDir
 
 	normalizedPath := strings.TrimSuffix(targetPath, "/")
@@ -278,8 +255,7 @@ func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *con
 		dirPart := path.Dir(relativePath)
 		ext := path.Ext(baseName)
 
-		// Determine if path looks like a file (has extension) or directory
-		if ext != "" && len(ext) > 1 { // File-like URL
+		if ext != "" && len(ext) > 1 { // file-like URL
 			outputFilename = utils.SanitizeFilename(strings.TrimSuffix(baseName, ext)) + ".md"
 			if dirPart != "" && dirPart != "." {
 				var sanitizedDirParts []string
@@ -292,8 +268,7 @@ func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *con
 					outputSubDir = filepath.Join(siteOutputDir, filepath.Join(sanitizedDirParts...))
 				}
 			}
-		} else { // Directory-like URL
-			// Use index.md; create subdirs based on full relative path
+		} else {
 			var sanitizedDirParts []string
 			for _, part := range strings.Split(relativePath, "/") {
 				if part != "" {
@@ -319,45 +294,36 @@ func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *con
 	return fullPath, true
 }
 
-// cleanupHTML removes unwanted elements from HTML before markdown conversion
-// This handles framework-specific noise like Sphinx headerlinks (¶ symbols)
+// cleanupHTML removes framework-specific noise before markdown conversion
+// (Sphinx headerlinks, RTD edit links, generic permalink anchors).
 func (cp *ContentProcessor) cleanupHTML(content *goquery.Selection) {
-	// Remove Sphinx/Pallets headerlink anchors (¶ symbols after headings)
 	content.Find("a.headerlink").Remove()
-
-	// Remove ReadTheDocs "Edit on GitHub" links
 	content.Find("a.edit-on-github").Remove()
-
-	// Remove common "permalink" patterns
 	content.Find("a.permalink").Remove()
 	content.Find("a[title='Permalink to this heading']").Remove()
 	content.Find("a[title='Link to this heading']").Remove()
 
-	// Remove empty anchor tags that might remain
 	content.Find("a").Each(func(i int, s *goquery.Selection) {
 		text := strings.TrimSpace(s.Text())
 		href, _ := s.Attr("href")
-		// Remove anchors that only contain ¶ or are empty with fragment-only hrefs
 		if text == "¶" || text == "#" || (text == "" && strings.HasPrefix(href, "#")) {
 			s.Remove()
 		}
 	})
 }
 
-// rewriteInternalLinks modifies href attributes of anchor tags within mainContent
-// It converts links pointing within the crawl scope to relative filesystem paths
-// Returns the number of links rewritten and the first non-fatal error encountered
+// rewriteInternalLinks converts in-scope hrefs to relative filesystem paths.
+// Returns the number of links rewritten and the first non-fatal error.
 func (cp *ContentProcessor) rewriteInternalLinks(
-	mainContent *goquery.Selection, // The content selection to modify
-	finalURL *url.URL, // Base URL for resolving relative hrefs
-	currentPageFullOutputPath string, // Filesystem path of the current MD file
-	siteCfg *config.SiteConfig, // For scope checking linked URLs
-	siteOutputDir string, // For calculating target MD paths
+	mainContent *goquery.Selection,
+	finalURL *url.URL,
+	currentPageFullOutputPath string,
+	siteCfg *config.SiteConfig,
+	siteOutputDir string,
 	taskLog *logrus.Entry,
 ) (rewriteCount int, err error) {
 	taskLog.Debug("Rewriting internal links...")
-	rewriteCount = 0
-	var firstError error = nil
+	var firstError error
 
 	currentPageOutputDir := filepath.Dir(currentPageFullOutputPath)
 
@@ -367,12 +333,11 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 			return
 		}
 
-		// Skip fragments, protocol-relative URLs (//)
 		if strings.HasPrefix(href, "#") || strings.HasPrefix(href, "//") {
 			return
 		}
-		// Skip scheme-based URIs (mailto:, tel:, http:, javascript:, etc.)
-		// A scheme only appears before the first slash, so colons in paths like /foo:bar are safe.
+		// Skip scheme-based URIs; a scheme only appears before the first slash, so
+		// colons in paths like /foo:bar are safe.
 		if colonIdx := strings.Index(href, ":"); colonIdx >= 0 {
 			slashIdx := strings.Index(href, "/")
 			if slashIdx < 0 || colonIdx < slashIdx {
@@ -389,13 +354,11 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 			return
 		}
 
-		// Check if the linked URL is within crawl scope and get its potential output path
 		targetOutputPath, isInScope := cp.getOutputPathForURL(linkURL, siteCfg, siteOutputDir)
 		if !isInScope {
-			return // Leave external or out-of-scope links unmodified
+			return
 		}
 
-		// Calculate the relative path from the current file's directory to the target file
 		relativePath, relErr := filepath.Rel(currentPageOutputDir, targetOutputPath)
 		if relErr != nil {
 			taskLog.Warnf("Could not calculate relative path from '%s' to '%s' for link '%s': %v. Keeping original.", currentPageOutputDir, targetOutputPath, href, relErr)
@@ -405,7 +368,6 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 			return
 		}
 
-		// Use forward slashes and preserve fragment
 		relativePath = filepath.ToSlash(relativePath)
 		if linkURL.Fragment != "" {
 			relativePath += "#" + linkURL.Fragment
@@ -418,3 +380,4 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 	taskLog.Debugf("Rewrote %d internal links.", rewriteCount)
 	return rewriteCount, firstError
 }
+

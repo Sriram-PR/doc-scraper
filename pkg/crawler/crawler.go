@@ -1,4 +1,3 @@
-// FILE: pkg/crawler/crawler.go
 package crawler
 
 import (

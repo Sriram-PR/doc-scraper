@@ -26,13 +26,13 @@ type DetectionResult struct {
 	Fallback  bool      // True if using readability fallback
 }
 
-// ContentDetector detects the appropriate content selector for a page
+// ContentDetector detects the appropriate content selector for a page.
 type ContentDetector struct {
 	cache *SelectorCache
 	log   *logrus.Entry
 }
 
-// NewContentDetector creates a new content detector with caching
+// NewContentDetector creates a new content detector with per-domain caching.
 func NewContentDetector(log *logrus.Entry) *ContentDetector {
 	return &ContentDetector{
 		cache: NewSelectorCache(),
@@ -40,18 +40,16 @@ func NewContentDetector(log *logrus.Entry) *ContentDetector {
 	}
 }
 
-// Detect determines the best content selector for the given document
-// It first checks the cache, then tries framework detection, and falls back to readability
+// Detect returns the best content selector for the given document, using cache then framework
+// detection then readability fallback.
 func (d *ContentDetector) Detect(doc *goquery.Document, pageURL *url.URL) DetectionResult {
 	domain := pageURL.Hostname()
 
-	// Check cache first
 	if cached, ok := d.cache.Get(domain); ok {
 		d.log.Debugf("Using cached selector for domain %s: %s (framework: %s)", domain, cached.Selector, cached.Framework)
 		return cached
 	}
 
-	// Try framework detection
 	result := d.detectFramework(doc)
 	if result.Framework != FrameworkUnknown {
 		d.log.Infof("Detected framework %s for domain %s, using selector: %s", result.Framework, domain, result.Selector)
@@ -59,8 +57,7 @@ func (d *ContentDetector) Detect(doc *goquery.Document, pageURL *url.URL) Detect
 		return result
 	}
 
-	// Fall back to readability-based extraction
-	// For readability, we don't use a CSS selector - we extract content directly
+	// No framework matched; readability extraction will be used (no CSS selector needed).
 	result = DetectionResult{
 		Framework: FrameworkUnknown,
 		Selector:  "", // Empty selector signals readability fallback
@@ -71,7 +68,6 @@ func (d *ContentDetector) Detect(doc *goquery.Document, pageURL *url.URL) Detect
 	return result
 }
 
-// detectFramework attempts to identify the documentation framework from HTML signatures
 func (d *ContentDetector) detectFramework(doc *goquery.Document) DetectionResult {
 	html, _ := doc.Html()
 
@@ -92,7 +88,7 @@ func (d *ContentDetector) detectFramework(doc *goquery.Document) DetectionResult
 	}
 }
 
-// IsAutoSelector returns true if the selector value indicates auto-detection
+// IsAutoSelector reports whether the selector value indicates auto-detection.
 func IsAutoSelector(selector string) bool {
 	return selector == "auto" || selector == "AUTO" || selector == "Auto"
 }

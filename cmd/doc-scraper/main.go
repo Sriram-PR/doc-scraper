@@ -150,9 +150,7 @@ func runCrawl(args []string) {
 	}
 }
 
-// runConfig handles the config subcommand, which groups configuration
-// inspection actions: "validate" checks the config file (optionally a single
-// site), and "list" lists the configured sites.
+// runConfig dispatches the config subcommand (validate | list).
 func runConfig(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Error: config requires an action: validate | list")
@@ -195,12 +193,8 @@ func runConfig(args []string) {
 	}
 }
 
-// doValidate performs validation and writes output to provided writers.
-// When jsonOut is true, a single JSON object is written to stdout with the
-// per-site verdict; in text mode, formatted lines are written. Returns exit
-// code (0 = success, 1 = error). In JSON mode no diagnostic text is written
-// to stderr on the success path so consumers can rely on stdout being the
-// sole machine-readable channel.
+// doValidate returns exit code 0 on success, 1 on error. jsonOut writes a
+// single JSON object to stdout and leaves stderr empty on the success path.
 func doValidate(configPath, siteKey string, jsonOut bool, stdout, stderr io.Writer) int {
 	appCfg, err := loadConfig(configPath)
 	if err != nil {
@@ -305,10 +299,9 @@ func doValidate(configPath, siteKey string, jsonOut bool, stdout, stderr io.Writ
 	return 0
 }
 
-// emitValidateJSON writes the structured validate result to w. valid is the
-// aggregate (true only when no errors at any level); errors carries top-level
-// failures (config load failures, unknown site key) separate from per-site
-// errors which live inside results.
+// emitValidateJSON writes the structured validate result. errors holds top-level
+// failures (config load failures, unknown site key) separately from per-site
+// errors carried inside results.
 func emitValidateJSON(w io.Writer, configPath string, valid bool, globalWarnings, errors []string, results []map[string]any) {
 	payload := map[string]any{
 		"config_path": configPath,

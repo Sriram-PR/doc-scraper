@@ -24,24 +24,24 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
 )
 
-// SitemapProcessor handles fetching, parsing, and processing sitemaps
+// SitemapProcessor handles fetching, parsing, and processing sitemaps.
 type SitemapProcessor struct {
-	sitemapQueue               chan string                    // Channel to receive sitemap URLs to process
-	pq                         *queue.ThreadSafePriorityQueue // Main priority queue for page URLs
-	store                      storage.PageStore              // To mark pages visited
-	fetcher                    fetch.HTTPFetcher              // For fetching sitemaps
-	rateLimiter                *fetch.RateLimiter             // For rate limiting fetches
-	globalSemaphore            *semaphore.Weighted            // Global request limit
-	compiledDisallowedPatterns []*regexp.Regexp               // For filtering URLs found in sitemaps
-	siteCfg                    *config.SiteConfig             // Need for scope checks
-	appCfg                     *config.AppConfig              // Need for UA, timeouts
+	sitemapQueue               chan string
+	pq                         *queue.ThreadSafePriorityQueue
+	store                      storage.PageStore
+	fetcher                    fetch.HTTPFetcher
+	rateLimiter                *fetch.RateLimiter
+	globalSemaphore            *semaphore.Weighted
+	compiledDisallowedPatterns []*regexp.Regexp
+	siteCfg                    *config.SiteConfig
+	appCfg                     *config.AppConfig
 	log                        *logrus.Entry
-	wg                         *sync.WaitGroup // Main crawler waitgroup
-	sitemapsProcessed          map[string]bool // Track sitemaps submitted to this processor
-	sitemapsProcessedMu        sync.Mutex      // Mutex for the processed map
+	wg                         *sync.WaitGroup // main crawler WaitGroup
+	sitemapsProcessed          map[string]bool
+	sitemapsProcessedMu        sync.Mutex
 }
 
-// NewSitemapProcessor creates a new SitemapProcessor
+// NewSitemapProcessor creates a new SitemapProcessor.
 func NewSitemapProcessor(
 	sitemapQueue chan string,
 	pq *queue.ThreadSafePriorityQueue,
@@ -65,20 +65,19 @@ func NewSitemapProcessor(
 		compiledDisallowedPatterns: compiledDisallowedPatterns,
 		siteCfg:                    siteCfg,
 		appCfg:                     appCfg,
-		log:                        log.WithField("component", "sitemap_processor"),
-		wg:                         wg,
-		sitemapsProcessed:          make(map[string]bool), // Initialize map
+		log:               log.WithField("component", "sitemap_processor"),
+		wg:                wg,
+		sitemapsProcessed: make(map[string]bool),
 	}
 }
 
-// Start runs the sitemap processing loop in a goroutine
+// Start runs the sitemap processing loop in a goroutine.
 func (sp *SitemapProcessor) Start(ctx context.Context) {
 	sp.log.Info("Sitemap processing goroutine starting.")
 	go sp.run(ctx)
 }
 
-// MarkSitemapProcessed records that a sitemap URL has been queued for processing
-// Returns true if it was newly marked, false if already marked
+// MarkSitemapProcessed marks a sitemap URL as queued. Returns true if newly marked.
 func (sp *SitemapProcessor) MarkSitemapProcessed(sitemapURL string) bool {
 	sp.sitemapsProcessedMu.Lock()
 	defer sp.sitemapsProcessedMu.Unlock()
@@ -89,9 +88,8 @@ func (sp *SitemapProcessor) MarkSitemapProcessed(sitemapURL string) bool {
 	return false
 }
 
-// run is the main processing loop
-func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitemap processing with recursive fetch/parse and multiple XML formats
-	var sitemapProcessingWg sync.WaitGroup // Tracks active sitemap downloads/parses within this processor
+func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen // recursive sitemap fetch/parse over multiple XML formats
+	var sitemapProcessingWg sync.WaitGroup
 
 	defer func() {
 		sp.log.Info("Waiting for active sitemap processing tasks to finish before final exit...")
@@ -99,31 +97,28 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 		sp.log.Info("Sitemap processing goroutine finished waiting and exiting.")
 	}()
 
-	userAgent := sp.appCfg.DefaultUserAgent // Use default UA for sitemaps
+	userAgent := sp.appCfg.DefaultUserAgent
 	semTimeout := config.DefaultSemaphoreAcquireTimeout
 
 	for {
 		select {
-		case <-ctx.Done(): // Check if the main crawl context has been cancelled
+		case <-ctx.Done():
 			sp.log.Warnf("Context cancelled, stopping sitemap processing: %v", ctx.Err())
 			return
 
-		case sitemapURL, ok := <-sp.sitemapQueue: // Try to receive a URL from the channel
+		case sitemapURL, ok := <-sp.sitemapQueue:
 			if !ok {
 				sp.log.Info("Sitemap queue channel closed.")
 				return
 			}
 
-			// --- Received a URL, Launch a Goroutine to Process It ---
-			sitemapProcessingWg.Add(1) // Increment local WaitGroup for the task we are about to launch
-			go func(smURL string) {    // Launch goroutine for concurrent processing
-				// Ensure both WaitGroups are decremented when this goroutine finishes
+			sitemapProcessingWg.Add(1)
+			go func(smURL string) {
 				defer func() {
-					sp.wg.Done()               // Decrement the main crawler WaitGroup (incremented when queued)
-					sitemapProcessingWg.Done() // Decrement this processor's WaitGroup
+					sp.wg.Done()
+					sitemapProcessingWg.Done()
 				}()
 
-				// --- Panic Recovery for this sitemap task ---
 				defer func() {
 					if r := recover(); r != nil {
 						stackTrace := string(debug.Stack())
@@ -138,18 +133,16 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 				sitemapLog := sp.log.WithField("sitemap_url", smURL)
 				sitemapLog.Info("Processing sitemap")
 
-				// --- Fetching Logic ---
 				parsedSitemapURL, err := url.Parse(smURL)
 				if err != nil {
 					sitemapLog.Errorf("Failed parse URL: %v", err)
-					return // Stop processing this invalid URL
+					return
 				}
 				sitemapHost := parsedSitemapURL.Hostname()
 
-				// --- Acquire Global Semaphore (respecting context) ---
-				ctxG, cancelG := context.WithTimeout(ctx, semTimeout) // Derive timeout from main context
+				ctxG, cancelG := context.WithTimeout(ctx, semTimeout)
 				err = sp.globalSemaphore.Acquire(ctxG, 1)
-				cancelG() // Release resources associated with the timed context
+				cancelG()
 				if err != nil {
 					// Check if the error was due to the main context being cancelled
 					switch {
@@ -162,12 +155,10 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 					}
 					return // Stop processing this sitemap if semaphore not acquired
 				}
-				defer sp.globalSemaphore.Release(1) // Ensure release on exit
+				defer sp.globalSemaphore.Release(1)
 
-				// --- Apply Rate Limit ---
 				sp.rateLimiter.ApplyDelay(ctx, sitemapHost, sp.appCfg.DefaultDelayPerHost)
 
-				// --- Create Request (with context) ---
 				req, err := http.NewRequestWithContext(ctx, http.MethodGet, smURL, nil)
 				if err != nil {
 					sitemapLog.Errorf("Req Create error: %v", err)
@@ -175,9 +166,8 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 				}
 				req.Header.Set("User-Agent", userAgent)
 
-				// --- Fetch Request (with context and retries) ---
 				resp, fetchErr := sp.fetcher.FetchWithRetry(req, ctx)
-				sp.rateLimiter.UpdateLastRequestTime(sitemapHost) // Update after attempt
+				sp.rateLimiter.UpdateLastRequestTime(sitemapHost)
 
 				if fetchErr != nil {
 					sitemapLog.Errorf("Fetch failed: %v", fetchErr)
@@ -187,10 +177,8 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 					}
 					return
 				}
-				// If fetch succeeded, resp is non-nil, 2xx status
-				defer resp.Body.Close() // Ensure body is closed eventually
+				defer resp.Body.Close()
 
-				// --- Read & Parse XML ---
 				const maxSitemapSize = 10 * 1024 * 1024 // 10 MB
 				sitemapBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxSitemapSize))
 				if readErr != nil {
@@ -198,7 +186,6 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 					return
 				}
 
-				// --- Try Parsing as Sitemap Index ---
 				var index parse.XMLSitemapIndex
 				errIndex := xml.Unmarshal(sitemapBytes, &index)
 				if errIndex == nil && len(index.Sitemaps) > 0 {
@@ -210,47 +197,39 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 						_, nestedErr := url.ParseRequestURI(nestedSmURL)
 						if nestedErr != nil {
 							nestedSmLog.Warnf("Invalid nested sitemap URL: %v", nestedErr)
-							continue // Skip invalid URLs
+							continue
 						}
 
-						// --- Queue Nested Sitemap (check if already processed) ---
-						// MarkSitemapProcessed is thread-safe and returns true if newly marked
 						if sp.MarkSitemapProcessed(nestedSmURL) {
-							// It's a new sitemap for the processor, increment WG for the eventual task
 							sp.wg.Add(1)
 
 							select {
-							case sp.sitemapQueue <- nestedSmURL: // Attempt to send
+							case sp.sitemapQueue <- nestedSmURL:
 								queuedCount++
 								nestedSmLog.Debug("Successfully queued nested sitemap.")
-								// WG remains incremented, will be decremented when task completes
 
-							case <-ctx.Done(): // Check if main context is cancelled
+							case <-ctx.Done():
 								nestedSmLog.Warnf("Context cancelled while trying to queue nested sitemap '%s': %v", nestedSmURL, ctx.Err())
-								// --- UNDO STATE ---
 								sp.sitemapsProcessedMu.Lock()
-								delete(sp.sitemapsProcessed, nestedSmURL) // Remove from processed map
+								delete(sp.sitemapsProcessed, nestedSmURL)
 								sp.sitemapsProcessedMu.Unlock()
-								sp.wg.Done() // Decrement main WG as task won't be processed
+								sp.wg.Done()
 
-							case <-time.After(5 * time.Second): // Timeout for queue send
+							case <-time.After(5 * time.Second):
 								nestedSmLog.Error("Timeout sending nested sitemap. Undoing WG and processed state.")
-								// --- UNDO STATE ---
 								sp.sitemapsProcessedMu.Lock()
-								delete(sp.sitemapsProcessed, nestedSmURL) // Remove from processed map
+								delete(sp.sitemapsProcessed, nestedSmURL)
 								sp.sitemapsProcessedMu.Unlock()
-								sp.wg.Done() // Decrement main WG as task won't be processed
+								sp.wg.Done()
 							}
 						} else {
 							nestedSmLog.Debugf("Nested sitemap already processed/queued: %s", nestedSmURL)
-							// Already marked, so no WG increment/decrement needed here
 						}
-					} // End loop through nested sitemap entries
+					}
 					sitemapLog.Infof("Queued %d nested sitemaps.", queuedCount)
 					return // Return after processing index
 				}
 
-				// --- Try Parsing as URL Set ---
 				var urlSet parse.XMLURLSet
 				errURLSet := xml.Unmarshal(sitemapBytes, &urlSet)
 				if errURLSet != nil {
@@ -263,7 +242,6 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 					return
 				}
 
-				// --- Process URL Set ---
 				sitemapLog.Infof("Parsed as URL Set, found %d URLs.", len(urlSet.URLs))
 				queuedCount := 0
 				dbErrorCount := 0
@@ -271,14 +249,12 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 					pageURL := urlEntry.Loc
 					pageLastMod := urlEntry.LastMod
 
-					// Log the URL and its last modified date (if present)
 					if pageLastMod != "" {
 						sitemapLog.Debugf("Found URL: %s (LastMod: %s)", pageURL, pageLastMod)
 					} else {
 						sitemapLog.Debugf("Found URL: %s (No LastMod specified)", pageURL)
 					}
 
-					// --- Scope Check Logic ---
 					parsedPageURL, err := url.Parse(pageURL)
 					if err != nil {
 						sitemapLog.Warnf("Sitemap URL parse error: %v", err)
@@ -307,32 +283,27 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 					if isDisallowed {
 						continue
 					}
-					// --- End Scope Check ---
 
-					// Normalize URL
 					normalizedPageURL, _, errNorm := parse.ParseAndNormalize(pageURL)
 					if errNorm != nil {
 						sitemapLog.Warnf("Sitemap URL normalize error: %v", errNorm)
 						continue
 					}
 
-					// --- Check/Add to DB and Queue if New ---
-					// Use store's MarkPageVisited
 					added, visitErr := sp.store.MarkPageVisited(normalizedPageURL)
 					if visitErr != nil {
 						sitemapLog.Errorf("Sitemap URL DB mark error: %v", visitErr)
 						dbErrorCount++
-						continue // Skip this URL if DB error occurs
+						continue
 					}
 
-					if added { // If markVisited added the URL (it was new)
-						sp.wg.Add(1) // Increment main WaitGroup
-						// Add with Depth 0 as sitemaps don't have inherent depth
-						sitemapWorkItem := models.WorkItem{URL: pageURL, Depth: 0}
-						sp.pq.Add(&sitemapWorkItem) // Add to the main priority queue
+					if added {
+						sp.wg.Add(1)
+						sitemapWorkItem := models.WorkItem{URL: pageURL, Depth: 0} // depth 0; sitemaps are flat
+						sp.pq.Add(&sitemapWorkItem)
 						queuedCount++
 					}
-				} // End loop through URL entries
+				}
 
 				if dbErrorCount > 0 {
 					sitemapLog.Warnf("Finished URL Set. Queued %d new URLs, encountered %d DB errors.", queuedCount, dbErrorCount)
@@ -340,7 +311,7 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo // sitem
 					sitemapLog.Infof("Finished URL Set. Queued %d new URLs.", queuedCount)
 				}
 
-			}(sitemapURL) // End the anonymous goroutine for processing a single sitemap
+			}(sitemapURL)
 		}
 	}
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// JobStatus represents the current state of a crawl job
 type JobStatus string
 
 const (
@@ -32,7 +31,6 @@ const (
 	restartFailedMsg = "MCP server restarted during crawl"
 )
 
-// Job represents a background crawl job
 type Job struct {
 	ID             string    `json:"id"`
 	SiteKey        string    `json:"site_key"`
@@ -44,18 +42,15 @@ type Job struct {
 	ErrorMessage   string    `json:"error_message,omitempty"`
 	Incremental    bool      `json:"incremental"`
 
-	// Internal fields
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// jobsFile is the on-disk representation of the JobManager state.
 type jobsFile struct {
 	Version int    `json:"version"`
 	Jobs    []*Job `json:"jobs"`
 }
 
-// JobManager manages background crawl jobs
 type JobManager struct {
 	jobs   map[string]*Job
 	mu     sync.RWMutex
@@ -64,20 +59,17 @@ type JobManager struct {
 	persistPath string // empty disables persistence
 	log         *logrus.Entry
 
-	flushMu   sync.Mutex   // serializes disk writes; never held with mu
-	dirty     atomic.Bool  // set by UpdateProgress; cleared by flush
+	flushMu   sync.Mutex // serializes disk writes; never held with mu
+	dirty     atomic.Bool
 	stopFlush chan struct{}
 	flushDone chan struct{}
 }
 
-// NewJobManager creates a job manager. A blank persistPath disables persistence
-// entirely and the manager runs purely in-memory. With a path, the manager loads
-// any existing jobs file (treating in-flight jobs as failed since their goroutines
-// did not survive the restart) and persists state changes back to it. State-changing
-// operations (create, status, cancel) flush immediately; progress updates are
-// debounced and written by a background flusher. Callers must invoke Stop() during
-// shutdown to flush a final time and stop the goroutine. A nil logger silences
-// load and flush warnings.
+// NewJobManager returns a JobManager. With an empty persistPath the manager is
+// purely in-memory. With a path it loads existing jobs (in-flight ones reload
+// as failed) and persists state changes; state mutations flush immediately while
+// UpdateProgress is debounced. Callers must Stop() during shutdown to drain the
+// background flusher.
 func NewJobManager(persistPath string, log *logrus.Entry) *JobManager {
 	m := &JobManager{
 		jobs:        make(map[string]*Job),
@@ -95,9 +87,8 @@ func NewJobManager(persistPath string, log *logrus.Entry) *JobManager {
 	return m
 }
 
-// load reads persisted jobs from disk. Pending/Running jobs are marked
-// Failed since their goroutines did not survive the restart. Errors are
-// logged but never fatal: a missing file is normal on first run.
+// load reads the persisted jobs and reclassifies in-flight ones as Failed.
+// Errors are non-fatal; a missing file is normal on first run.
 func (m *JobManager) load() {
 	data, err := os.ReadFile(m.persistPath)
 	if err != nil {
@@ -114,10 +105,8 @@ func (m *JobManager) load() {
 		return
 	}
 	now := time.Now()
-	// One shared, already-cancelled context for all loaded jobs: loaded jobs
-	// are always in a terminal state and only need a non-nil ctx for GetContext
-	// to return safely. Building one per iteration is the pattern fatcontext
-	// (rightly) warns about; the shared cancelled context is correct here.
+	// Shared already-cancelled context: loaded jobs are terminal and only need
+	// a non-nil ctx for GetContext.
 	deadCtx, deadCancel := context.WithCancel(context.Background())
 	deadCancel()
 	for _, job := range file.Jobs {
@@ -131,7 +120,7 @@ func (m *JobManager) load() {
 				job.CompletedAt = now
 			}
 		}
-		job.ctx = deadCtx //nolint:fatcontext // safe: shared already-cancelled context; loaded jobs are terminal and only need a non-nil ctx for GetContext.
+		job.ctx = deadCtx //nolint:fatcontext // shared dead context, see above
 		job.cancel = deadCancel
 		m.jobs[job.ID] = job
 	}
@@ -140,8 +129,8 @@ func (m *JobManager) load() {
 	}
 }
 
-// snapshotLocked returns a copy of the jobs slice for serialization. Caller
-// must hold m.mu (read or write).
+// snapshotLocked returns a deep copy of the jobs for serialization. Caller
+// must hold m.mu.
 func (m *JobManager) snapshotLocked() []*Job {
 	out := make([]*Job, 0, len(m.jobs))
 	for _, job := range m.jobs {
@@ -153,8 +142,7 @@ func (m *JobManager) snapshotLocked() []*Job {
 	return out
 }
 
-// flush writes the current job state to disk atomically. Safe to call from
-// any goroutine; serialized by flushMu. No-op if persistence is disabled.
+// flush atomically writes the current job state to disk. Serialized by flushMu.
 func (m *JobManager) flush() {
 	if m.persistPath == "" {
 		return
@@ -197,7 +185,6 @@ func (m *JobManager) flush() {
 	m.dirty.Store(false)
 }
 
-// flushLoop periodically flushes dirty state set by UpdateProgress.
 func (m *JobManager) flushLoop() {
 	defer close(m.flushDone)
 	ticker := time.NewTicker(flushInterval)
@@ -214,15 +201,13 @@ func (m *JobManager) flushLoop() {
 	}
 }
 
-// Stop halts the background flusher and performs a final flush. Safe to
-// call multiple times. No-op if persistence is disabled.
+// Stop halts the background flusher and performs a final flush. Idempotent.
 func (m *JobManager) Stop() {
 	if m.persistPath == "" || m.stopFlush == nil {
 		return
 	}
 	select {
 	case <-m.stopFlush:
-		// already stopped
 	default:
 		close(m.stopFlush)
 		<-m.flushDone
@@ -230,20 +215,19 @@ func (m *JobManager) Stop() {
 	m.flush()
 }
 
-// CreateJob creates a new job for a site
+// CreateJob returns the existing pending/running job for siteKey if one exists,
+// otherwise creates and returns a new one.
 func (m *JobManager) CreateJob(siteKey string, incremental bool) (*Job, error) {
 	m.mu.Lock()
 
-	// Check if a job is already running for this site
 	if existingJobID, exists := m.bysite[siteKey]; exists {
 		existingJob := m.jobs[existingJobID]
 		if existingJob != nil && (existingJob.Status == JobStatusPending || existingJob.Status == JobStatusRunning) {
 			m.mu.Unlock()
-			return existingJob, nil // Return existing running job
+			return existingJob, nil
 		}
 	}
 
-	// Create new job
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &Job{
 		ID:          uuid.New().String(),
@@ -263,14 +247,12 @@ func (m *JobManager) CreateJob(siteKey string, incremental bool) (*Job, error) {
 	return job, nil
 }
 
-// GetJob retrieves a job by ID
 func (m *JobManager) GetJob(jobID string) *Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.jobs[jobID]
 }
 
-// GetJobBySite retrieves the current job for a site
 func (m *JobManager) GetJobBySite(siteKey string) *Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -281,7 +263,6 @@ func (m *JobManager) GetJobBySite(siteKey string) *Job {
 	return nil
 }
 
-// IsRunning checks if a job is currently running for a site
 func (m *JobManager) IsRunning(siteKey string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -293,7 +274,6 @@ func (m *JobManager) IsRunning(siteKey string) bool {
 	return false
 }
 
-// UpdateStatus updates the status of a job
 func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg string) {
 	m.mu.Lock()
 	changed := false
@@ -301,7 +281,6 @@ func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg strin
 		job.Status = status
 		if status == JobStatusCompleted || status == JobStatusFailed || status == JobStatusCancelled {
 			job.CompletedAt = time.Now()
-			// Remove from bysite to allow new jobs
 			delete(m.bysite, job.SiteKey)
 		}
 		if errorMsg != "" {
@@ -316,9 +295,8 @@ func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg strin
 	}
 }
 
-// UpdateProgress updates the progress counters of a job. Persistence is
-// debounced: the change is written by the background flusher within a few
-// seconds, so per-page calls do not hammer disk.
+// UpdateProgress only marks the manager dirty; the background flusher writes
+// to disk a few seconds later so per-page calls do not hammer disk.
 func (m *JobManager) UpdateProgress(jobID string, processed, queued int64) {
 	m.mu.Lock()
 	if job, exists := m.jobs[jobID]; exists {
@@ -329,7 +307,6 @@ func (m *JobManager) UpdateProgress(jobID string, processed, queued int64) {
 	m.mu.Unlock()
 }
 
-// CancelJob cancels a running job
 func (m *JobManager) CancelJob(jobID string) bool {
 	m.mu.Lock()
 	cancelled := false
@@ -350,7 +327,6 @@ func (m *JobManager) CancelJob(jobID string) bool {
 	return cancelled
 }
 
-// CancelAll cancels all running jobs
 func (m *JobManager) CancelAll() {
 	m.mu.Lock()
 	for _, job := range m.jobs {
@@ -366,7 +342,6 @@ func (m *JobManager) CancelAll() {
 	m.flush()
 }
 
-// ListJobs returns all jobs
 func (m *JobManager) ListJobs() []*Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -378,7 +353,6 @@ func (m *JobManager) ListJobs() []*Job {
 	return jobs
 }
 
-// GetContext returns the context for a job (for running the crawler)
 func (m *JobManager) GetContext(jobID string) context.Context {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

@@ -11,7 +11,7 @@ import (
 
 const stateFileName = "watch_state.json"
 
-// SiteState contains the last run information for a site
+// SiteState records the last run result for a site.
 type SiteState struct {
 	LastRunTime    time.Time `json:"last_run_time"`
 	LastRunSuccess bool      `json:"last_run_success"`
@@ -19,13 +19,13 @@ type SiteState struct {
 	ErrorMessage   string    `json:"error_message,omitempty"`
 }
 
-// WatchState contains the persistent state for the watch scheduler
+// WatchState is the persistent state for the watch scheduler.
 type WatchState struct {
 	Sites     map[string]SiteState `json:"sites"`
 	UpdatedAt time.Time            `json:"updated_at"`
 }
 
-// StateManager handles persisting and loading watch state
+// StateManager persists and loads watch state.
 type StateManager struct {
 	stateDir  string
 	statePath string
@@ -33,7 +33,7 @@ type StateManager struct {
 	mu        sync.RWMutex
 }
 
-// NewStateManager creates a new state manager
+// NewStateManager creates a new StateManager.
 func NewStateManager(stateDir string) *StateManager {
 	return &StateManager{
 		stateDir:  stateDir,
@@ -44,7 +44,7 @@ func NewStateManager(stateDir string) *StateManager {
 	}
 }
 
-// Load loads the state from disk
+// Load reads persisted state from disk.
 func (m *StateManager) Load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -52,7 +52,6 @@ func (m *StateManager) Load() error {
 	data, err := os.ReadFile(m.statePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// No state file yet, start fresh
 			m.state = WatchState{
 				Sites: make(map[string]SiteState),
 			}
@@ -72,14 +71,13 @@ func (m *StateManager) Load() error {
 	return nil
 }
 
-// Save saves the state to disk
+// Save persists state to disk.
 func (m *StateManager) Save() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.state.UpdatedAt = time.Now()
 
-	// Ensure state directory exists
 	if err := os.MkdirAll(m.stateDir, 0755); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
 	}
@@ -96,7 +94,7 @@ func (m *StateManager) Save() error {
 	return nil
 }
 
-// GetSiteState returns the state for a specific site
+// GetSiteState returns the persisted state for a site.
 func (m *StateManager) GetSiteState(siteKey string) (SiteState, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -104,7 +102,7 @@ func (m *StateManager) GetSiteState(siteKey string) (SiteState, bool) {
 	return state, ok
 }
 
-// UpdateSiteState updates the state for a specific site
+// UpdateSiteState records the result of a crawl run for a site.
 func (m *StateManager) UpdateSiteState(siteKey string, success bool, pagesProcessed int64, errorMsg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -117,22 +115,19 @@ func (m *StateManager) UpdateSiteState(siteKey string, success bool, pagesProces
 	}
 }
 
-// ShouldRun checks if a site should run based on the interval
+// ShouldRun reports whether enough time has elapsed since the last run.
 func (m *StateManager) ShouldRun(siteKey string, interval time.Duration) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	state, ok := m.state.Sites[siteKey]
 	if !ok {
-		// Never run before, should run now
-		return true
+		return true // never run before
 	}
-
-	// Check if enough time has passed since last run
 	return time.Since(state.LastRunTime) >= interval
 }
 
-// GetNextRunTime returns when the site should next run
+// GetNextRunTime returns when the site should next run.
 func (m *StateManager) GetNextRunTime(siteKey string, interval time.Duration) time.Time {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -145,12 +140,11 @@ func (m *StateManager) GetNextRunTime(siteKey string, interval time.Duration) ti
 	return state.LastRunTime.Add(interval)
 }
 
-// GetAllSiteStates returns all site states
+// GetAllSiteStates returns a snapshot copy of all site states.
 func (m *StateManager) GetAllSiteStates() map[string]SiteState {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Return a copy
 	result := make(map[string]SiteState, len(m.state.Sites))
 	for k, v := range m.state.Sites {
 		result[k] = v

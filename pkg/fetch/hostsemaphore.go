@@ -40,8 +40,8 @@ func NewHostSemaphorePool(maxPerHost int, log *logrus.Entry) *HostSemaphorePool 
 	}
 }
 
-// Acquire gets or creates a host semaphore and acquires one permit.
-// Blocks until the permit is available or ctx is cancelled.
+// Acquire gets or creates a host semaphore and acquires one permit,
+// blocking until available or ctx is cancelled.
 func (p *HostSemaphorePool) Acquire(ctx context.Context, host string) error {
 	p.mu.Lock()
 	entry, exists := p.entries[host]
@@ -62,7 +62,7 @@ func (p *HostSemaphorePool) Acquire(ctx context.Context, host string) error {
 	return nil
 }
 
-// Release releases one permit for the given host.
+// Release releases one permit for the given host.  Must be paired with a successful Acquire.
 func (p *HostSemaphorePool) Release(host string) {
 	p.mu.Lock()
 	entry, exists := p.entries[host]
@@ -78,7 +78,7 @@ func (p *HostSemaphorePool) Release(host string) {
 	entry.sem.Release(1)
 }
 
-// RunEviction periodically removes idle host entries. Should be run in a goroutine.
+// RunEviction periodically removes idle host entries; run in a goroutine.
 func (p *HostSemaphorePool) RunEviction(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 5 * time.Minute
@@ -99,7 +99,6 @@ func (p *HostSemaphorePool) RunEviction(ctx context.Context, interval time.Durat
 	}
 }
 
-// evictIdle removes entries that have been idle longer than maxIdle.
 func (p *HostSemaphorePool) evictIdle(maxIdle time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -117,7 +116,7 @@ func (p *HostSemaphorePool) evictIdle(maxIdle time.Duration) {
 	}
 }
 
-// Len returns the current number of tracked hosts.
+// Len returns the number of currently tracked hosts.
 func (p *HostSemaphorePool) Len() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

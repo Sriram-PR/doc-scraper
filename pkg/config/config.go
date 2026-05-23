@@ -2,49 +2,49 @@ package config
 
 import "time"
 
-// SiteConfig holds configuration specific to a single website crawl
+// SiteConfig holds configuration specific to a single website crawl.
 type SiteConfig struct {
-	StartURLs               []string           `yaml:"start_urls"`
-	AllowedDomain           string             `yaml:"allowed_domain"`
-	AllowedPathPrefix       string             `yaml:"allowed_path_prefix"`
-	ContentSelector         string             `yaml:"content_selector"`
-	LinkExtractionSelectors []string           `yaml:"link_extraction_selectors,omitempty"`
-	DisallowedPathPatterns  []string           `yaml:"disallowed_path_patterns,omitempty"` // Regex patterns for paths to exclude
-	RespectNofollow         bool               `yaml:"respect_nofollow,omitempty"`
-	UserAgent               string             `yaml:"user_agent,omitempty"`
-	DelayPerHost            time.Duration      `yaml:"delay_per_host,omitempty"`
-	MaxDepth                int                `yaml:"max_depth"`
-	SkipImages              *bool              `yaml:"skip_images,omitempty"`
-	MaxImageSizeBytes       *int64             `yaml:"max_image_size_bytes,omitempty"`
-	AllowedImageDomains     []string           `yaml:"allowed_image_domains,omitempty"`
-	DisallowedImageDomains  []string           `yaml:"disallowed_image_domains,omitempty"`
-	EnableJSONLOutput       *bool              `yaml:"enable_jsonl_output,omitempty"`
-	JSONLOutputFilename     string             `yaml:"jsonl_output_filename,omitempty"`
+	StartURLs               []string      `yaml:"start_urls"`
+	AllowedDomain           string        `yaml:"allowed_domain"`
+	AllowedPathPrefix       string        `yaml:"allowed_path_prefix"`
+	ContentSelector         string        `yaml:"content_selector"`
+	LinkExtractionSelectors []string      `yaml:"link_extraction_selectors,omitempty"`
+	DisallowedPathPatterns  []string      `yaml:"disallowed_path_patterns,omitempty"`
+	RespectNofollow         bool          `yaml:"respect_nofollow,omitempty"`
+	UserAgent               string        `yaml:"user_agent,omitempty"`
+	DelayPerHost            time.Duration `yaml:"delay_per_host,omitempty"`
+	MaxDepth                int           `yaml:"max_depth"`
+	SkipImages              *bool         `yaml:"skip_images,omitempty"`
+	MaxImageSizeBytes       *int64        `yaml:"max_image_size_bytes,omitempty"`
+	AllowedImageDomains     []string      `yaml:"allowed_image_domains,omitempty"`
+	DisallowedImageDomains  []string      `yaml:"disallowed_image_domains,omitempty"`
+	EnableJSONLOutput       *bool         `yaml:"enable_jsonl_output,omitempty"`
+	JSONLOutputFilename     string        `yaml:"jsonl_output_filename,omitempty"`
 }
 
-// AppConfig holds the global application configuration
+// AppConfig holds the global application configuration.
 type AppConfig struct {
-	DefaultUserAgent        string                 `yaml:"default_user_agent"`
-	DefaultDelayPerHost     time.Duration          `yaml:"default_delay_per_host"`
-	NumWorkers              int                    `yaml:"num_workers"`
-	NumImageWorkers         int                    `yaml:"num_image_workers,omitempty"`
-	MaxRequests             int                    `yaml:"max_requests"`
-	MaxRequestsPerHost      int                    `yaml:"max_requests_per_host"`
-	OutputBaseDir           string                 `yaml:"output_base_dir"`
-	StateDir                string                 `yaml:"state_dir"`
-	MaxRetries              int                    `yaml:"max_retries,omitempty"`
-	InitialRetryDelay       time.Duration          `yaml:"initial_retry_delay,omitempty"`
-	MaxRetryDelay           time.Duration          `yaml:"max_retry_delay,omitempty"`
-	GlobalCrawlTimeout      time.Duration          `yaml:"global_crawl_timeout,omitempty"`
-	PerPageTimeout          time.Duration          `yaml:"per_page_timeout,omitempty"` // Timeout for processing a single page (0 = no timeout)
-	SkipImages              *bool                  `yaml:"skip_images,omitempty"`       // Global image-download default; nil means skip (text-first default)
-	MaxImageSizeBytes       int64                  `yaml:"max_image_size_bytes,omitempty"`
-	MaxPageSizeBytes        int64                  `yaml:"max_page_size_bytes,omitempty"` // Max HTML page body size in bytes (0 = 50MB default)
-	HTTPClientSettings      HTTPClientConfig       `yaml:"http_client_settings,omitempty"`
-	Sites                   map[string]*SiteConfig `yaml:"sites"`
-	EnableJSONLOutput       bool                   `yaml:"enable_jsonl_output,omitempty"`
-	JSONLOutputFilename     string                 `yaml:"jsonl_output_filename,omitempty"`
-	EnableIncremental       bool                   `yaml:"enable_incremental,omitempty"` // Enable incremental crawling (skip unchanged pages)
+	DefaultUserAgent    string                 `yaml:"default_user_agent"`
+	DefaultDelayPerHost time.Duration          `yaml:"default_delay_per_host"`
+	NumWorkers          int                    `yaml:"num_workers"`
+	NumImageWorkers     int                    `yaml:"num_image_workers,omitempty"`
+	MaxRequests         int                    `yaml:"max_requests"`
+	MaxRequestsPerHost  int                    `yaml:"max_requests_per_host"`
+	OutputBaseDir       string                 `yaml:"output_base_dir"`
+	StateDir            string                 `yaml:"state_dir"`
+	MaxRetries          int                    `yaml:"max_retries,omitempty"`
+	InitialRetryDelay   time.Duration          `yaml:"initial_retry_delay,omitempty"`
+	MaxRetryDelay       time.Duration          `yaml:"max_retry_delay,omitempty"`
+	GlobalCrawlTimeout  time.Duration          `yaml:"global_crawl_timeout,omitempty"`
+	PerPageTimeout      time.Duration          `yaml:"per_page_timeout,omitempty"`       // 0 = no timeout
+	SkipImages          *bool                  `yaml:"skip_images,omitempty"`            // nil = skip (text-first default)
+	MaxImageSizeBytes   int64                  `yaml:"max_image_size_bytes,omitempty"`
+	MaxPageSizeBytes    int64                  `yaml:"max_page_size_bytes,omitempty"`    // 0 = 50 MB default
+	HTTPClientSettings  HTTPClientConfig       `yaml:"http_client_settings,omitempty"`
+	Sites               map[string]*SiteConfig `yaml:"sites"`
+	EnableJSONLOutput   bool                   `yaml:"enable_jsonl_output,omitempty"`
+	JSONLOutputFilename string                 `yaml:"jsonl_output_filename,omitempty"`
+	EnableIncremental   bool                   `yaml:"enable_incremental,omitempty"`
 }
 
 // HTTPClientConfig holds settings for the shared HTTP client. The Go-default
@@ -71,7 +71,7 @@ const (
 	DefaultSemaphoreAcquireTimeout = 30 * time.Second
 )
 
-// GetEffectiveMaxPageSize returns the configured max page size, or the default if unset.
+// GetEffectiveMaxPageSize returns the configured max page size, falling back to DefaultMaxPageSizeBytes.
 func GetEffectiveMaxPageSize(appCfg *AppConfig) int64 {
 	if appCfg.MaxPageSizeBytes > 0 {
 		return appCfg.MaxPageSizeBytes
@@ -79,7 +79,7 @@ func GetEffectiveMaxPageSize(appCfg *AppConfig) int64 {
 	return DefaultMaxPageSizeBytes
 }
 
-// GetEffectiveUserAgent returns the site-specific user agent if set, otherwise the global default.
+// GetEffectiveUserAgent returns the site-specific user agent, falling back to the global default.
 func GetEffectiveUserAgent(siteCfg *SiteConfig, appCfg *AppConfig) string {
 	if siteCfg.UserAgent != "" {
 		return siteCfg.UserAgent
@@ -87,10 +87,8 @@ func GetEffectiveUserAgent(siteCfg *SiteConfig, appCfg *AppConfig) string {
 	return appCfg.DefaultUserAgent
 }
 
-// GetEffectiveSkipImages determines the effective skip setting.
-// Image downloading is opt-in: when neither the site nor the global config
-// sets skip_images, images are skipped (doc-scraper is text-first for LLMs).
-// Set skip_images: false globally or per-site to download and localize images.
+// GetEffectiveSkipImages returns the skip_images setting. Image downloading is opt-in: when
+// neither the site nor the global config sets skip_images, images are skipped (text-first default).
 func GetEffectiveSkipImages(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.SkipImages != nil {
 		return *siteCfg.SkipImages
@@ -101,7 +99,7 @@ func GetEffectiveSkipImages(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	return true
 }
 
-// GetEffectiveMaxImageSize determines the effective max image size
+// GetEffectiveMaxImageSize returns the effective max image size (site overrides global).
 func GetEffectiveMaxImageSize(siteCfg *SiteConfig, appCfg *AppConfig) int64 {
 	if siteCfg.MaxImageSizeBytes != nil {
 		return *siteCfg.MaxImageSizeBytes
@@ -109,7 +107,7 @@ func GetEffectiveMaxImageSize(siteCfg *SiteConfig, appCfg *AppConfig) int64 {
 	return appCfg.MaxImageSizeBytes
 }
 
-// GetEffectiveEnableJSONLOutput determines if JSONL output should be generated.
+// GetEffectiveEnableJSONLOutput returns the effective JSONL output setting (site overrides global).
 func GetEffectiveEnableJSONLOutput(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.EnableJSONLOutput != nil {
 		return *siteCfg.EnableJSONLOutput
@@ -117,7 +115,7 @@ func GetEffectiveEnableJSONLOutput(siteCfg *SiteConfig, appCfg *AppConfig) bool 
 	return appCfg.EnableJSONLOutput
 }
 
-// GetEffectiveJSONLOutputFilename determines the filename for the JSONL output.
+// GetEffectiveJSONLOutputFilename returns the JSONL output filename (site > global > default).
 func GetEffectiveJSONLOutputFilename(siteCfg *SiteConfig, appCfg *AppConfig) string {
 	if siteCfg.JSONLOutputFilename != "" {
 		return siteCfg.JSONLOutputFilename
@@ -128,7 +126,6 @@ func GetEffectiveJSONLOutputFilename(siteCfg *SiteConfig, appCfg *AppConfig) str
 	return "pages.jsonl"
 }
 
-// getEffectiveDelayPerHost returns the site-specific delay if positive, else the global default.
 func getEffectiveDelayPerHost(siteCfg *SiteConfig, appCfg *AppConfig) time.Duration {
 	if siteCfg.DelayPerHost > 0 {
 		return siteCfg.DelayPerHost
@@ -136,8 +133,7 @@ func getEffectiveDelayPerHost(siteCfg *SiteConfig, appCfg *AppConfig) time.Durat
 	return appCfg.DefaultDelayPerHost
 }
 
-// ResolvedSiteConfig holds all effective configuration values for a site,
-// resolved once from site-specific overrides and app-level defaults.
+// ResolvedSiteConfig holds effective configuration for a site, resolved once at crawl start.
 type ResolvedSiteConfig struct {
 	UserAgent           string
 	JSONLOutputFilename string
@@ -148,7 +144,7 @@ type ResolvedSiteConfig struct {
 	EnableJSONLOutput   bool
 }
 
-// NewResolvedSiteConfig resolves all effective configuration values for a site.
+// NewResolvedSiteConfig resolves all effective configuration values for a site at crawl start.
 func NewResolvedSiteConfig(siteCfg *SiteConfig, appCfg *AppConfig) *ResolvedSiteConfig {
 	return &ResolvedSiteConfig{
 		UserAgent:           GetEffectiveUserAgent(siteCfg, appCfg),

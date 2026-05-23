@@ -6,45 +6,42 @@ import (
 	"strings"
 )
 
-// NormalizeURL standardizes a URL for comparison and storage
-// It lowercases the scheme and host, removes default ports (80 for http, 443 for https), removes trailing slashes from paths (unless root "/"), ensures empty path becomes "/", and removes fragments and query strings
-// Does not modify the input *url.URL
+// NormalizeURL standardizes a URL for comparison and storage: lowercases scheme/host, strips
+// default ports, removes trailing slashes (except root), removes fragments and query strings.
+// Does not modify the input *url.URL.
 func NormalizeURL(u *url.URL) string {
 	if u == nil {
 		return ""
 	}
-	// Work on a copy
 	normalized := *u
 
 	normalized.Scheme = strings.ToLower(normalized.Scheme)
 	normalized.Host = strings.ToLower(normalized.Host)
 
-	// Remove default ports
 	host, port, err := net.SplitHostPort(normalized.Host)
-	if err == nil { // Host included a port
+	if err == nil {
 		if (normalized.Scheme == "http" && port == "80") ||
 			(normalized.Scheme == "https" && port == "443") {
-			normalized.Host = host // Use hostname without default port
+			normalized.Host = host
 		}
-	} // If no port or error, Host remains unchanged
-
-	// Handle path normalization
-	if normalized.Path == "" {
-		normalized.Path = "/" // Ensure empty path becomes "/"
-	} else if len(normalized.Path) > 1 && strings.HasSuffix(normalized.Path, "/") {
-		normalized.Path = normalized.Path[:len(normalized.Path)-1] // Remove trailing slash
 	}
 
-	normalized.Fragment = "" // Remove fragment
-	normalized.RawQuery = "" // Remove query string
+	if normalized.Path == "" {
+		normalized.Path = "/"
+	} else if len(normalized.Path) > 1 && strings.HasSuffix(normalized.Path, "/") {
+		normalized.Path = normalized.Path[:len(normalized.Path)-1]
+	}
+
+	normalized.Fragment = ""
+	normalized.RawQuery = ""
 
 	return normalized.String()
 }
 
-// ParseAndNormalize parses a URL string using the stricter url.ParseRequestURI (requiring a scheme) and then normalizes it using NormalizeURL
-// Returns the normalized string, the parsed URL object, and any parse error
+// ParseAndNormalize parses a URL string with url.ParseRequestURI (scheme required) and normalizes it.
+// Returns the normalized string, the parsed URL, and any parse error.
 func ParseAndNormalize(urlStr string) (string, *url.URL, error) {
-	parsed, err := url.ParseRequestURI(urlStr) // Stricter parsing
+	parsed, err := url.ParseRequestURI(urlStr)
 	if err != nil {
 		return "", nil, err
 	}

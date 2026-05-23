@@ -15,7 +15,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
 )
 
-// SiteResult contains the result of crawling a single site
+// SiteResult contains the result of crawling a single site.
 type SiteResult struct {
 	SiteKey        string
 	Success        bool
@@ -24,39 +24,28 @@ type SiteResult struct {
 	Duration       time.Duration
 }
 
-// Orchestrator manages parallel crawling of multiple sites
+// Orchestrator manages parallel crawling of multiple sites.
 type Orchestrator struct {
-	appCfg   *config.AppConfig
-	log      *logrus.Entry
-	siteKeys []string
-	resume   bool
-
-	// Shared resources
+	appCfg          *config.AppConfig
+	log             *logrus.Entry
+	siteKeys        []string
+	resume          bool
 	httpClient      fetch.HTTPFetcher
 	rateLimiter     *fetch.RateLimiter
 	globalSemaphore *semaphore.Weighted
-
-	// Results
-	results   []SiteResult
-	resultsMu sync.Mutex
-
-	// Coordination
-	ctx    context.Context
-	cancel context.CancelFunc
+	results         []SiteResult
+	resultsMu       sync.Mutex
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
-// NewOrchestrator creates a new orchestrator for parallel site crawling
+// NewOrchestrator creates a new orchestrator for parallel site crawling.
 func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, log *logrus.Entry) *Orchestrator {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create shared HTTP client
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, log)
 	fetcher := fetch.NewFetcher(httpClient, appCfg, log)
-
-	// Create shared rate limiter
 	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, log)
-
-	// Create shared global semaphore for request limiting across all sites
 	globalSemaphore := semaphore.NewWeighted(int64(appCfg.MaxRequests))
 
 	return &Orchestrator{
@@ -73,7 +62,7 @@ func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, l
 	}
 }
 
-// Run starts crawling all sites in parallel and waits for completion
+// Run starts parallel crawling of all sites and blocks until all finish.
 func (o *Orchestrator) Run() []SiteResult {
 	startTime := time.Now()
 	o.log.Infof("Starting parallel crawl of %d sites: %v", len(o.siteKeys), o.siteKeys)
@@ -91,7 +80,6 @@ func (o *Orchestrator) Run() []SiteResult {
 		}(siteKey)
 	}
 
-	// Wait for all sites to complete
 	wg.Wait()
 
 	totalDuration := time.Since(startTime)
@@ -100,7 +88,6 @@ func (o *Orchestrator) Run() []SiteResult {
 	return o.results
 }
 
-// crawlSite crawls a single site with shared resources
 func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	startTime := time.Now()
 	result := SiteResult{
@@ -115,11 +102,9 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 		return result
 	}
 
-	// Create site-specific context
 	siteCtx, siteCancel := context.WithCancel(o.ctx)
 	defer siteCancel()
 
-	// Create site-specific store
 	store, err := storage.NewBadgerStore(siteCtx, o.appCfg.StateDir, siteCfg.AllowedDomain, o.resume, o.log)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create store for '%s': %w", siteKey, err)
@@ -128,9 +113,8 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 		return result
 	}
 	defer store.Close()
-	go store.RunGC(siteCtx, 0) // 0 = use the store's built-in default (10m)
+	go store.RunGC(siteCtx, 0)
 
-	// Create crawler with shared semaphore
 	opts := &crawler.CrawlerOptions{
 		SharedSemaphore: o.globalSemaphore,
 	}
@@ -155,7 +139,6 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 		return result
 	}
 
-	// Run the crawler
 	o.log.Infof("Starting crawl for site '%s'", siteKey)
 	if err := c.Run(o.resume); err != nil {
 		result.Error = err
@@ -166,7 +149,6 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 		o.log.Infof("Crawl completed for site '%s'", siteKey)
 	}
 
-	// Get final progress
 	progress := c.GetProgress()
 	result.PagesProcessed = progress.PagesProcessed
 	result.Duration = time.Since(startTime)
@@ -174,16 +156,14 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	return result
 }
 
-// Cancel cancels all running crawls
+// Cancel cancels all running crawls.
 func (o *Orchestrator) Cancel() {
 	o.log.Info("Cancelling all crawls...")
 	o.cancel()
 }
 
-// GetProgress returns the current progress of all sites
+// GetProgress returns progress snapshots for completed sites.
 func (o *Orchestrator) GetProgress() []crawler.CrawlerProgress {
-	// This would require keeping references to all crawlers
-	// For now, return the results we have
 	o.resultsMu.Lock()
 	defer o.resultsMu.Unlock()
 
@@ -198,7 +178,6 @@ func (o *Orchestrator) GetProgress() []crawler.CrawlerProgress {
 	return progress
 }
 
-// logSummary logs a summary of all crawl results
 func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 	o.log.Info("============================================")
 	o.log.Infof("Parallel crawl completed in %v", totalDuration)

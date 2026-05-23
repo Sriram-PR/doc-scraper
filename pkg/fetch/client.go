@@ -24,7 +24,7 @@ const (
 	dialerKeepAlive       = 30 * time.Second
 )
 
-// NewClient creates a new HTTP client based on the provided configuration.
+// NewClient creates an HTTP client with an SSRF-guarding dialer unless allow_private_networks is set.
 func NewClient(cfg config.HTTPClientConfig, log *logrus.Entry) *http.Client {
 	log.Info("Initializing HTTP client...")
 
@@ -45,15 +45,15 @@ func NewClient(cfg config.HTTPClientConfig, log *logrus.Entry) *http.Client {
 	}
 
 	transport := &http.Transport{
-		Proxy:                  http.ProxyFromEnvironment, // Use system proxy settings
-		DialContext:            dialContext,               // SSRF-guarded dialer (unless opted out)
+		Proxy:                  http.ProxyFromEnvironment,
+		DialContext:            dialContext,
 		ForceAttemptHTTP2:      true,
 		MaxIdleConns:           maxIdleConns,
 		MaxIdleConnsPerHost:    cfg.MaxIdleConnsPerHost,
 		IdleConnTimeout:        idleConnTimeout,
 		TLSHandshakeTimeout:    tlsHandshakeTimeout,
 		ExpectContinueTimeout:  expectContinueTimeout,
-		MaxResponseHeaderBytes: 1 << 20, // 1 MiB max header size
+		MaxResponseHeaderBytes: 1 << 20, // 1 MiB
 		WriteBufferSize:        4096,
 		ReadBufferSize:         4096,
 		DisableKeepAlives:      false,
@@ -63,12 +63,11 @@ func NewClient(cfg config.HTTPClientConfig, log *logrus.Entry) *http.Client {
 		Timeout:   cfg.Timeout,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Default Go behavior is 10 redirects max
 			if len(via) >= 10 {
 				return errors.New("stopped after 10 redirects")
 			}
 			log.Debugf("Redirecting: %s -> %s (hop %d)", via[len(via)-1].URL, req.URL, len(via))
-			return nil // Allow redirect
+			return nil
 		},
 	}
 	log.Info("HTTP client initialized.")
