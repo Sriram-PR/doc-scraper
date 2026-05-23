@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -50,11 +51,18 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		server.WithLogging(),
 	)
 
+	logEntry := cfg.Logger.WithField("component", "mcp")
+	var jobsPath string
+	if cfg.AppConfig.StateDir != "" {
+		jobsPath = filepath.Join(cfg.AppConfig.StateDir, jobsFilename)
+	} else {
+		logEntry.Warn("state_dir is empty; MCP jobs will not persist across restarts")
+	}
 	s := &Server{
 		mcpServer:  mcpServer,
 		cfg:        cfg,
-		log:        cfg.Logger.WithField("component", "mcp"),
-		jobManager: NewJobManager(),
+		log:        logEntry,
+		jobManager: NewJobManager(jobsPath, logEntry),
 	}
 
 	// Register all tools
@@ -137,5 +145,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.log.Info("Shutting down MCP server...")
 	// Cancel any running jobs
 	s.jobManager.CancelAll()
+	// Flush and stop the persistence flusher
+	s.jobManager.Stop()
 	return nil
 }
