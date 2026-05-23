@@ -3,7 +3,6 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 )
 
@@ -12,6 +11,6 @@ import (
 // builds. To enable: `go build -tags pprof ./cmd/doc-scraper`.
 func startPprof(addr string, log *slog.Logger) {
 	if addr != "" {
-		log.Warn(fmt.Sprintf("--pprof %s requested but binary was not built with -tags pprof; ignoring", addr))
+		log.Warn("--pprof requested but binary was not built with -tags pprof; ignoring", "addr", addr)
 	}
 }

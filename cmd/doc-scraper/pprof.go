@@ -17,9 +17,9 @@ func startPprof(addr string, log *slog.Logger) {
 		return
 	}
 	go func() {
-		log.Info(fmt.Sprintf("Starting pprof server at http://%s/debug/pprof/", addr))
+		log.Info("Starting pprof server", "addr", addr, "url", "http://"+addr+"/debug/pprof/")
 		if err := http.ListenAndServe(addr, nil); err != nil {
-			log.Error(fmt.Sprintf("pprof server error: %v", err))
+			log.Error("pprof server error", "addr", addr, "err", err)
 		}
 	}()
 }
