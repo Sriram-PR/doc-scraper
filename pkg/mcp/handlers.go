@@ -71,6 +71,129 @@ func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolReques
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }
 
+// pageListEntry is the per-page metadata shape returned by handleListPages.
+// Kept narrow on purpose: full page content is intentionally omitted (use
+// get_page for that), so the response stays small even for sites with
+// thousands of pages.
+type pageListEntry struct {
+	URL           string `json:"url"`
+	Title         string `json:"title"`
+	Depth         int    `json:"depth"`
+	CrawledAt     string `json:"crawled_at"`
+	ContentLength int    `json:"content_length"`
+}
+
+// handleListPages handles the list_pages tool. Returns a paginated list of
+// crawled pages for a site, sorted by URL for deterministic output. Reads
+// from the site's JSONL output; returns an empty result with a hint when the
+// site has never been crawled.
+func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	siteKey := request.GetString("site_key", "")
+	if siteKey == "" {
+		return mcp.NewToolResultError("site_key parameter is required"), nil
+	}
+	siteCfg, exists := s.cfg.AppConfig.Sites[siteKey]
+	if !exists {
+		availableKeys := make([]string, 0, len(s.cfg.AppConfig.Sites))
+		for k := range s.cfg.AppConfig.Sites {
+			availableKeys = append(availableKeys, k)
+		}
+		sort.Strings(availableKeys)
+		return mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", siteKey, availableKeys)), nil
+	}
+
+	maxResults := request.GetInt("max_results", 100)
+	if maxResults <= 0 {
+		maxResults = 100
+	}
+	if maxResults > 1000 {
+		maxResults = 1000
+	}
+	offset := request.GetInt("offset", 0)
+	if offset < 0 {
+		offset = 0
+	}
+
+	jsonlPath := filepath.Join(
+		s.cfg.AppConfig.OutputBaseDir,
+		siteCfg.AllowedDomain,
+		config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig),
+	)
+
+	file, err := os.Open(jsonlPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			response := map[string]interface{}{
+				"site_key":    siteKey,
+				"pages":       []pageListEntry{},
+				"total":       0,
+				"offset":      offset,
+				"max_results": maxResults,
+				"returned":    0,
+				"message":     "No crawl output found for this site. Run crawl_site first.",
+			}
+			return mcp.NewToolResultText(formatJSON(response)), nil
+		}
+		return mcp.NewToolResultError(fmt.Sprintf("failed to open JSONL for site '%s': %v", siteKey, err)), nil
+	}
+	defer file.Close()
+
+	pages := make([]pageListEntry, 0, 256)
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		// Cheap discriminator before Unmarshal; skips the crawl_meta footer.
+		if !strings.Contains(line, `"record_type":"page"`) {
+			continue
+		}
+		var p models.PageJSONL
+		if err := json.Unmarshal([]byte(line), &p); err != nil {
+			continue
+		}
+		if p.RecordType != models.RecordTypePage {
+			continue
+		}
+		pages = append(pages, pageListEntry{
+			URL:           p.URL,
+			Title:         p.Title,
+			Depth:         p.Depth,
+			CrawledAt:     p.CrawledAt,
+			ContentLength: len(p.Content),
+		})
+	}
+	if err := scanner.Err(); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to scan JSONL for site '%s': %v", siteKey, err)), nil
+	}
+
+	sort.Slice(pages, func(i, j int) bool { return pages[i].URL < pages[j].URL })
+
+	total := len(pages)
+	var pageSlice []pageListEntry
+	if offset >= total {
+		pageSlice = []pageListEntry{}
+	} else {
+		end := offset + maxResults
+		if end > total {
+			end = total
+		}
+		pageSlice = pages[offset:end]
+	}
+
+	response := map[string]interface{}{
+		"site_key":    siteKey,
+		"pages":       pageSlice,
+		"total":       total,
+		"offset":      offset,
+		"max_results": maxResults,
+		"returned":    len(pageSlice),
+	}
+	return mcp.NewToolResultText(formatJSON(response)), nil
+}
+
 // handleGetPage handles the get_page tool
 func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	urlStr := request.GetString("url", "")

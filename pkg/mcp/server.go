@@ -115,7 +115,23 @@ func (s *Server) registerTools() {
 	)
 	s.mcpServer.AddTool(getJobStatusTool, s.handleGetJobStatus)
 
-	s.log.Infof("Registered %d MCP tools", 4)
+	// list_pages - Enumerate crawled pages for a site
+	listPagesTool := mcp.NewTool("list_pages",
+		mcp.WithDescription("List crawled pages for a site, paginated and sorted by URL. Returns metadata only (URL, title, depth, crawled_at, content_length); use get_page to fetch a specific page's full content."),
+		mcp.WithString("site_key",
+			mcp.Required(),
+			mcp.Description("Site key from config (use list_sites to discover available keys)"),
+		),
+		mcp.WithNumber("max_results",
+			mcp.Description("Maximum pages to return (default: 100, max: 1000)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Pagination offset, 0-based (default: 0)"),
+		),
+	)
+	s.mcpServer.AddTool(listPagesTool, s.handleListPages)
+
+	s.log.Infof("Registered %d MCP tools", 5)
 }
 
 // Run starts the MCP server over the stdio transport.

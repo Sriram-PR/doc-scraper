@@ -574,6 +574,7 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 | `get_page` | Fetch a single URL and return content as markdown |
 | `crawl_site` | Start a background crawl for a site (returns job ID) |
 | `get_job_status` | Check the status of a background crawl job |
+| `list_pages` | Enumerate crawled pages for a site (paginated, metadata only) |
 
 ### Usage
 
@@ -629,6 +630,14 @@ Result: Returns job ID for tracking progress
 Tool: get_job_status
 Arguments: { "job_id": "abc-123-def" }
 Result: Returns status, pages processed, and completion info
+```
+
+**Enumerate crawled pages:**
+
+```
+Tool: list_pages
+Arguments: { "site_key": "pytorch_docs", "max_results": 50, "offset": 0 }
+Result: Returns up to 50 page entries (URL, title, depth, crawled_at, content_length), sorted by URL. Use offset for pagination.
 ```
 
 ## Contributing
