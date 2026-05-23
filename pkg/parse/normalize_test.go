@@ -310,18 +310,36 @@ func TestParseAndNormalize_InvalidURLs(t *testing.T) {
 	}
 }
 
-func TestParseAndNormalize_AbsolutePath(t *testing.T) {
-	// url.ParseRequestURI accepts absolute paths (they're valid request URIs)
-	resultStr, parsedURL, err := ParseAndNormalize("/path/to/page")
-	if err != nil {
-		t.Fatalf("ParseAndNormalize(/path/to/page) unexpected error: %v", err)
+func TestParseAndNormalize_AbsolutePathRejected(t *testing.T) {
+	// Bare absolute paths (no scheme/host) are not crawlable URLs and are
+	// rejected by ParseAndNormalize so callers don't end up with rows in the
+	// visited DB that can't be fetched.
+	_, _, err := ParseAndNormalize("/path/to/page")
+	if err == nil {
+		t.Fatal("ParseAndNormalize(/path/to/page) expected error, got nil")
 	}
-	if parsedURL == nil {
-		t.Fatal("ParseAndNormalize(/path/to/page) returned nil URL")
+}
+
+func TestParseAndNormalize_FragmentStripped(t *testing.T) {
+	// Regression: ParseRequestURI absorbed "#foo" into the path and
+	// round-tripped as "%23foo", which polluted the visited DB with
+	// uncrawlable URLs. Parse + clear-fragment must produce a clean URL.
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"https://example.com/page#section", "https://example.com/page"},
+		{"https://example.com/foo.html#a", "https://example.com/foo.html"},
+		{"https://example.com/page?q=1#top", "https://example.com/page"},
 	}
-	// Absolute path without host normalizes to just the path
-	if resultStr != "/path/to/page" {
-		t.Errorf("ParseAndNormalize(/path/to/page) = %q, want /path/to/page", resultStr)
+	for _, tt := range tests {
+		got, _, err := ParseAndNormalize(tt.input)
+		if err != nil {
+			t.Fatalf("ParseAndNormalize(%q) unexpected error: %v", tt.input, err)
+		}
+		if got != tt.expected {
+			t.Errorf("ParseAndNormalize(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
 	}
 }
 

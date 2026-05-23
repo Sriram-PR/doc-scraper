@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"fmt"
 	"net"
 	"net/url"
 	"strings"
@@ -38,12 +39,18 @@ func NormalizeURL(u *url.URL) string {
 	return normalized.String()
 }
 
-// ParseAndNormalize parses a URL string with url.ParseRequestURI (scheme required) and normalizes it.
-// Returns the normalized string, the parsed URL, and any parse error.
+// ParseAndNormalize parses an absolute URL string and normalizes it. Uses
+// url.Parse (not url.ParseRequestURI) so the fragment separator is honored:
+// ParseRequestURI silently folds "#anchor" into the path or query, which
+// round-trips as a percent-encoded "%23anchor" and breaks dedup. We then
+// require scheme + host explicitly to keep the "absolute URL only" contract.
 func ParseAndNormalize(urlStr string) (string, *url.URL, error) {
-	parsed, err := url.ParseRequestURI(urlStr)
+	parsed, err := url.Parse(urlStr)
 	if err != nil {
 		return "", nil, err
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return "", nil, fmt.Errorf("URL must be absolute (have scheme and host): %q", urlStr)
 	}
 	normalizedStr := NormalizeURL(parsed)
 	return normalizedStr, parsed, nil
