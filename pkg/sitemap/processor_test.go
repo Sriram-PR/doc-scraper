@@ -20,7 +20,6 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/queue"
 )
 
-// --- Mock types ---
 
 // mockFetcher implements fetch.HTTPFetcher.
 // It returns a fresh response body on each call (so the body can be read multiple times).
@@ -85,7 +84,6 @@ func (m *mockPageStore) visitedCount() int {
 	return len(m.visited)
 }
 
-// --- Helpers ---
 
 func discardLogger() *logrus.Entry {
 	l := logrus.New()
@@ -167,7 +165,6 @@ func drainPQAndBalance(pq *queue.ThreadSafePriorityQueue, wg *sync.WaitGroup) []
 	return items
 }
 
-// --- Tests ---
 
 func TestMarkSitemapProcessed(t *testing.T) {
 	store := newMockPageStore()

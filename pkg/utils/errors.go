@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// --- Sentinel Errors for Categorization ---
 var (
 	ErrRetryFailed        = errors.New("request failed after all retries") // Wraps the last underlying error
 	ErrClientHTTPError    = errors.New("client HTTP error (4xx)")          // Wraps original error/status
@@ -141,7 +140,6 @@ func CategorizeError(err error) string {
 		return "Content_NonHTML"
 	}
 
-	// --- Fallback checks for common underlying error types/strings ---
 
 	// Context errors
 	if errors.Is(err, context.Canceled) {

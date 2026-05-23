@@ -373,7 +373,6 @@ func runWatch(args []string) {
 
 // executeWatch runs the watch scheduler
 func executeWatch(configFile string, siteKeys []string, allSites bool, intervalStr, logLevelStr string) {
-	// --- Logger Setup ---
 	log := logrus.New()
 	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true, TimestampFormat: "15:04:05.000"})
 	log.SetLevel(logrus.InfoLevel)
@@ -385,21 +384,18 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 		log.SetLevel(level)
 	}
 
-	// --- Parse interval ---
 	interval, err := watch.ParseInterval(intervalStr)
 	if err != nil {
 		log.Fatalf("Invalid interval: %v", err)
 	}
 	log.Infof("Watch interval: %v", interval)
 
-	// --- Load Configuration ---
 	log.Infof("Loading configuration from %s", configFile)
 	appCfg, err := loadConfig(configFile)
 	if err != nil {
 		log.Fatalf("Config error: %v", err)
 	}
 
-	// --- Validate App Config ---
 	appWarnings, _ := appCfg.Validate()
 	for _, w := range appWarnings {
 		log.Warn(w)
@@ -409,18 +405,15 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 	appCfg.EnableIncremental = true
 	log.Info("Incremental mode enabled for watch")
 
-	// --- Determine site keys ---
 	if allSites {
 		siteKeys = config.GetAllSiteKeys(appCfg)
 		log.Infof("All sites mode: found %d sites", len(siteKeys))
 	}
 
-	// --- Validate site keys ---
 	if err := config.ValidateSiteKeys(appCfg, siteKeys); err != nil {
 		log.Fatalf("Invalid site keys: %v", err)
 	}
 
-	// --- Validate each site config ---
 	for _, key := range siteKeys {
 		siteCfg := appCfg.Sites[key]
 		siteWarnings, err := siteCfg.Validate()
@@ -432,11 +425,9 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 		}
 	}
 
-	// --- Create and run scheduler ---
 	logEntry := log.WithField("component", "watch")
 	scheduler := watch.NewScheduler(appCfg, siteKeys, interval, logEntry)
 
-	// --- Handle signals for graceful shutdown ---
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -446,7 +437,6 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 		scheduler.Stop()
 	}()
 
-	// --- Run scheduler (blocks until stopped) ---
 	if err := scheduler.Run(); err != nil {
 		log.Fatalf("Watch scheduler error: %v", err)
 	}
@@ -590,13 +580,11 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	appCfg := loadAndValidateConfig(configFile, log)
 	applyIncrementalOverride(appCfg, incrementalMode, fullMode, log)
 
-	// --- Determine site keys ---
 	if allSites {
 		siteKeys = config.GetAllSiteKeys(appCfg)
 		log.Infof("All sites mode: found %d sites", len(siteKeys))
 	}
 
-	// --- Validate site keys ---
 	if err := config.ValidateSiteKeys(appCfg, siteKeys); err != nil {
 		log.Fatalf("Invalid site keys: %v", err)
 	}
@@ -604,11 +592,9 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	validateSiteConfigs(appCfg, siteKeys, log)
 	startPprof(pprofAddr, log)
 
-	// --- Create and run orchestrator ---
 	logEntry := log.WithField("component", "parallel_crawl")
 	orch := orchestrate.NewOrchestrator(appCfg, siteKeys, isResume, logEntry)
 
-	// --- Handle signals for graceful shutdown ---
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -618,10 +604,8 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 		orch.Cancel()
 	}()
 
-	// --- Run parallel crawl ---
 	results := orch.Run()
 
-	// --- Check for failures ---
 	hasFailure := false
 	for _, r := range results {
 		if !r.Success {
@@ -643,7 +627,6 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 	appCfg := loadAndValidateConfig(configFile, log)
 	logAppConfig(appCfg, log)
 
-	// --- Get Site Config ---
 	siteCfg, ok := appCfg.Sites[siteKey]
 	if !ok {
 		log.Fatalf("Error: Site key '%s' not found in config file '%s'", siteKey, configFile)
@@ -664,9 +647,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 
 	startPprof(pprofAddr, log)
 
-	// ===========================================================
 	// == Setup Global Context & Signal Handling ==
-	// ===========================================================
 	var crawlCtx context.Context
 	var cancelCrawl context.CancelFunc
 
@@ -705,13 +686,10 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 	}()
 	defer signal.Stop(sigChan)
 
-	// ===========================================================
 	// == Initialize Components ==
-	// ===========================================================
 	log.Info("Initializing components...")
 	logEntry := log.WithField("component", "crawl")
 
-	// --- Storage ---
 	store, err := storage.NewBadgerStore(crawlCtx, appCfg.StateDir, siteCfg.AllowedDomain, isResume, logEntry)
 	if err != nil {
 		log.Fatalf("Failed to initialize visited DB: %v", err)
@@ -720,12 +698,10 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 
 	go store.RunGC(crawlCtx, 0) // 0 = use the store's built-in default (10m)
 
-	// --- HTTP Fetching Components ---
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, logEntry)
 	fetcher := fetch.NewFetcher(httpClient, appCfg, logEntry)
 	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logEntry)
 
-	// --- Crawler Instance ---
 	crawlerInstance, err := crawler.NewCrawler(
 		appCfg,
 		siteCfg,
@@ -742,16 +718,11 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 		log.Fatalf("Failed to initialize crawler: %v", err)
 	}
 
-	// ===========================================================
 	// == Start Crawler Execution ==
-	// ===========================================================
 	err = crawlerInstance.Run(isResume)
 
-	// ===========================================================
 	// == Post-Crawl Actions ==
-	// ===========================================================
 
-	// --- Exit ---
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			log.Warn("Crawl cancelled gracefully.")

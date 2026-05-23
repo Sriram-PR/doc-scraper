@@ -14,7 +14,6 @@ func testContentProcessor() *ContentProcessor {
 	return &ContentProcessor{}
 }
 
-// --- getOutputPathForURL Tests ---
 
 func TestGetOutputPathForURL_RootURL(t *testing.T) {
 	cp := testContentProcessor()

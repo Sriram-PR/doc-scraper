@@ -176,7 +176,6 @@ func NewCrawlerWithOptions(
 		c.progressCallback = opts.ProgressCallback
 	}
 
-	// --- Initialize output manager (files opened later in Run after directory cleanup) ---
 	c.output = NewOutputManager(logger, resolved, siteCfg, siteKey, siteOutputDir)
 
 	// Initialize components that depend on the crawler or other components
@@ -233,14 +232,12 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	c.log.WithFields(runLogFields).Infof("Crawl starting with %d worker(s)...", c.appCfg.NumWorkers)
 	overallCrawlStartTimeForDuration := time.Now() // For calculating overall duration visible in final log
 
-	// --- DEFER CLEANUP ACTIONS ---
 	defer func() {
 		if err := c.output.Close(); err != nil {
 			c.log.WithFields(runLogFields).Errorf("Error finalizing output files: %v", err)
 		}
 	}()
 
-	// --- Start URL Validation ---
 	var validStartURLs []string
 	seenStartURLs := make(map[string]bool, len(c.siteCfg.StartURLs))
 	var firstValidParsedURL *url.URL // Used for initial robots.txt fetch
@@ -281,7 +278,6 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	}
 	c.log.WithFields(runLogFields).Infof("Using %d valid StartURLs: %v", len(validStartURLs), validStartURLs)
 
-	// --- Clean/Prepare Output Directory ---
 	c.log.WithFields(runLogFields).Infof("Site output target directory: %s", c.siteOutputDir)
 	if !resume {
 		if err := c.cleanSiteOutputDir(); err != nil {
@@ -296,10 +292,8 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	}
 	c.log.WithFields(runLogFields).Infof("Ensured site output directory exists: %s", c.siteOutputDir)
 
-	// --- Open output files now that the directory is ready ---
 	c.output.OpenFiles(resume)
 
-	// --- Requeue Incomplete Tasks from DB (if resuming) ---
 	initialTasksFromDB := 0
 	if resume {
 		c.log.WithFields(runLogFields).Info("Resume mode: Scanning database for incomplete tasks to requeue...")
@@ -330,7 +324,6 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		c.log.WithFields(runLogFields).Infof("DB requeue scan complete. Requeued %d tasks.", initialTasksFromDB)
 	}
 
-	// --- Start Background Processes (Workers, Sitemap Processor) ---
 	c.log.WithFields(runLogFields).Infof("Starting %d workers...", c.appCfg.NumWorkers)
 	for i := 1; i <= c.appCfg.NumWorkers; i++ {
 		// Each worker gets a logger with its ID (site_key is already in c.log)
@@ -340,7 +333,6 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	c.log.WithFields(runLogFields).Infof("%d workers started.", c.appCfg.NumWorkers)
 	c.sitemapProcessor.Start(c.crawlCtx) // Sitemap processor uses its own contextualized logger
 
-	// --- Waiter Goroutine (Coordinates Startup Dependencies & Shutdown) ---
 	waiterDone := make(chan struct{})
 	go func() { // This goroutine manages the sequence of startup and waiting for completion.
 		defer close(waiterDone) // Signal that the waiter goroutine itself has finished.
@@ -453,7 +445,6 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		close(c.sitemapQueue)
 	}()
 
-	// --- Seed Queue with Initial Start URLs ---
 	c.log.WithFields(runLogFields).Info("Seeding priority queue with validated start URLs...")
 	initialURLsAddedFromSeed := 0
 	for _, startURLStr := range validStartURLs {
@@ -470,7 +461,6 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 			initialURLsAddedFromSeed, initialTasksFromDB+initialURLsAddedFromSeed)
 	}
 
-	// --- Wait for Waiter Goroutine to Finish (signals all processing is done or context was cancelled) ---
 	c.log.WithFields(runLogFields).Info("Main: Waiting for waiter goroutine to complete...")
 	select {
 	case <-waiterDone: // Waiter completed its sequence (including waiting for wg)
@@ -481,7 +471,6 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		c.log.WithFields(runLogFields).Info("Main: Waiter finished after context cancellation.")
 	}
 
-	// --- Final Summary Logging ---
 	duration := time.Since(overallCrawlStartTimeForDuration)
 	finalVisitedCount, countErr := c.store.GetVisitedCount()
 	if countErr != nil {
@@ -677,7 +666,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 		return true // Indicate that an error was handled
 	}
 
-	// --- Orchestration Pipeline for Processing a Single Page ---
 
 	// 1. Setup & Resume Check: Parse URL, normalize, check DB if resuming.
 	var parsedOriginalURL *url.URL // Parsed version of currentURL
@@ -740,10 +728,10 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 		}
 	}
 
-	// Release semaphores early -- HTTP fetch is complete, remaining work is
-	// local computation + image downloads (which acquire their own semaphores).
-	// The deferred cleanupResources() at line 695 remains as safety net for
-	// error paths above this point.
+	// Release semaphores early: HTTP fetch is done, remaining work is local
+	// computation + image downloads (which acquire their own semaphores). The
+	// deferred cleanupResources is still in place as a safety net for error
+	// paths above this point.
 	cleanupResources()
 
 	// 6. Extract & Queue Links: Find new links on the page and add to priority queue.
@@ -765,7 +753,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	pageTitle = tempPageTitle
 	savedContentPath = tempSavedPath // This is the ABSOLUTE path to the saved .md file.
 
-	// --- After successful content saving, record JSONL output ---
 	if savedContentPath != "" {
 		c.output.RecordPageOutput(finalURL.String(), tempMarkdownBytes, pageTitle, currentDepth, taskLog)
 	}
@@ -773,7 +760,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	// The deferred function will handle logging this success and updating DB.
 }
 
-// --- Helper methods for processSinglePageTask stages ---
 
 // handleSetupAndResumeCheck parses the URL, normalizes it, and checks its status in the DB.
 // It determines if the URL should be skipped (e.g., already successfully processed).
@@ -911,7 +897,6 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	}
 	// If fetchErr is nil, we have a successful 2xx response, and resp.Body is open.
 
-	// --- Post-fetch Validation (after successful fetch and potential redirects) ---
 	finalURL = resp.Request.URL            // URL after any redirects handled by the HTTP client
 	if finalURL.String() != reqURLString { // Log if URL changed due to redirect
 		taskLog = taskLog.WithField("final_url", finalURL.String())

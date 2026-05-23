@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// --- CategorizeError Tests ---
 
 func TestCategorizeError_NilError(t *testing.T) {
 	result := CategorizeError(nil)
@@ -221,7 +220,6 @@ func TestCategorizeError_Unknown(t *testing.T) {
 	}
 }
 
-// --- SanitizeFilename Tests ---
 
 func TestSanitizeFilename(t *testing.T) {
 	tests := []struct {
@@ -278,7 +276,6 @@ func TestSanitizeFilename_LongNames(t *testing.T) {
 	}
 }
 
-// --- CompileRegexPatterns Tests ---
 
 func TestCompileRegexPatterns_ValidPatterns(t *testing.T) {
 	patterns := []string{
@@ -333,7 +330,6 @@ func TestCompileRegexPatterns_InvalidPattern(t *testing.T) {
 	}
 }
 
-// --- CalculateStringSHA256 Tests ---
 
 func TestCalculateStringSHA256(t *testing.T) {
 	tests := []struct {
@@ -368,7 +364,6 @@ func TestCalculateStringSHA256(t *testing.T) {
 	}
 }
 
-// --- CalculateFileSHA256 Tests ---
 
 func TestCalculateFileSHA256(t *testing.T) {
 	// Create a temporary file with known content

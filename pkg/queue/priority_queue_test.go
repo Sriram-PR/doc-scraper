@@ -18,7 +18,6 @@ func testLogger() *logrus.Entry {
 	return logrus.NewEntry(log)
 }
 
-// --- Basic Operations Tests ---
 
 func TestNewThreadSafePriorityQueue(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
@@ -102,7 +101,6 @@ func TestThreadSafePriorityQueue_SamePriority(t *testing.T) {
 	}
 }
 
-// --- Close Tests ---
 
 func TestThreadSafePriorityQueue_Close(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
@@ -166,7 +164,6 @@ func TestThreadSafePriorityQueue_DoubleClose(t *testing.T) {
 	pq.Close() // Should be safe
 }
 
-// --- Blocking Behavior Tests ---
 
 func TestThreadSafePriorityQueue_PopBlocks(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
@@ -253,7 +250,6 @@ func TestThreadSafePriorityQueue_CloseUnblocksWaiters(t *testing.T) {
 	}
 }
 
-// --- Concurrency Tests ---
 
 func TestThreadSafePriorityQueue_ConcurrentAdd(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
@@ -347,7 +343,6 @@ func TestThreadSafePriorityQueue_ConcurrentAddPop(t *testing.T) {
 	countMu.Unlock()
 }
 
-// --- Len Tests ---
 
 func TestThreadSafePriorityQueue_LenAccuracy(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())

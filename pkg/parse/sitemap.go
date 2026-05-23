@@ -2,7 +2,6 @@ package parse
 
 import "encoding/xml"
 
-// --- XML Structs for Sitemap Parsing ---
 
 // XMLURL represents a <url> element in a sitemap
 type XMLURL struct {

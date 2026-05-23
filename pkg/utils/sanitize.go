@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// --- Filename Sanitization ---
 var invalidFilenameChars = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`) // Characters invalid in Windows/Unix filenames
 var consecutiveUnderscores = regexp.MustCompile(`_+`)                  // Pattern to replace multiple underscores with one
 const maxFilenameLength = 100                                          // Max length for sanitized filenames
