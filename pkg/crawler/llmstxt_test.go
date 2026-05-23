@@ -90,6 +90,7 @@ func TestWriteLLMsTxtFiles_EmptyJSONL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(index), "0 pages")
 	assert.Contains(t, string(index), "## Pages")
+	assert.Contains(t, string(index), "_No pages were successfully crawled._")
 
 	_, err = os.Stat(filepath.Join(dir, llmsFullTxtFilename))
 	assert.NoError(t, err, "llms-full.txt should still be created with just the header")

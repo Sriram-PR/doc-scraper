@@ -90,6 +90,9 @@ func (om *OutputManager) writeLLMsTxtFiles() {
 	fmt.Fprintf(indexFile, "# %s\n\n", om.siteKey)
 	fmt.Fprintf(indexFile, "> Crawled documentation from %s. %d pages.\n\n", domain, len(pages))
 	fmt.Fprintln(indexFile, "## Pages")
+	if len(pages) == 0 {
+		fmt.Fprintln(indexFile, "_No pages were successfully crawled._")
+	}
 	for _, p := range pages {
 		fmt.Fprintf(indexFile, "- [%s](%s)\n", escapeLinkText(p.title), p.url)
 	}
