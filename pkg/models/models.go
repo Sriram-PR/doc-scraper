@@ -57,11 +57,12 @@ type PageJSONL struct {
 	Depth       int      `json:"depth"`
 }
 
-// CrawlMetaJSONL is the crawl-level summary record. Exactly one is appended as
-// the final line of the JSONL file when a crawl finishes. A resumed crawl
-// appends a fresh record rather than rewriting the original, so consumers
-// should treat the last crawl_meta record in the file as authoritative.
-// RecordType is always RecordTypeCrawlMeta.
+// CrawlMetaJSONL is the crawl-level summary record. Exactly one appears as
+// the final line of the JSONL file when a crawl finishes; a resumed crawl
+// strips any leftover crawl_meta records from the prior session before
+// appending so the final summary is the only one in the file and its
+// TotalPages reflects all sessions combined. RecordType is always
+// RecordTypeCrawlMeta.
 type CrawlMetaJSONL struct {
 	RecordType     string `json:"record_type"`
 	SiteKey        string `json:"site_key"`

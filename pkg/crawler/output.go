@@ -1,8 +1,12 @@
 package crawler
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -61,6 +65,15 @@ func (om *OutputManager) OpenFiles(resume bool) {
 	if om.resolved.EnableJSONLOutput {
 		om.jsonlFilePath = filepath.Join(om.siteOutputDir, om.resolved.JSONLOutputFilename)
 		om.log.Infof("JSONL output enabled. Output file: %s", om.jsonlFilePath)
+		if resume {
+			priorPages, err := stripLeftoverCrawlMeta(om.jsonlFilePath)
+			if err != nil {
+				om.log.Warnf("Resume: failed to rewrite %s without leftover crawl_meta records, file may contain duplicates: %v", om.jsonlFilePath, err)
+			} else if priorPages > 0 {
+				om.pagesRecorded.Store(priorPages)
+				om.log.Infof("Resume: counted %d prior page records and stripped any leftover crawl_meta", priorPages)
+			}
+		}
 		om.jsonlFile = openOutputFile(om.log, om.jsonlFilePath, "JSONL", resume)
 	} else {
 		om.log.Info("JSONL output is disabled.")
@@ -84,6 +97,45 @@ func openOutputFile(log *logrus.Entry, path, label string, resume bool) *os.File
 		return nil
 	}
 	return file
+}
+
+// stripLeftoverCrawlMeta rewrites path in place, dropping every crawl_meta
+// record so the resumed crawl can append fresh pages and a single
+// authoritative crawl_meta at Close. Returns the page-record count seen so
+// the caller can seed the cumulative page counter. A non-existent file is
+// not an error (treated as no prior records).
+func stripLeftoverCrawlMeta(path string) (int64, error) {
+	in, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer in.Close()
+
+	var kept bytes.Buffer
+	var pages int64
+	scanner := bufio.NewScanner(in)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if bytes.Contains(line, []byte(`"record_type":"crawl_meta"`)) {
+			continue
+		}
+		if bytes.Contains(line, []byte(`"record_type":"page"`)) {
+			pages++
+		}
+		kept.Write(line)
+		kept.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, fmt.Errorf("scan: %w", err)
+	}
+	if err := os.WriteFile(path, kept.Bytes(), 0644); err != nil {
+		return 0, fmt.Errorf("rewrite: %w", err)
+	}
+	return pages, nil
 }
 
 // Close flushes buffered records, appends crawl_meta, closes the file, then
@@ -185,8 +237,8 @@ func (om *OutputManager) flushBufferedJSONL() {
 }
 
 // writeCrawlMetaRecord appends the crawl summary as the final JSONL line.
-// Resumed crawls append a fresh record; consumers treat the last one as
-// authoritative.
+// On resume, OpenFiles strips any leftover crawl_meta records so the line
+// written here is the only one in the file.
 func (om *OutputManager) writeCrawlMetaRecord() {
 	om.jsonlFileMu.Lock()
 	defer om.jsonlFileMu.Unlock()

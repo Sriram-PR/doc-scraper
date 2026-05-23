@@ -448,9 +448,27 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	c.log.WithFields(runLogFields).Info("Seeding priority queue with validated start URLs...")
 	initialURLsAddedFromSeed := 0
 	for _, startURLStr := range validStartURLs {
-		c.log.WithFields(runLogFields).Infof("Adding start URL '%s' to queue (Depth 0).", startURLStr)
+		normalizedSeed, _, normErr := parse.ParseAndNormalize(startURLStr)
+		if normErr != nil {
+			c.log.WithFields(runLogFields).Warnf("Skipping start URL '%s': normalize failed: %v", startURLStr, normErr)
+			continue
+		}
+		// Mark the seed as visited before enqueueing so a same-page anchor in
+		// the seed body cannot enqueue a duplicate WorkItem during link
+		// extraction (MarkPageVisited would otherwise return added=true since
+		// the seed has no DB entry until the deferred UpdatePageStatus runs).
+		added, markErr := c.store.MarkPageVisited(normalizedSeed)
+		if markErr != nil {
+			c.log.WithFields(runLogFields).Errorf("Skipping start URL '%s': MarkPageVisited failed: %v", startURLStr, markErr)
+			continue
+		}
+		if !added {
+			c.log.WithFields(runLogFields).Debugf("Start URL '%s' already in DB (likely from resume); skipping re-seed.", startURLStr)
+			continue
+		}
+		c.log.WithFields(runLogFields).Infof("Adding start URL '%s' to queue (Depth 0).", normalizedSeed)
 		c.wg.Add(1) // Increment main WaitGroup for each initial URL
-		c.pq.Add(&models.WorkItem{URL: startURLStr, Depth: 0})
+		c.pq.Add(&models.WorkItem{URL: normalizedSeed, Depth: 0})
 		initialURLsAddedFromSeed++
 	}
 	if initialURLsAddedFromSeed == 0 && initialTasksFromDB == 0 && len(c.foundSitemaps) == 0 { // Check all potential sources
