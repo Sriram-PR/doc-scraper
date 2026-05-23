@@ -125,6 +125,7 @@ func TestClose_AppendsCrawlMetaRecordAsFinalLine(t *testing.T) {
 		siteKey:        "example",
 		siteCfg:        &config.SiteConfig{AllowedDomain: "example.com"},
 		resolved:       &config.ResolvedSiteConfig{},
+		siteOutputDir:  tmpDir,
 		jsonlFile:      f,
 		jsonlFilePath:  jsonlPath,
 		bufferOutput:   true,

@@ -124,6 +124,7 @@ func (om *OutputManager) Close() error {
 	om.writeCrawlMetaRecord()
 	om.closeJSONLFile()
 	om.closeChunksFile()
+	om.writeLLMsTxtFiles()
 	return nil
 }
 

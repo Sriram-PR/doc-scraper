@@ -377,11 +377,17 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
     ├── images/                       # Only present if skip_images: false
     ├── <jsonl_output_filename>       # If enable_jsonl_output: true
     ├── <chunking.output_filename>    # If chunking.enabled: true
+    ├── llms.txt                      # Manifest of pages (auto-generated, when JSONL is enabled)
+    ├── llms-full.txt                 # Full content concatenated (auto-generated, when JSONL is enabled)
     ├── topic_one/
     │   ├── index.md
     │   └── subtopic_a.md
     └── topic_two.md
 ```
+
+### llms.txt and llms-full.txt
+
+When JSONL output is enabled, the crawler also emits `llms.txt` and `llms-full.txt` following the [llmstxt.org](https://llmstxt.org/) convention. `llms.txt` is a markdown manifest (H1 + summary blockquote + `## Pages` list of every crawled page with title and URL). `llms-full.txt` concatenates the full markdown content of every page, with section separators. Both files are regenerated on every crawl from the JSONL source of truth, so resumed crawls produce a complete updated manifest.
 
 ### Output Format
 
