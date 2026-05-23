@@ -36,16 +36,25 @@ func fatal(log *slog.Logger, format string, args ...interface{}) {
 	os.Exit(1)
 }
 
-// setupLogger parses logLevelStr and returns a *slog.Logger with text format
-// on stderr. Mirrors the parse-then-fallback behavior the logrus version
-// provided: invalid levels warn and fall back to info.
-func setupLogger(logLevelStr string) *slog.Logger {
+// setupLogger parses logLevelStr and returns a *slog.Logger on stderr using
+// the given format (pkglog.FormatText or pkglog.FormatJSON). Mirrors the
+// parse-then-fallback behavior of the original logrus setup: invalid levels
+// warn and fall back to info.
+func setupLogger(logLevelStr, format string) *slog.Logger {
 	level, parseErr := pkglog.ParseLevel(logLevelStr)
-	log := pkglog.New(level, pkglog.FormatText, os.Stderr)
+	log := pkglog.New(level, format, os.Stderr)
 	if parseErr != nil {
 		log.Warn(fmt.Sprintf("Invalid log level '%s', using default 'info'. Error: %v", logLevelStr, parseErr))
 	}
 	return log
+}
+
+// logFormatFor returns the pkglog format string for the --json flag.
+func logFormatFor(jsonOut bool) string {
+	if jsonOut {
+		return pkglog.FormatJSON
+	}
+	return pkglog.FormatText
 }
 
 const version = "2.2.2"
@@ -122,6 +131,7 @@ func runCrawl(args []string) {
 	allSites := fs.Bool("all-sites", false, "Crawl all configured sites in parallel")
 	resume := fs.Bool("resume", false, "Resume an interrupted crawl from existing state")
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
+	jsonLogs := fs.Bool("json", false, "Emit logs as JSON (one record per line) instead of slog's text format")
 	pprofAddr := fs.String("pprof", "", "pprof address, e.g. localhost:6060 (disabled by default)")
 	incrementalMode := fs.Bool("incremental", false, "Enable incremental crawling (skip unchanged pages)")
 	fullMode := fs.Bool("full", false, "Force full crawl (ignore incremental settings)")
@@ -171,11 +181,12 @@ func runCrawl(args []string) {
 		os.Exit(1)
 	}
 
+	logFormat := logFormatFor(*jsonLogs)
 	// Check for parallel mode (multiple sites or all sites)
 	if *allSites || len(siteKeys) > 1 {
-		executeParallelCrawl(*configFile, siteKeys, *allSites, *logLevel, *pprofAddr, isResume, *incrementalMode, *fullMode)
+		executeParallelCrawl(*configFile, siteKeys, *allSites, *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode)
 	} else {
-		executeCrawl(*configFile, siteKeys[0], *logLevel, *pprofAddr, isResume, *incrementalMode, *fullMode)
+		executeCrawl(*configFile, siteKeys[0], *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode)
 	}
 }
 
@@ -363,6 +374,7 @@ func runWatch(args []string) {
 	allSites := fs.Bool("all-sites", false, "Watch all configured sites")
 	interval := fs.String("interval", "24h", "Crawl interval (e.g., 30m, 1h, 24h, 7d)")
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
+	jsonLogs := fs.Bool("json", false, "Emit logs as JSON (one record per line) instead of slog's text format")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: doc-scraper watch [options]\n\nOptions:\n")
@@ -397,12 +409,12 @@ func runWatch(args []string) {
 		os.Exit(1)
 	}
 
-	executeWatch(*configFile, siteKeys, *allSites, *interval, *logLevel)
+	executeWatch(*configFile, siteKeys, *allSites, *interval, *logLevel, logFormatFor(*jsonLogs))
 }
 
 // executeWatch runs the watch scheduler
-func executeWatch(configFile string, siteKeys []string, allSites bool, intervalStr, logLevelStr string) {
-	log := setupLogger(logLevelStr)
+func executeWatch(configFile string, siteKeys []string, allSites bool, intervalStr, logLevelStr, logFormat string) {
+	log := setupLogger(logLevelStr, logFormat)
 
 	interval, err := watch.ParseInterval(intervalStr)
 	if err != nil {
@@ -575,11 +587,11 @@ func validateSiteConfigs(appCfg *config.AppConfig, siteKeys []string, log *slog.
 
 // executeCrawl contains the main crawl logic
 // executeParallelCrawl handles crawling multiple sites in parallel
-func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, pprofAddr string, isResume, incrementalMode, fullMode bool) {
+func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) {
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
 
-	log := setupLogger(logLevelStr)
+	log := setupLogger(logLevelStr, logFormat)
 	appCfg := loadAndValidateConfig(configFile, log)
 	applyIncrementalOverride(appCfg, incrementalMode, fullMode, log)
 
@@ -622,11 +634,11 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	}
 }
 
-func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, incrementalMode, fullMode bool) {
+func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) {
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
 
-	log := setupLogger(logLevelStr)
+	log := setupLogger(logLevelStr, logFormat)
 	appCfg := loadAndValidateConfig(configFile, log)
 	logAppConfig(appCfg, log)
 
