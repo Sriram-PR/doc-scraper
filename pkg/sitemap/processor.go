@@ -299,7 +299,9 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 
 					if added {
 						sp.wg.Add(1)
-						sitemapWorkItem := models.WorkItem{URL: pageURL, Depth: 0} // depth 0; sitemaps are flat
+						// Enqueue the normalized URL so WorkItem.URL and the DB
+						// key agree; see process/links.go for the rationale.
+						sitemapWorkItem := models.WorkItem{URL: normalizedPageURL, Depth: 0}
 						sp.pq.Add(&sitemapWorkItem)
 						queuedCount++
 					}

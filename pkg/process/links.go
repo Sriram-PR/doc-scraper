@@ -79,7 +79,7 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 		return 0, nil
 	}
 
-	foundLinks := make(map[string]string) // normalized URL -> original URL
+	foundLinks := make(map[string]struct{}) // set of normalized URLs
 
 	selectorsToSearch := siteCfg.LinkExtractionSelectors
 	if len(selectorsToSearch) == 0 {
@@ -149,16 +149,13 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 				return // Skip if normalization fails
 			}
 
-			// Add to map if not already present (using normalized as key)
-			if _, found := foundLinks[normalizedLink]; !found {
-				foundLinks[normalizedLink] = absoluteLinkURL
-			}
+			foundLinks[normalizedLink] = struct{}{}
 		})
 	}
 
 	if len(foundLinks) > 0 {
 		taskLog.Debugf("Found %d unique, valid, in-scope links across all specified selectors.", len(foundLinks))
-		for normalizedLink, originalLinkURL := range foundLinks {
+		for normalizedLink := range foundLinks {
 			added, visitErr := lp.store.MarkPageVisited(normalizedLink)
 			if visitErr != nil {
 				dbErr := fmt.Errorf("%w: checking/marking link '%s' visited: %w", utils.ErrDatabase, normalizedLink, visitErr)
@@ -171,10 +168,15 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 
 			if added {
 				wg.Add(1)
-				nextWorkItem := models.WorkItem{URL: originalLinkURL, Depth: nextDepth}
+				// Enqueue the normalized URL: the DB key and WorkItem.URL then
+				// agree, which closes a dedup-escape race where a same-page
+				// anchor (e.g. index.html#foo) could be enqueued and later
+				// processed as a distinct page if the parent's deferred
+				// UpdatePageStatus had not yet marked the bare URL Success.
+				nextWorkItem := models.WorkItem{URL: normalizedLink, Depth: nextDepth}
 				lp.pq.Add(&nextWorkItem)
 				queuedCount++
-				taskLog.Debugf("Queued new link: %s (Normalized: %s)", originalLinkURL, normalizedLink)
+				taskLog.Debugf("Queued new link (normalized): %s", normalizedLink)
 			} else {
 				taskLog.Debugf("Link already visited/pending, skipping queue: %s", normalizedLink)
 			}
