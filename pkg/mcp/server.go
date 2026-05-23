@@ -14,7 +14,7 @@ import (
 
 const (
 	serverName    = "doc-scraper"
-	serverVersion = "2.0.2"
+	serverVersion = "2.1.0"
 )
 
 // ServerConfig holds configuration for the MCP server. Only the stdio
