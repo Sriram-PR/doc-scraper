@@ -56,8 +56,8 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 	log.SetOutput(stderr) // MCP protocol uses stdout, logs go to stderr
 	level, err := logrus.ParseLevel(logLevel)
 	if err != nil {
-		fmt.Fprintf(stderr, "Invalid log level: %s\n", logLevel)
-		return 1
+		log.Warnf("Invalid log level '%s', using default 'info'. Error: %v", logLevel, err)
+		level = logrus.InfoLevel
 	}
 	log.SetLevel(level)
 	log.SetFormatter(&logrus.TextFormatter{
