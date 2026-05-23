@@ -2,6 +2,7 @@ package process
 
 import (
 	"fmt"
+	"log/slog"
 	"net/url"
 	"path"
 	"regexp"
@@ -9,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/sirupsen/logrus"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
@@ -39,7 +39,7 @@ type LinkProcessor struct {
 	store                      storage.PageStore
 	pq                         *queue.ThreadSafePriorityQueue
 	compiledDisallowedPatterns []*regexp.Regexp
-	log                        *logrus.Entry
+	log                        *slog.Logger
 }
 
 // NewLinkProcessor creates a LinkProcessor.
@@ -47,7 +47,7 @@ func NewLinkProcessor(
 	store storage.PageStore,
 	pq *queue.ThreadSafePriorityQueue,
 	compiledDisallowedPatterns []*regexp.Regexp,
-	log *logrus.Entry,
+	log *slog.Logger,
 ) *LinkProcessor {
 	return &LinkProcessor{
 		store:                      store,
@@ -66,16 +66,16 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 	currentDepth int,
 	siteCfg *config.SiteConfig,
 	wg *sync.WaitGroup,
-	taskLog *logrus.Entry,
+	taskLog *slog.Logger,
 ) (queuedCount int, err error) {
 
 	nextDepth := currentDepth + 1
-	taskLog = taskLog.WithField("next_depth", nextDepth)
+	taskLog = taskLog.With("next_depth", nextDepth)
 	taskLog.Debug("Extracting and queueing links...")
 	var firstDBError error
 
 	if siteCfg.MaxDepth > 0 && nextDepth > siteCfg.MaxDepth {
-		taskLog.Debugf("Max depth (%d) reached/exceeded for next level (%d), skipping link extraction.", siteCfg.MaxDepth, nextDepth)
+		taskLog.Debug(fmt.Sprintf("Max depth (%d) reached/exceeded for next level (%d), skipping link extraction.", siteCfg.MaxDepth, nextDepth))
 		return 0, nil
 	}
 
@@ -86,11 +86,11 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 		selectorsToSearch = []string{"body"}
 		taskLog.Debug("No link_extraction_selectors defined, defaulting to 'body'")
 	} else {
-		taskLog.Debugf("Using link_extraction_selectors: %v", selectorsToSearch)
+		taskLog.Debug(fmt.Sprintf("Using link_extraction_selectors: %v", selectorsToSearch))
 	}
 
 	for _, selector := range selectorsToSearch {
-		taskLog.Debugf("Searching for links within selector: '%s'", selector)
+		taskLog.Debug(fmt.Sprintf("Searching for links within selector: '%s'", selector))
 		originalDoc.Find(selector).Find("a[href]").Each(func(index int, element *goquery.Selection) {
 			href, exists := element.Attr("href")
 			if !exists || href == "" {
@@ -99,14 +99,14 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 
 			if siteCfg.RespectNofollow {
 				if rel, _ := element.Attr("rel"); strings.Contains(strings.ToLower(rel), "nofollow") {
-					taskLog.Debugf("Skipping nofollow link: %s", href)
+					taskLog.Debug(fmt.Sprintf("Skipping nofollow link: %s", href))
 					return
 				}
 			}
 
 			linkURL, parseErr := finalURL.Parse(href)
 			if parseErr != nil {
-				taskLog.Warnf("Skipping invalid link href '%s' in selector '%s': %v", href, selector, parseErr)
+				taskLog.Warn(fmt.Sprintf("Skipping invalid link href '%s' in selector '%s': %v", href, selector, parseErr))
 				return
 			}
 			absoluteLinkURL := linkURL.String()
@@ -134,7 +134,7 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 			for _, pattern := range lp.compiledDisallowedPatterns {
 				if pattern.MatchString(linkURL.Path) {
 					isDisallowed = true
-					taskLog.Debugf("Link '%s' disallowed by pattern: %s", absoluteLinkURL, pattern.String())
+					taskLog.Debug(fmt.Sprintf("Link '%s' disallowed by pattern: %s", absoluteLinkURL, pattern.String()))
 					break
 				}
 			}
@@ -145,7 +145,7 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 			// Normalize the valid, in-scope URL
 			normalizedLink, _, errNorm := parse.ParseAndNormalize(absoluteLinkURL)
 			if errNorm != nil {
-				taskLog.Warnf("Cannot normalize extracted link '%s': %v", absoluteLinkURL, errNorm)
+				taskLog.Warn(fmt.Sprintf("Cannot normalize extracted link '%s': %v", absoluteLinkURL, errNorm))
 				return // Skip if normalization fails
 			}
 
@@ -154,12 +154,12 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 	}
 
 	if len(foundLinks) > 0 {
-		taskLog.Debugf("Found %d unique, valid, in-scope links across all specified selectors.", len(foundLinks))
+		taskLog.Debug(fmt.Sprintf("Found %d unique, valid, in-scope links across all specified selectors.", len(foundLinks)))
 		for normalizedLink := range foundLinks {
 			added, visitErr := lp.store.MarkPageVisited(normalizedLink)
 			if visitErr != nil {
 				dbErr := fmt.Errorf("%w: checking/marking link '%s' visited: %w", utils.ErrDatabase, normalizedLink, visitErr)
-				taskLog.Error(dbErr)
+				taskLog.Error(dbErr.Error())
 				if firstDBError == nil {
 					firstDBError = dbErr
 				}
@@ -176,15 +176,15 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 				nextWorkItem := models.WorkItem{URL: normalizedLink, Depth: nextDepth}
 				lp.pq.Add(&nextWorkItem)
 				queuedCount++
-				taskLog.Debugf("Queued new link (normalized): %s", normalizedLink)
+				taskLog.Debug(fmt.Sprintf("Queued new link (normalized): %s", normalizedLink))
 			} else {
-				taskLog.Debugf("Link already visited/pending, skipping queue: %s", normalizedLink)
+				taskLog.Debug(fmt.Sprintf("Link already visited/pending, skipping queue: %s", normalizedLink))
 			}
 		}
 	} else {
 		taskLog.Debug("No new valid links found to queue.")
 	}
 
-	taskLog.Infof("Finished link extraction. Queued %d NEW links.", queuedCount)
+	taskLog.Info(fmt.Sprintf("Finished link extraction. Queued %d NEW links.", queuedCount))
 	return queuedCount, firstDBError
 }

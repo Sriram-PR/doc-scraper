@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
-	"github.com/sirupsen/logrus"
+	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,12 +17,10 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
 )
 
-// silentTestLogger returns a logrus.Entry that discards output (tests should
+// silentTestLogger returns a *slog.Logger that discards output (tests should
 // not produce stderr noise).
-func silentTestLogger() *logrus.Entry {
-	l := logrus.New()
-	l.SetOutput(io.Discard)
-	return logrus.NewEntry(l)
+func silentTestLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // writeJSONLRecords writes one JSON object per line to path. Each value is
@@ -59,7 +57,7 @@ func newTestServer(t *testing.T, siteKey, allowedDomain string) (*Server, string
 	s := &Server{
 		cfg: &ServerConfig{
 			AppConfig: appCfg,
-			Logger:    silentTestLogger().Logger,
+			Logger:    silentTestLogger(),
 		},
 		log:        silentTestLogger(),
 		jobManager: NewJobManager("", nil),

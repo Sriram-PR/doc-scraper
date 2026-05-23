@@ -9,16 +9,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sirupsen/logrus"
+	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestLogger() *logrus.Entry {
-	l := logrus.New()
-	l.SetOutput(os.Stderr)
-	l.SetLevel(logrus.WarnLevel)
-	return logrus.NewEntry(l)
+func newTestLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 }
 
 func createTestJob(t *testing.T, jm *JobManager, siteKey string, incremental bool) *Job {

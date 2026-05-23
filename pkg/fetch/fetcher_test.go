@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/sirupsen/logrus"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
@@ -26,10 +25,8 @@ func testConfig(maxRetries int) *config.AppConfig {
 }
 
 // testLogger returns a logger that discards output
-func testLogger() *logrus.Entry {
-	log := logrus.New()
-	log.SetOutput(io.Discard)
-	return logrus.NewEntry(log)
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // testClient returns an http.Client suitable for testing

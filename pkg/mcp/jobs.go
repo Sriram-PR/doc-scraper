@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 type JobStatus string
@@ -57,7 +58,7 @@ type JobManager struct {
 	bysite map[string]string // siteKey -> jobID for running jobs
 
 	persistPath string // empty disables persistence
-	log         *logrus.Entry
+	log         *slog.Logger
 
 	flushMu   sync.Mutex // serializes disk writes; never held with mu
 	dirty     atomic.Bool
@@ -70,7 +71,7 @@ type JobManager struct {
 // as failed) and persists state changes; state mutations flush immediately while
 // UpdateProgress is debounced. Callers must Stop() during shutdown to drain the
 // background flusher.
-func NewJobManager(persistPath string, log *logrus.Entry) *JobManager {
+func NewJobManager(persistPath string, log *slog.Logger) *JobManager {
 	m := &JobManager{
 		jobs:        make(map[string]*Job),
 		bysite:      make(map[string]string),
@@ -93,14 +94,14 @@ func (m *JobManager) load() {
 	data, err := os.ReadFile(m.persistPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) && m.log != nil {
-			m.log.Warnf("failed to read jobs file %s: %v", m.persistPath, err)
+			m.log.Warn(fmt.Sprintf("failed to read jobs file %s: %v", m.persistPath, err))
 		}
 		return
 	}
 	var file jobsFile
 	if err := json.Unmarshal(data, &file); err != nil {
 		if m.log != nil {
-			m.log.Warnf("failed to parse jobs file %s: %v", m.persistPath, err)
+			m.log.Warn(fmt.Sprintf("failed to parse jobs file %s: %v", m.persistPath, err))
 		}
 		return
 	}
@@ -125,7 +126,7 @@ func (m *JobManager) load() {
 		m.jobs[job.ID] = job
 	}
 	if m.log != nil {
-		m.log.Infof("loaded %d MCP jobs from %s", len(m.jobs), m.persistPath)
+		m.log.Info(fmt.Sprintf("loaded %d MCP jobs from %s", len(m.jobs), m.persistPath))
 	}
 }
 
@@ -154,7 +155,7 @@ func (m *JobManager) flush() {
 	data, err := json.MarshalIndent(&file, "", "  ")
 	if err != nil {
 		if m.log != nil {
-			m.log.Warnf("failed to marshal jobs: %v", err)
+			m.log.Warn(fmt.Sprintf("failed to marshal jobs: %v", err))
 		}
 		return
 	}
@@ -164,20 +165,20 @@ func (m *JobManager) flush() {
 
 	if err := os.MkdirAll(filepath.Dir(m.persistPath), 0o755); err != nil {
 		if m.log != nil {
-			m.log.Warnf("failed to create state dir for jobs file: %v", err)
+			m.log.Warn(fmt.Sprintf("failed to create state dir for jobs file: %v", err))
 		}
 		return
 	}
 	tmp := m.persistPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		if m.log != nil {
-			m.log.Warnf("failed to write jobs tmp file: %v", err)
+			m.log.Warn(fmt.Sprintf("failed to write jobs tmp file: %v", err))
 		}
 		return
 	}
 	if err := os.Rename(tmp, m.persistPath); err != nil {
 		if m.log != nil {
-			m.log.Warnf("failed to rename jobs tmp file: %v", err)
+			m.log.Warn(fmt.Sprintf("failed to rename jobs tmp file: %v", err))
 		}
 		_ = os.Remove(tmp)
 		return

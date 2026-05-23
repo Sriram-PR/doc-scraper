@@ -6,8 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/sirupsen/logrus"
-
+	pkglog "github.com/Sriram-PR/doc-scraper/pkg/log"
 	"github.com/Sriram-PR/doc-scraper/pkg/mcp"
 )
 
@@ -49,21 +48,14 @@ Available MCP Tools:
 	os.Exit(exitCode)
 }
 
-// doMcpServer is the testable implementation of the MCP server
+// doMcpServer is the testable implementation of the MCP server. The MCP
+// protocol uses stdout, so logs always go to the supplied stderr writer.
 func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
-	// Setup logger
-	log := logrus.New()
-	log.SetOutput(stderr) // MCP protocol uses stdout, logs go to stderr
-	level, err := logrus.ParseLevel(logLevel)
-	if err != nil {
-		log.Warnf("Invalid log level '%s', using default 'info'. Error: %v", logLevel, err)
-		level = logrus.InfoLevel
+	level, parseErr := pkglog.ParseLevel(logLevel)
+	log := pkglog.New(level, pkglog.FormatText, stderr)
+	if parseErr != nil {
+		log.Warn(fmt.Sprintf("Invalid log level '%s', using default 'info'. Error: %v", logLevel, parseErr))
 	}
-	log.SetLevel(level)
-	log.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp:   true,
-		TimestampFormat: "15:04:05",
-	})
 
 	// Load config
 	appCfg, err := loadConfig(configPath)

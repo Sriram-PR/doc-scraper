@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/sirupsen/logrus"
+	"log/slog"
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
@@ -40,7 +40,7 @@ var (
 
 // Crawler orchestrates the web crawling process for a single configured site
 type Crawler struct {
-	log                        *logrus.Entry // Logger contextualized with site_key
+	log                        *slog.Logger // Logger contextualized with site_key
 	appCfg                     *config.AppConfig
 	siteCfg                    *config.SiteConfig
 	resolved                   *config.ResolvedSiteConfig
@@ -100,7 +100,7 @@ func NewCrawler(
 	appCfg *config.AppConfig,
 	siteCfg *config.SiteConfig,
 	siteKey string, // The key for this site from the config map
-	baseLogger *logrus.Entry, // Base logger from main
+	baseLogger *slog.Logger, // Base logger from main
 	store storage.VisitedStore,
 	fetcher fetch.HTTPFetcher,
 	rateLimiter *fetch.RateLimiter,
@@ -116,7 +116,7 @@ func NewCrawlerWithOptions(
 	appCfg *config.AppConfig,
 	siteCfg *config.SiteConfig,
 	siteKey string,
-	baseLogger *logrus.Entry,
+	baseLogger *slog.Logger,
 	store storage.VisitedStore,
 	fetcher fetch.HTTPFetcher,
 	rateLimiter *fetch.RateLimiter,
@@ -127,14 +127,14 @@ func NewCrawlerWithOptions(
 ) (*Crawler, error) {
 
 	// Contextualize logger for this specific crawler instance
-	logger := baseLogger.WithField("site_key", siteKey)
+	logger := baseLogger.With("site_key", siteKey)
 
 	compiledDisallowedPatterns, err := utils.CompileRegexPatterns(siteCfg.DisallowedPathPatterns)
 	if err != nil {
 		return nil, fmt.Errorf("compiling disallowed patterns for site '%s': %w", siteKey, err)
 	}
 	if len(compiledDisallowedPatterns) > 0 {
-		logger.Infof("Compiled %d disallowed path patterns.", len(compiledDisallowedPatterns))
+		logger.Info(fmt.Sprintf("Compiled %d disallowed path patterns.", len(compiledDisallowedPatterns)))
 	}
 
 	siteOutputDir := filepath.Join(appCfg.OutputBaseDir, utils.SanitizeFilename(siteCfg.AllowedDomain))
@@ -202,7 +202,7 @@ func (c *Crawler) FoundSitemap(sitemapURL string) {
 
 	if isNew {
 		// Use crawler's logger which includes site_key
-		c.log.Debugf("Crawler notified of newly found sitemap: %s", sitemapURL)
+		c.log.Debug(fmt.Sprintf("Crawler notified of newly found sitemap: %s", sitemapURL))
 	}
 }
 
@@ -227,24 +227,24 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 // Run starts the crawling process for the configured site and blocks until completion or cancellation.
 func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration function with many sequential setup/teardown steps
 	c.output.crawlStartTime = time.Now() // Record CRAWL START TIME for metadata
-	// logFields already part of c.log (site_key). Add resume-specific info.
-	runLogFields := logrus.Fields{"domain": c.siteCfg.AllowedDomain, "resume": resume}
-	c.log.WithFields(runLogFields).Infof("Crawl starting with %d worker(s)...", c.appCfg.NumWorkers)
+	// runLog adds the per-run context (domain, resume) on top of c.log's site_key.
+	runLog := c.log.With("domain", c.siteCfg.AllowedDomain, "resume", resume)
+	runLog.Info(fmt.Sprintf("Crawl starting with %d worker(s)...", c.appCfg.NumWorkers))
 	overallCrawlStartTimeForDuration := time.Now() // For calculating overall duration visible in final log
 
 	defer func() {
 		if err := c.output.Close(); err != nil {
-			c.log.WithFields(runLogFields).Errorf("Error finalizing output files: %v", err)
+			runLog.Error(fmt.Sprintf("Error finalizing output files: %v", err))
 		}
 	}()
 
 	var validStartURLs []string
 	seenStartURLs := make(map[string]bool, len(c.siteCfg.StartURLs))
 	var firstValidParsedURL *url.URL // Used for initial robots.txt fetch
-	c.log.WithFields(runLogFields).Infof("Validating %d provided start URLs...", len(c.siteCfg.StartURLs))
+	runLog.Info(fmt.Sprintf("Validating %d provided start URLs...", len(c.siteCfg.StartURLs)))
 	for i, startURLStr := range c.siteCfg.StartURLs {
 		// Use task-specific logger for each start URL validation attempt
-		startValidateLog := c.log.WithFields(logrus.Fields{"index": i, "url": startURLStr})
+		startValidateLog := c.log.With("index", i, "url", startURLStr)
 		if seenStartURLs[startURLStr] {
 			startValidateLog.Warn("Duplicate start URL. Skipping.")
 			continue
@@ -252,11 +252,11 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		seenStartURLs[startURLStr] = true
 		parsed, err := url.ParseRequestURI(startURLStr)
 		if err != nil {
-			startValidateLog.Warnf("Invalid format: %v. Skipping.", err)
+			startValidateLog.Warn(fmt.Sprintf("Invalid format: %v. Skipping.", err))
 			continue
 		}
 		if parsed.Hostname() != c.siteCfg.AllowedDomain {
-			startValidateLog.Warnf("Domain mismatch (%s != %s). Skipping.", parsed.Hostname(), c.siteCfg.AllowedDomain)
+			startValidateLog.Warn(fmt.Sprintf("Domain mismatch (%s != %s). Skipping.", parsed.Hostname(), c.siteCfg.AllowedDomain))
 			continue
 		}
 		targetPath := parsed.Path
@@ -264,7 +264,7 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 			targetPath = "/" // Normalize empty path to root
 		}
 		if !strings.HasPrefix(targetPath, c.siteCfg.AllowedPathPrefix) {
-			startValidateLog.Warnf("Path prefix mismatch ('%s' not under '%s'). Skipping.", targetPath, c.siteCfg.AllowedPathPrefix)
+			startValidateLog.Warn(fmt.Sprintf("Path prefix mismatch ('%s' not under '%s'). Skipping.", targetPath, c.siteCfg.AllowedPathPrefix))
 			continue
 		}
 		startValidateLog.Debug("Start URL format and scope validated.")
@@ -276,13 +276,13 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	if len(validStartURLs) == 0 {
 		return fmt.Errorf("no valid start_urls found for site '%s' matching scope", c.siteKey)
 	}
-	c.log.WithFields(runLogFields).Infof("Using %d valid StartURLs: %v", len(validStartURLs), validStartURLs)
+	runLog.Info(fmt.Sprintf("Using %d valid StartURLs: %v", len(validStartURLs), validStartURLs))
 
-	c.log.WithFields(runLogFields).Infof("Site output target directory: %s", c.siteOutputDir)
+	runLog.Info(fmt.Sprintf("Site output target directory: %s", c.siteOutputDir))
 	if !resume {
 		if err := c.cleanSiteOutputDir(); err != nil {
 			// Log error but attempt to continue; subsequent MkdirAll might succeed or fail clearly.
-			c.log.WithFields(runLogFields).Errorf("Failed to clean site output directory, attempting to continue: %v", err)
+			runLog.Error(fmt.Sprintf("Failed to clean site output directory, attempting to continue: %v", err))
 		}
 	}
 	// Ensure base site directory and image subdirectory exist
@@ -290,13 +290,13 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	if err != nil {
 		return fmt.Errorf("error creating site output dir '%s' for site '%s': %w", c.siteOutputDir, c.siteKey, err)
 	}
-	c.log.WithFields(runLogFields).Infof("Ensured site output directory exists: %s", c.siteOutputDir)
+	runLog.Info(fmt.Sprintf("Ensured site output directory exists: %s", c.siteOutputDir))
 
 	c.output.OpenFiles(resume)
 
 	initialTasksFromDB := 0
 	if resume {
-		c.log.WithFields(runLogFields).Info("Resume mode: Scanning database for incomplete tasks to requeue...")
+		runLog.Info("Resume mode: Scanning database for incomplete tasks to requeue...")
 		requeueChan := make(chan models.WorkItem, 100) // Buffered channel for items from DB
 		var requeueWg sync.WaitGroup
 		requeueWg.Add(1)
@@ -315,22 +315,22 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		requeueWg.Wait()   // Wait for all items from channel to be added to PQ
 
 		if scanErr != nil && !errors.Is(scanErr, context.Canceled) && !errors.Is(scanErr, context.DeadlineExceeded) {
-			c.log.WithFields(runLogFields).Errorf("Error encountered during DB requeue scan: %v", scanErr)
+			runLog.Error(fmt.Sprintf("Error encountered during DB requeue scan: %v", scanErr))
 		}
 		if c.crawlCtx.Err() != nil { // Check if context was cancelled during scan
-			c.log.WithFields(runLogFields).Warnf("Crawl context cancelled during resume scan: %v", c.crawlCtx.Err())
+			runLog.Warn(fmt.Sprintf("Crawl context cancelled during resume scan: %v", c.crawlCtx.Err()))
 			return c.crawlCtx.Err() // Exit if cancelled
 		}
-		c.log.WithFields(runLogFields).Infof("DB requeue scan complete. Requeued %d tasks.", initialTasksFromDB)
+		runLog.Info(fmt.Sprintf("DB requeue scan complete. Requeued %d tasks.", initialTasksFromDB))
 	}
 
-	c.log.WithFields(runLogFields).Infof("Starting %d workers...", c.appCfg.NumWorkers)
+	runLog.Info(fmt.Sprintf("Starting %d workers...", c.appCfg.NumWorkers))
 	for i := 1; i <= c.appCfg.NumWorkers; i++ {
 		// Each worker gets a logger with its ID (site_key is already in c.log)
-		workerLog := c.log.WithField("worker_id", i)
+		workerLog := c.log.With("worker_id", i)
 		go c.worker(workerLog)
 	}
-	c.log.WithFields(runLogFields).Infof("%d workers started.", c.appCfg.NumWorkers)
+	runLog.Info(fmt.Sprintf("%d workers started.", c.appCfg.NumWorkers))
 	c.sitemapProcessor.Start(c.crawlCtx) // Sitemap processor uses its own contextualized logger
 
 	waiterDone := make(chan struct{})
@@ -343,10 +343,10 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		defer func() {
 			progTicker.Stop()
 			close(progDone)
-			c.log.WithFields(runLogFields).Info("Waiter: Progress reporter stopped.")
+			runLog.Info("Waiter: Progress reporter stopped.")
 		}()
 		go func() { // Progress reporting loop
-			c.log.WithFields(runLogFields).Info("Progress reporter started.")
+			runLog.Info("Progress reporter started.")
 			defer func() {
 				// Fire one final callback so external observers (e.g. MCP
 				// get_job_status) see the terminal state without waiting
@@ -366,13 +366,13 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 					pqLen := c.pq.Len()
 					smQLen := len(c.sitemapQueue) // Approximate, as it's a buffered channel
 					procCount := c.processedCounter.Load()
-					c.log.WithFields(logrus.Fields{ // Use a new Fields map for progress-specific logs
-						"site_key":          c.siteKey, // Include site_key for clarity
-						"visited_db":        vCount,
-						"page_queue_len":    pqLen,
-						"sitemap_queue_len": smQLen,
-						"processed_tasks":   procCount,
-					}).Info("Crawl Progress")
+					c.log.Info("Crawl Progress",
+						"site_key", c.siteKey,
+						"visited_db", vCount,
+						"page_queue_len", pqLen,
+						"sitemap_queue_len", smQLen,
+						"processed_tasks", procCount,
+					)
 					if c.progressCallback != nil {
 						c.progressCallback(procCount, int64(pqLen+smQLen))
 					}
@@ -382,22 +382,22 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 
 		// Initial Robots.txt Fetch (must complete before seeding sitemaps from it)
 		if firstValidParsedURL != nil { // Ensure we have a valid URL to derive host
-			c.log.WithFields(runLogFields).Info("Triggering initial robots.txt fetch...")
+			runLog.Info("Triggering initial robots.txt fetch...")
 			initialRobotsDone := make(chan bool, 1)                                              // Buffered channel to signal completion
 			go c.robotsHandler.GetRobotsData(firstValidParsedURL, initialRobotsDone, c.crawlCtx) // robotsHandler uses its own logger
 			select {
 			case <-initialRobotsDone:
-				c.log.WithFields(runLogFields).Info("Waiter: Initial robots.txt fetch signaled complete.")
+				runLog.Info("Waiter: Initial robots.txt fetch signaled complete.")
 			case <-c.crawlCtx.Done(): // If context is cancelled while waiting
-				c.log.WithFields(runLogFields).Warnf("Waiter: Context cancelled while waiting for initial robots.txt: %v", c.crawlCtx.Err())
+				runLog.Warn(fmt.Sprintf("Waiter: Context cancelled while waiting for initial robots.txt: %v", c.crawlCtx.Err()))
 				return // Exit waiter goroutine
 			}
 		} else {
-			c.log.WithFields(runLogFields).Warn("No valid start URL found to fetch initial robots.txt.")
+			runLog.Warn("No valid start URL found to fetch initial robots.txt.")
 		}
 
 		// Queue Sitemaps Found During Initial Robots Fetch
-		c.log.WithFields(runLogFields).Info("Waiter: Processing initially discovered sitemaps...")
+		runLog.Info("Waiter: Processing initially discovered sitemaps...")
 		c.foundSitemapsMu.Lock()
 		var initialSitemapsToQueue []string
 		for smURL := range c.foundSitemaps { // Iterate over sitemaps reported by RobotsHandler
@@ -409,48 +409,48 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		c.foundSitemapsMu.Unlock()
 
 		if len(initialSitemapsToQueue) > 0 {
-			c.log.WithFields(runLogFields).Infof("Waiter: Found %d initial sitemaps to queue.", len(initialSitemapsToQueue))
+			runLog.Info(fmt.Sprintf("Waiter: Found %d initial sitemaps to queue.", len(initialSitemapsToQueue)))
 			for _, smURL := range initialSitemapsToQueue {
 				c.wg.Add(1) // Increment main WaitGroup for each sitemap task
 				select {
 				case c.sitemapQueue <- smURL:
-					c.log.WithFields(runLogFields).Debugf("Waiter: Sent initial sitemap %s to queue.", smURL)
+					runLog.Debug(fmt.Sprintf("Waiter: Sent initial sitemap %s to queue.", smURL))
 				case <-c.crawlCtx.Done():
-					c.log.WithFields(runLogFields).Warnf("Waiter: Context cancelled while sending initial sitemap %s: %v", smURL, c.crawlCtx.Err())
+					runLog.Warn(fmt.Sprintf("Waiter: Context cancelled while sending initial sitemap %s: %v", smURL, c.crawlCtx.Err()))
 					c.wg.Done() // Decrement WG as task won't be processed
 				case <-time.After(10 * time.Second): // Timeout for sending to queue
-					c.log.WithFields(runLogFields).Errorf("Waiter: Timeout sending initial sitemap %s. Undoing WG.", smURL)
+					runLog.Error(fmt.Sprintf("Waiter: Timeout sending initial sitemap %s. Undoing WG.", smURL))
 					c.wg.Done() // Decrement WG
 				}
 			}
 		} else {
-			c.log.WithFields(runLogFields).Info("Waiter: No new initial sitemaps found to queue from robots.txt.")
+			runLog.Info("Waiter: No new initial sitemaps found to queue from robots.txt.")
 		}
 
 		// Wait for All Tasks (page workers + sitemap tasks via c.wg)
-		c.log.WithFields(runLogFields).Info("Waiter: Waiting for ALL tasks (pages, sitemaps) via WaitGroup...")
+		runLog.Info("Waiter: Waiting for ALL tasks (pages, sitemaps) via WaitGroup...")
 		waitTasksDone := make(chan struct{})
 		go func() { c.wg.Wait(); close(waitTasksDone) }() // Wait for WG in a separate goroutine
 		select {
 		case <-waitTasksDone: // WG completed normally
-			c.log.WithFields(runLogFields).Info("Waiter: WaitGroup finished normally (all tasks done).")
+			runLog.Info("Waiter: WaitGroup finished normally (all tasks done).")
 		case <-c.crawlCtx.Done(): // Main crawl context cancelled/timed out
-			c.log.WithFields(runLogFields).Warnf("Waiter: Global context cancelled/timed out (%v) while waiting for tasks. Initiating shutdown.", c.crawlCtx.Err())
+			runLog.Warn(fmt.Sprintf("Waiter: Global context cancelled/timed out (%v) while waiting for tasks. Initiating shutdown.", c.crawlCtx.Err()))
 		}
 
 		// Initiate Shutdown of Queues (signals workers and sitemap processor to stop)
-		c.log.WithFields(runLogFields).Info("Waiter: Closing priority queue for pages...")
+		runLog.Info("Waiter: Closing priority queue for pages...")
 		c.pq.Close()
-		c.log.WithFields(runLogFields).Info("Waiter: Closing sitemap processing queue...")
+		runLog.Info("Waiter: Closing sitemap processing queue...")
 		close(c.sitemapQueue)
 	}()
 
-	c.log.WithFields(runLogFields).Info("Seeding priority queue with validated start URLs...")
+	runLog.Info("Seeding priority queue with validated start URLs...")
 	initialURLsAddedFromSeed := 0
 	for _, startURLStr := range validStartURLs {
 		normalizedSeed, _, normErr := parse.ParseAndNormalize(startURLStr)
 		if normErr != nil {
-			c.log.WithFields(runLogFields).Warnf("Skipping start URL '%s': normalize failed: %v", startURLStr, normErr)
+			runLog.Warn(fmt.Sprintf("Skipping start URL '%s': normalize failed: %v", startURLStr, normErr))
 			continue
 		}
 		// Mark the seed as visited before enqueueing so a same-page anchor in
@@ -459,57 +459,57 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		// the seed has no DB entry until the deferred UpdatePageStatus runs).
 		added, markErr := c.store.MarkPageVisited(normalizedSeed)
 		if markErr != nil {
-			c.log.WithFields(runLogFields).Errorf("Skipping start URL '%s': MarkPageVisited failed: %v", startURLStr, markErr)
+			runLog.Error(fmt.Sprintf("Skipping start URL '%s': MarkPageVisited failed: %v", startURLStr, markErr))
 			continue
 		}
 		if !added {
-			c.log.WithFields(runLogFields).Debugf("Start URL '%s' already in DB (likely from resume); skipping re-seed.", startURLStr)
+			runLog.Debug(fmt.Sprintf("Start URL '%s' already in DB (likely from resume); skipping re-seed.", startURLStr))
 			continue
 		}
-		c.log.WithFields(runLogFields).Infof("Adding start URL '%s' to queue (Depth 0).", normalizedSeed)
+		runLog.Info(fmt.Sprintf("Adding start URL '%s' to queue (Depth 0).", normalizedSeed))
 		c.wg.Add(1) // Increment main WaitGroup for each initial URL
 		c.pq.Add(&models.WorkItem{URL: normalizedSeed, Depth: 0})
 		initialURLsAddedFromSeed++
 	}
 	if initialURLsAddedFromSeed == 0 && initialTasksFromDB == 0 && len(c.foundSitemaps) == 0 { // Check all potential sources
-		c.log.WithFields(runLogFields).Error("CRITICAL: No tasks seeded (no valid start URLs, no resume tasks, no initial sitemaps). Crawl will likely terminate.")
+		runLog.Error("CRITICAL: No tasks seeded (no valid start URLs, no resume tasks, no initial sitemaps). Crawl will likely terminate.")
 		// Optionally, call c.cancelCrawl() here if this is a fatal startup condition
 	} else {
-		c.log.WithFields(runLogFields).Infof("Finished seeding %d start URLs. Total initial WG count from seeding & resume: %d.",
-			initialURLsAddedFromSeed, initialTasksFromDB+initialURLsAddedFromSeed)
+		runLog.Info(fmt.Sprintf("Finished seeding %d start URLs. Total initial WG count from seeding & resume: %d.",
+			initialURLsAddedFromSeed, initialTasksFromDB+initialURLsAddedFromSeed))
 	}
 
-	c.log.WithFields(runLogFields).Info("Main: Waiting for waiter goroutine to complete...")
+	runLog.Info("Main: Waiting for waiter goroutine to complete...")
 	select {
 	case <-waiterDone: // Waiter completed its sequence (including waiting for wg)
-		c.log.WithFields(runLogFields).Info("Main: Waiter finished signal received.")
+		runLog.Info("Main: Waiter finished signal received.")
 	case <-c.crawlCtx.Done(): // Main context cancelled while waiting for waiter (should be rare)
-		c.log.WithFields(runLogFields).Warnf("Main: Crawl context cancelled while waiting for waiter: %v", c.crawlCtx.Err())
+		runLog.Warn(fmt.Sprintf("Main: Crawl context cancelled while waiting for waiter: %v", c.crawlCtx.Err()))
 		<-waiterDone // Still wait for waiter to finish its cleanup (closing queues, etc.)
-		c.log.WithFields(runLogFields).Info("Main: Waiter finished after context cancellation.")
+		runLog.Info("Main: Waiter finished after context cancellation.")
 	}
 
 	duration := time.Since(overallCrawlStartTimeForDuration)
 	finalVisitedCount, countErr := c.store.GetVisitedCount()
 	if countErr != nil {
-		c.log.WithFields(runLogFields).Warnf("Could not get final visited count from DB: %v", countErr)
+		runLog.Warn(fmt.Sprintf("Could not get final visited count from DB: %v", countErr))
 		finalVisitedCount = -1 // Indicate error in count
 	}
 	finalProcessedCount := c.processedCounter.Load()
 	// Base log already includes site_key. Add domain for clarity in this specific summary.
-	summaryLog := c.log.WithFields(logrus.Fields{"domain": c.siteCfg.AllowedDomain})
+	summaryLog := c.log.With("domain", c.siteCfg.AllowedDomain)
 	summaryLog.Info("========================================================================")
 	summaryLog.Info("CRAWL FINISHED")
-	summaryLog.Infof("Duration:         %v", duration)
-	summaryLog.Infof("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Pages Saved (for YAML): %d",
-		finalVisitedCount, finalProcessedCount, c.output.PagesSaved())
+	summaryLog.Info(fmt.Sprintf("Duration:         %v", duration))
+	summaryLog.Info(fmt.Sprintf("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Pages Saved (for YAML): %d",
+		finalVisitedCount, finalProcessedCount, c.output.PagesSaved()))
 	summaryLog.Info("========================================================================")
 
 	return c.crawlCtx.Err() // Return error from context (nil if completed normally, Canceled/DeadlineExceeded otherwise)
 }
 
 // worker runs the loop for a single worker goroutine, processing tasks from the priority queue.
-func (c *Crawler) worker(workerLog *logrus.Entry) { // workerLog already has site_key and worker_id
+func (c *Crawler) worker(workerLog *slog.Logger) { // workerLog already has site_key and worker_id
 	workerLog.Info("Worker starting")
 	defer workerLog.Info("Worker finished")
 
@@ -517,7 +517,7 @@ func (c *Crawler) worker(workerLog *logrus.Entry) { // workerLog already has sit
 		// Check context before potentially blocking Pop, to allow quick exit if cancelled
 		select {
 		case <-c.crawlCtx.Done():
-			workerLog.Warnf("Worker shutting down due to context cancellation: %v", c.crawlCtx.Err())
+			workerLog.Warn(fmt.Sprintf("Worker shutting down due to context cancellation: %v", c.crawlCtx.Err()))
 			return
 		default:
 			// Context is active, proceed to Pop
@@ -527,7 +527,7 @@ func (c *Crawler) worker(workerLog *logrus.Entry) { // workerLog already has sit
 		workItemPtr, ok := c.pq.Pop()
 		if !ok { // Queue closed and empty, means no more work
 			if c.crawlCtx.Err() != nil { // Check if closed due to context cancellation
-				workerLog.Warnf("Worker shutting down (queue closed & context cancelled): %v", c.crawlCtx.Err())
+				workerLog.Warn(fmt.Sprintf("Worker shutting down (queue closed & context cancelled): %v", c.crawlCtx.Err()))
 			} else {
 				workerLog.Info("Worker shutting down (queue closed & empty, all tasks processed).")
 			}
@@ -543,7 +543,7 @@ func (c *Crawler) worker(workerLog *logrus.Entry) { // workerLog already has sit
 // This is typically called when not in resume mode.
 func (c *Crawler) cleanSiteOutputDir() error {
 	// Use crawler's logger which includes site_key
-	c.log.Warnf("Attempting to remove existing site output directory: %s", c.siteOutputDir)
+	c.log.Warn(fmt.Sprintf("Attempting to remove existing site output directory: %s", c.siteOutputDir))
 
 	// Safety Check: Resolve absolute paths to prevent accidental deletion outside base_dir
 	absBase, errBase := filepath.Abs(c.appCfg.OutputBaseDir)
@@ -559,12 +559,12 @@ func (c *Crawler) cleanSiteOutputDir() error {
 	// Also check it's not empty and not the same as the base path.
 	absBaseSeparator := absBase + string(filepath.Separator) // Ensure trailing separator for prefix check
 	if absSite != "" && absSite != absBase && strings.HasPrefix(absSite, absBaseSeparator) {
-		c.log.Debugf("Safety check passed for RemoveAll. BaseAbs: '%s', SiteAbs: '%s'", absBase, absSite)
+		c.log.Debug(fmt.Sprintf("Safety check passed for RemoveAll. BaseAbs: '%s', SiteAbs: '%s'", absBase, absSite))
 		err := os.RemoveAll(c.siteOutputDir)
 		if err != nil && !errors.Is(err, os.ErrNotExist) { // ErrNotExist is fine
 			return fmt.Errorf("failed remove site output dir '%s': %w", c.siteOutputDir, err)
 		} else if err == nil {
-			c.log.Infof("Successfully removed existing site output directory: %s", c.siteOutputDir)
+			c.log.Info(fmt.Sprintf("Successfully removed existing site output directory: %s", c.siteOutputDir))
 		}
 		return nil // Success or directory didn't exist
 	}
@@ -577,11 +577,11 @@ func (c *Crawler) cleanSiteOutputDir() error {
 }
 
 // processSinglePageTask orchestrates the processing pipeline for a single URL (WorkItem).
-func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *logrus.Entry) { //nolint:gocyclo // multi-stage page processing pipeline
+func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slog.Logger) { //nolint:gocyclo // multi-stage page processing pipeline
 	currentURL := workItem.URL
 	currentDepth := workItem.Depth
 	// workerLog already has site_key and worker_id. Add URL-specific context for this task.
-	taskLog := workerLog.WithFields(logrus.Fields{"url": currentURL, "depth": currentDepth})
+	taskLog := workerLog.With("url", currentURL, "depth", currentDepth)
 	startTime := time.Now()
 
 	// Create per-page timeout context if configured
@@ -613,37 +613,37 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 			taskErr = fmt.Errorf("panic: %v", r) // Capture panic as the task error
 			stackTrace := string(debug.Stack())
 			// Log panic with full context
-			taskLog.WithFields(logrus.Fields{
-				"panic_info":  r,
-				"duration":    time.Since(startTime).String(), // Use .String() for consistent format
-				"stage":       "PanicRecovery",
-				"stack_trace": stackTrace,
-			}).Error("PANIC recovered in processSinglePageTask")
+			taskLog.Error("PANIC recovered in processSinglePageTask",
+				"panic_info", r,
+				"duration", time.Since(startTime).String(),
+				"stage", "PanicRecovery",
+				"stack_trace", stackTrace,
+			)
 		}
 
 		// Determine final status and log task outcome
-		logFields := logrus.Fields{"duration": time.Since(startTime).String()}
-		if pageTitle != "" { // Add page title to log if available
-			logFields["page_title"] = pageTitle
+		logAttrs := []any{"duration", time.Since(startTime).String()}
+		if pageTitle != "" {
+			logAttrs = append(logAttrs, "page_title", pageTitle)
 		}
 
 		if taskErr != nil { // Task failed
 			finalStatus = models.PageStatusFailure
 			finalErrorType = utils.CategorizeError(taskErr) // Categorize the error
-			logFields["category"] = finalErrorType
+			logAttrs = append(logAttrs, "category", finalErrorType)
 			if !panicked { // Log non-panic errors (panic already logged above)
-				taskLog.WithFields(logFields).Warnf("Task failed: %v", taskErr)
+				taskLog.With(logAttrs...).Warn(fmt.Sprintf("Task failed: %v", taskErr))
 			}
 		} else if skipped { // Task was skipped
 			// finalStatus not set for skipped tasks (DB not updated)
-			taskLog.WithFields(logFields).Info("Task skipped")
+			taskLog.With(logAttrs...).Info("Task skipped")
 		} else { // Task succeeded
 			finalStatus = models.PageStatusSuccess
 			finalErrorType = "None"
-			if savedContentPath != "" { // Add saved path to log if content was saved
-				logFields["saved_path"] = savedContentPath
+			if savedContentPath != "" {
+				logAttrs = append(logAttrs, "saved_path", savedContentPath)
 			}
-			taskLog.WithFields(logFields).Info("Task completed successfully")
+			taskLog.With(logAttrs...).Info("Task completed successfully")
 		}
 
 		// Update DB status if the task was not skipped and URL was successfully normalized
@@ -660,10 +660,10 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 			}
 			// Update page status in the persistent store
 			if dbUpdateErr := c.store.UpdatePageStatus(normalizedURLString, pageEntry); dbUpdateErr != nil {
-				taskLog.Errorf("Failed update final DB status for '%s' to '%s': %v", normalizedURLString, finalStatus, dbUpdateErr)
+				taskLog.Error(fmt.Sprintf("Failed update final DB status for '%s' to '%s': %v", normalizedURLString, finalStatus, dbUpdateErr))
 			}
 		} else if !skipped { // Not skipped, but normalization might have failed
-			taskLog.Warnf("URL '%s' normalization failed or was not set; cannot update DB status.", currentURL)
+			taskLog.Warn(fmt.Sprintf("URL '%s' normalization failed or was not set; cannot update DB status.", currentURL))
 		}
 
 		if !skipped {
@@ -699,7 +699,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 		skipped = true
 		return
 	} // If skipped, set flag and exit
-	taskLog = taskLog.WithField("host", host) // Add host to subsequent logs for this task
+	taskLog = taskLog.With("host", host) // Add host to subsequent logs for this task
 
 	// 2. Policy Checks: Depth, robots.txt.
 	if handleTaskError(c.runPolicyChecks(parsedOriginalURL, currentDepth, taskLog)) {
@@ -733,7 +733,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	if c.appCfg.EnableIncremental {
 		existingHash, exists, hashErr := c.store.GetPageContentHash(normalizedURLString)
 		if hashErr != nil {
-			taskLog.Warnf("Failed to check content hash for incremental crawl: %v", hashErr)
+			taskLog.Warn(fmt.Sprintf("Failed to check content hash for incremental crawl: %v", hashErr))
 			// Continue processing despite hash check error
 		} else if exists && existingHash == rawHTMLHash {
 			taskLog.Info("Page unchanged (hash match) - skipping processing")
@@ -755,7 +755,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 	// 6. Extract & Queue Links: Find new links on the page and add to priority queue.
 	// Non-critical errors (e.g., DB error during link check) are logged within linkProcessor.
 	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
-		taskLog.Warnf("Non-fatal error encountered during link extraction/queueing: %v", linkErr)
+		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
 	}
 
 	// 7. Process & Save Content: Extract content, process images/links, convert to MD, save.
@@ -781,7 +781,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *log
 
 // handleSetupAndResumeCheck parses the URL, normalizes it, and checks its status in the DB.
 // It determines if the URL should be skipped (e.g., already successfully processed).
-func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *logrus.Entry) (parsedURL *url.URL, normalizedURLStr string, host string, shouldSkip bool, err error) {
+func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *slog.Logger) (parsedURL *url.URL, normalizedURLStr string, host string, shouldSkip bool, err error) {
 	taskLog.Debug("Performing setup and resume check...")
 	parsedTargetURL, parseErr := url.Parse(currentURL) // Use a distinct variable name for initial parsing
 	if parseErr != nil {
@@ -800,7 +800,7 @@ func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *logrus.E
 	// Check status in the persistent store
 	pageStatus, _, checkErr := c.store.CheckPageStatus(normalizedURLStr)
 	if checkErr != nil {
-		taskLog.Errorf("DB error checking status for '%s', proceeding as if not found: %v", normalizedURLStr, checkErr)
+		taskLog.Error(fmt.Sprintf("DB error checking status for '%s', proceeding as if not found: %v", normalizedURLStr, checkErr))
 		// Do not return 'err' here; let the crawl attempt proceed if DB check fails.
 		// The error is logged, and status will default to PageStatusNotFound effectively.
 	} else if pageStatus == models.PageStatusSuccess {
@@ -808,7 +808,7 @@ func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *logrus.E
 		shouldSkip = true
 		return parsedURL, normalizedURLStr, host, shouldSkip, nil // Return to skip
 	} else if pageStatus == models.PageStatusFailure {
-		taskLog.Warnf("Retrying previously failed page (from DB).")
+		taskLog.Warn("Retrying previously failed page (from DB).")
 	} else if pageStatus == models.PageStatusPending {
 		taskLog.Debug("Processing page previously marked pending (from DB).")
 	} // If PageStatusNotFound or any other unexpected status, proceed to crawl normally.
@@ -817,12 +817,12 @@ func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *logrus.E
 }
 
 // runPolicyChecks verifies if the URL adheres to defined crawl policies (depth, robots.txt).
-func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *logrus.Entry) error {
+func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *slog.Logger) error {
 	taskLog.Debug("Running policy checks...")
 	// Depth Check
 	if c.siteCfg.MaxDepth > 0 && depth >= c.siteCfg.MaxDepth {
 		err := utils.ErrMaxDepthExceeded
-		taskLog.Infof("%s (Current Depth: %d, Max Depth: %d)", err.Error(), depth, c.siteCfg.MaxDepth)
+		taskLog.Info(fmt.Sprintf("%s (Current Depth: %d, Max Depth: %d)", err.Error(), depth, c.siteCfg.MaxDepth))
 		return err // Return error to stop processing this URL
 	}
 
@@ -838,7 +838,7 @@ func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *logrus
 
 // acquireResources attempts to acquire necessary semaphores (global, per-host) and applies rate limiting.
 // Returns a cleanup function to release semaphores.
-func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupFunc func(), err error) {
+func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFunc func(), err error) {
 	taskLog.Debug("Acquiring resources (semaphores, rate limit)...")
 	acquiredHostSem, acquiredGlobalSem := false, false
 	// Cleanup function will release acquired semaphores.
@@ -846,7 +846,7 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 		if acquiredHostSem {
 			c.hostSemPool.Release(host)
 			acquiredHostSem = false
-			taskLog.Debugf("Released host semaphore for: %s", host)
+			taskLog.Debug(fmt.Sprintf("Released host semaphore for: %s", host))
 		}
 		if acquiredGlobalSem {
 			c.globalSemaphore.Release(1)
@@ -860,18 +860,18 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 	// 1. Acquire Host-Specific Semaphore
 	ctxHost, cancelHost := context.WithTimeout(c.crawlCtx, semTimeout) // Context for acquiring host semaphore
 	defer cancelHost()                                                 // Ensure timer is cleaned up
-	taskLog.Debugf("Attempting to acquire host semaphore for: %s (timeout: %v)", host, semTimeout)
+	taskLog.Debug(fmt.Sprintf("Attempting to acquire host semaphore for: %s (timeout: %v)", host, semTimeout))
 	if semErr := c.hostSemPool.Acquire(ctxHost, host); semErr != nil {
 		// Wrap error for better context (e.g., distinguish timeout from other errors)
 		return cleanupFunc, fmt.Errorf("%w: acquire host semaphore for '%s': %w", utils.ErrSemaphoreTimeout, host, semErr)
 	}
 	acquiredHostSem = true
-	taskLog.Debugf("Acquired host semaphore for: %s", host)
+	taskLog.Debug(fmt.Sprintf("Acquired host semaphore for: %s", host))
 
 	// 2. Acquire Global Semaphore
 	ctxGlobal, cancelGlobal := context.WithTimeout(c.crawlCtx, semTimeout) // Context for acquiring global semaphore
 	defer cancelGlobal()                                                   // Ensure timer is cleaned up
-	taskLog.Debugf("Attempting to acquire global semaphore (timeout: %v)", semTimeout)
+	taskLog.Debug(fmt.Sprintf("Attempting to acquire global semaphore (timeout: %v)", semTimeout))
 	if semErr := c.globalSemaphore.Acquire(ctxGlobal, 1); semErr != nil {
 		// If global semaphore fails, host semaphore (if acquired) will be released by defer cleanupFunc.
 		return cleanupFunc, fmt.Errorf("%w: acquire global semaphore: %w", utils.ErrSemaphoreTimeout, semErr)
@@ -892,8 +892,8 @@ func (c *Crawler) acquireResources(host string, taskLog *logrus.Entry) (cleanupF
 // It handles redirects and ensures the final URL is within scope and allowed by robots.txt.
 // If successful, returns the final URL and an open http.Response (caller must close Body).
 // On error, it ensures resp.Body is closed if resp is not nil.
-func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *url.URL, taskLog *logrus.Entry) (finalURL *url.URL, resp *http.Response, err error) {
-	taskLog.Debugf("Fetching page: %s", reqURLString)
+func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *url.URL, taskLog *slog.Logger) (finalURL *url.URL, resp *http.Response, err error) {
+	taskLog.Debug(fmt.Sprintf("Fetching page: %s", reqURLString))
 
 	// Create HTTP request with context for cancellation
 	req, reqErr := http.NewRequestWithContext(c.crawlCtx, http.MethodGet, reqURLString, nil)
@@ -917,7 +917,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 
 	finalURL = resp.Request.URL            // URL after any redirects handled by the HTTP client
 	if finalURL.String() != reqURLString { // Log if URL changed due to redirect
-		taskLog = taskLog.WithField("final_url", finalURL.String())
+		taskLog = taskLog.With("final_url", finalURL.String())
 		taskLog.Info("URL redirected.")
 	}
 	taskLog.Debug("Validating final URL scope and policies...")
@@ -950,8 +950,8 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 
 	// Robots.txt Check for the final URL, especially if the host changed due to redirect
 	if finalHost != originalParsedURL.Hostname() { // If redirected to a different host (within allowed_domain)
-		taskLog.Debugf("Host changed due to redirect (%s -> %s), re-checking robots.txt for final URL.",
-			originalParsedURL.Hostname(), finalHost)
+		taskLog.Debug(fmt.Sprintf("Host changed due to redirect (%s -> %s), re-checking robots.txt for final URL.",
+			originalParsedURL.Hostname(), finalHost))
 		if !c.robotsHandler.TestAgent(finalURL, c.resolved.UserAgent, c.crawlCtx) {
 			err = fmt.Errorf("%w: redirected URL '%s' disallowed by robots.txt on new host",
 				utils.ErrRobotsDisallowed, finalURL.String())
@@ -978,7 +978,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 			return finalURL, nil, fmt.Errorf("%w: '%s' for '%s'", utils.ErrNonHTMLContent, contentType, finalURL.String())
 		}
 		// Ambiguous types (text/plain, etc.) -- warn but proceed
-		taskLog.Warnf("Unexpected Content-Type '%s' for '%s'. Proceeding with parsing attempt.", contentType, finalURL.String())
+		taskLog.Warn(fmt.Sprintf("Unexpected Content-Type '%s' for '%s'. Proceeding with parsing attempt.", contentType, finalURL.String()))
 	}
 
 	taskLog.Debug("Fetch and validation successful.")
@@ -988,8 +988,8 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 // readAndParseBody reads the HTTP response body and parses it into a goquery.Document.
 // It ensures resp.Body is closed after reading.
 // Returns the goquery document and the raw HTML hash for incremental crawling.
-func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskLog *logrus.Entry) (doc *goquery.Document, rawHTMLHash string, err error) {
-	taskLog.Debugf("Reading response body from: %s", finalURL.String())
+func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskLog *slog.Logger) (doc *goquery.Document, rawHTMLHash string, err error) {
+	taskLog.Debug(fmt.Sprintf("Reading response body from: %s", finalURL.String()))
 	defer resp.Body.Close() // Ensure response body is closed when this function returns
 
 	// Read response body with size limit to prevent OOM on oversized pages
@@ -1002,7 +1002,7 @@ func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskL
 	if int64(len(bodyBytes)) > maxPageSize {
 		return nil, "", fmt.Errorf("%w: page '%s' exceeds max size (%d > %d bytes)", utils.ErrResponseBodyRead, finalURL.String(), len(bodyBytes), maxPageSize)
 	}
-	taskLog.Debugf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String())
+	taskLog.Debug(fmt.Sprintf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String()))
 
 	// Calculate hash of raw HTML for incremental crawling
 	rawHTMLHash = utils.CalculateStringSHA256(string(bodyBytes))

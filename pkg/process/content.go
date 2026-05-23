@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path"
@@ -11,7 +12,6 @@ import (
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
-	"github.com/sirupsen/logrus"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/detect"
@@ -21,14 +21,14 @@ import (
 // ContentProcessor handles content extraction, image/link processing, Markdown conversion, and saving.
 type ContentProcessor struct {
 	imgProcessor         *ImageProcessor
-	log                  *logrus.Entry
+	log                  *slog.Logger
 	appCfg               *config.AppConfig
 	detector             *detect.ContentDetector
 	readabilityExtractor *detect.ReadabilityExtractor
 }
 
 // NewContentProcessor creates a ContentProcessor.
-func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig, log *logrus.Entry) *ContentProcessor {
+func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig, log *slog.Logger) *ContentProcessor {
 	return &ContentProcessor{
 		imgProcessor:         imgProcessor,
 		appCfg:               appCfg,
@@ -45,7 +45,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	finalURL *url.URL,
 	siteCfg *config.SiteConfig,
 	siteOutputDir string,
-	taskLog *logrus.Entry,
+	taskLog *slog.Logger,
 	ctx context.Context,
 ) (pageTitle string, savedFilePath string, markdownBytes []byte, imageCount int, err error) {
 	taskLog.Debug("Extracting, processing, and saving content.")
@@ -54,7 +54,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	if pageTitle == "" {
 		pageTitle = "Untitled Page"
 	}
-	taskLog = taskLog.WithField("page_title", pageTitle)
+	taskLog = taskLog.With("page_title", pageTitle)
 
 	var mainContent *goquery.Selection
 	var actualSelector string
@@ -73,17 +73,17 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 			mainContent = extractedContent
 			if extractedTitle != "" {
 				pageTitle = extractedTitle
-				taskLog = taskLog.WithField("page_title", pageTitle)
+				taskLog = taskLog.With("page_title", pageTitle)
 			}
-			taskLog.Debugf("Extracted content using readability (framework: %s)", result.Framework)
+			taskLog.Debug(fmt.Sprintf("Extracted content using readability (framework: %s)", result.Framework))
 		} else {
 			actualSelector = result.Selector
-			taskLog.Debugf("Auto-detected selector for %s: %s", result.Framework, actualSelector)
+			taskLog.Debug(fmt.Sprintf("Auto-detected selector for %s: %s", result.Framework, actualSelector))
 
 			mainContentSelection := doc.Find(actualSelector)
 			if mainContentSelection.Length() == 0 {
 				// Fallback to readability if detected selector fails
-				taskLog.Warnf("Detected selector '%s' not found, falling back to readability", actualSelector)
+				taskLog.Warn(fmt.Sprintf("Detected selector '%s' not found, falling back to readability", actualSelector))
 				extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
 				if extractErr != nil {
 					err = fmt.Errorf(
@@ -96,7 +96,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 				mainContent = extractedContent
 				if extractedTitle != "" {
 					pageTitle = extractedTitle
-					taskLog = taskLog.WithField("page_title", pageTitle)
+					taskLog = taskLog.With("page_title", pageTitle)
 				}
 			} else {
 				mainContent = mainContentSelection.First().Clone()
@@ -110,13 +110,13 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 			return pageTitle, "", nil, 0, err
 		}
 		mainContent = mainContentSelection.First().Clone()
-		taskLog.Debugf("Found main content using selector '%s'", siteCfg.ContentSelector)
+		taskLog.Debug(fmt.Sprintf("Found main content using selector '%s'", siteCfg.ContentSelector))
 	}
 
 	currentPageFullOutputPath, pageInScope := cp.getOutputPathForURL(finalURL, siteCfg, siteOutputDir)
 	if !pageInScope {
 		err = fmt.Errorf("%w: output path calculation failed unexpectedly for in-scope URL '%s'", utils.ErrScopeViolation, finalURL.String())
-		taskLog.Error(err)
+		taskLog.Error(err.Error())
 		return pageTitle, "", nil, 0, err
 	}
 
@@ -135,14 +135,14 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 			if !srcExists { // Should not happen if status was set
 				element.Remove()
 				imgRemoveCount++
-				taskLog.Warnf("Image status '%s' but missing src. Removing.", status)
+				taskLog.Warn(fmt.Sprintf("Image status '%s' but missing src. Removing.", status))
 				return
 			}
 			absImgURL, resolveErr := finalURL.Parse(originalSrc)
 			if resolveErr != nil { // Should not happen if parsed before
 				element.Remove()
 				imgRemoveCount++
-				taskLog.Warnf("Could not re-parse original src '%s'. Removing tag. Error: %v", originalSrc, resolveErr)
+				taskLog.Warn(fmt.Sprintf("Could not re-parse original src '%s'. Removing tag. Error: %v", originalSrc, resolveErr))
 				return
 			}
 
@@ -150,7 +150,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 				absoluteImagePath := filepath.Join(siteOutputDir, imgData.LocalPath)
 				relativeImagePath, relErr := filepath.Rel(currentPageOutputDir, absoluteImagePath)
 				if relErr != nil {
-					taskLog.Warnf("Could not calculate relative image path from '%s' to '%s' for src '%s': %v. Removing image tag.", currentPageOutputDir, absoluteImagePath, originalSrc, relErr)
+					taskLog.Warn(fmt.Sprintf("Could not calculate relative image path from '%s' to '%s' for src '%s': %v. Removing image tag.", currentPageOutputDir, absoluteImagePath, originalSrc, relErr))
 					element.Remove()
 					imgRemoveCount++
 					return
@@ -168,25 +168,25 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 				// Download/lookup failed
 				element.Remove()
 				imgRemoveCount++
-				taskLog.Debugf("Removing image tag for failed download/lookup: src='%s' (Status: %s)", originalSrc, status)
+				taskLog.Debug(fmt.Sprintf("Removing image tag for failed download/lookup: src='%s' (Status: %s)", originalSrc, status))
 			}
 		case "error-parse", "error-normalize", "error-db", "error-filesystem":
 			element.Remove()
 			imgRemoveCount++
-			taskLog.Debugf("Removing image tag due to fatal error: src='%s' (Status: %s)", originalSrc, status)
+			taskLog.Debug(fmt.Sprintf("Removing image tag due to fatal error: src='%s' (Status: %s)", originalSrc, status))
 		case "skipped-config", "skipped-empty-src", "skipped-data-uri", "skipped-scheme", "skipped-domain", "skipped-robots":
 			imgSkippedCount++
-			taskLog.Debugf("Leaving skipped image tag: src='%s' (Status: %s)", originalSrc, status)
+			taskLog.Debug(fmt.Sprintf("Leaving skipped image tag: src='%s' (Status: %s)", originalSrc, status))
 		default:
 			imgSkippedCount++
-			taskLog.Warnf("Image tag with unexpected status '%s': src='%s'. Leaving tag.", status, originalSrc)
+			taskLog.Warn(fmt.Sprintf("Image tag with unexpected status '%s': src='%s'. Leaving tag.", status, originalSrc))
 		}
 	})
-	taskLog.Debugf("Image handling complete: Rewrote %d, Removed %d, Left Skipped %d.", imgRewriteCount, imgRemoveCount, imgSkippedCount)
+	taskLog.Debug(fmt.Sprintf("Image handling complete: Rewrote %d, Removed %d, Left Skipped %d.", imgRewriteCount, imgRemoveCount, imgSkippedCount))
 
 	_, linkRewriteErr := cp.rewriteInternalLinks(mainContent, finalURL, currentPageFullOutputPath, siteCfg, siteOutputDir, taskLog)
 	if linkRewriteErr != nil {
-		taskLog.Warnf("Non-fatal error during internal link rewriting: %v", linkRewriteErr)
+		taskLog.Warn(fmt.Sprintf("Non-fatal error during internal link rewriting: %v", linkRewriteErr))
 	}
 
 	cp.cleanupHTML(mainContent)
@@ -194,7 +194,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	modifiedHTML, outerHtmlErr := goquery.OuterHtml(mainContent)
 	if outerHtmlErr != nil {
 		err = fmt.Errorf("failed getting modified HTML: %w", outerHtmlErr)
-		taskLog.Error(err)
+		taskLog.Error(err.Error())
 		return pageTitle, "", nil, 0, err
 	}
 
@@ -202,25 +202,25 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	markdownContent, convertErr := converter.ConvertString(modifiedHTML)
 	if convertErr != nil {
 		err = fmt.Errorf("%w: %w", utils.ErrMarkdownConversion, convertErr)
-		taskLog.Error(err)
+		taskLog.Error(err.Error())
 		return pageTitle, "", nil, 0, err
 	}
 
 	outputDirForFile := filepath.Dir(currentPageFullOutputPath)
 	if mkdirErr := os.MkdirAll(outputDirForFile, 0755); mkdirErr != nil {
 		err = fmt.Errorf("%w: creating output directory '%s': %w", utils.ErrFilesystem, outputDirForFile, mkdirErr)
-		taskLog.Error(err)
+		taskLog.Error(err.Error())
 		return pageTitle, "", nil, 0, err
 	}
 
 	writeErr := os.WriteFile(currentPageFullOutputPath, []byte(markdownContent), 0644)
 	if writeErr != nil {
 		err = fmt.Errorf("%w: saving markdown '%s': %w", utils.ErrFilesystem, currentPageFullOutputPath, writeErr)
-		taskLog.Error(err)
+		taskLog.Error(err.Error())
 		return pageTitle, "", nil, 0, err
 	}
 
-	taskLog.Infof("Saved Markdown (%d bytes): %s", len(markdownContent), currentPageFullOutputPath)
+	taskLog.Info(fmt.Sprintf("Saved Markdown (%d bytes): %s", len(markdownContent), currentPageFullOutputPath))
 	taskLog.Debug("Content extraction, processing, and saving complete.")
 	return pageTitle, currentPageFullOutputPath, []byte(markdownContent), imgRewriteCount, nil
 }
@@ -320,7 +320,7 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 	currentPageFullOutputPath string,
 	siteCfg *config.SiteConfig,
 	siteOutputDir string,
-	taskLog *logrus.Entry,
+	taskLog *slog.Logger,
 ) (rewriteCount int, err error) {
 	taskLog.Debug("Rewriting internal links...")
 	var firstError error
@@ -347,7 +347,7 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 
 		linkURL, parseErr := finalURL.Parse(href)
 		if parseErr != nil {
-			taskLog.Warnf("Skipping rewrite for unparseable link href '%s': %v", href, parseErr)
+			taskLog.Warn(fmt.Sprintf("Skipping rewrite for unparseable link href '%s': %v", href, parseErr))
 			if firstError == nil {
 				firstError = parseErr
 			}
@@ -361,7 +361,7 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 
 		relativePath, relErr := filepath.Rel(currentPageOutputDir, targetOutputPath)
 		if relErr != nil {
-			taskLog.Warnf("Could not calculate relative path from '%s' to '%s' for link '%s': %v. Keeping original.", currentPageOutputDir, targetOutputPath, href, relErr)
+			taskLog.Warn(fmt.Sprintf("Could not calculate relative path from '%s' to '%s' for link '%s': %v. Keeping original.", currentPageOutputDir, targetOutputPath, href, relErr))
 			if firstError == nil {
 				firstError = relErr
 			}
@@ -377,7 +377,7 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 		rewriteCount++
 	})
 
-	taskLog.Debugf("Rewrote %d internal links.", rewriteCount)
+	taskLog.Debug(fmt.Sprintf("Rewrote %d internal links.", rewriteCount))
 	return rewriteCount, firstError
 }
 

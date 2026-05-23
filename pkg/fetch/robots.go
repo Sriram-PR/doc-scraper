@@ -2,12 +2,13 @@ package fetch
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
 
-	"github.com/sirupsen/logrus"
 	"github.com/temoto/robotstxt"
 	"golang.org/x/sync/semaphore"
 
@@ -28,7 +29,7 @@ type RobotsHandler struct {
 	globalSemaphore *semaphore.Weighted
 	sitemapNotifier SitemapDiscoverer
 	cfg             *config.AppConfig
-	log             *logrus.Entry
+	log             *slog.Logger
 }
 
 // NewRobotsHandler creates a RobotsHandler.
@@ -38,7 +39,7 @@ func NewRobotsHandler(
 	globalSemaphore *semaphore.Weighted,
 	sitemapNotifier SitemapDiscoverer,
 	cfg *config.AppConfig,
-	log *logrus.Entry,
+	log *slog.Logger,
 ) *RobotsHandler {
 	return &RobotsHandler{
 		fetcher:         fetcher,
@@ -69,7 +70,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	}
 
 	host := targetURL.Hostname()
-	hostLog := rh.log.WithField("host", host)
+	hostLog := rh.log.With("host", host)
 
 	rh.robotsCacheMu.Lock()
 	robotsData, found := rh.robotsCache[host]
@@ -80,11 +81,11 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 
 	robotsURL := &url.URL{Scheme: targetURL.Scheme, Host: host, Path: "/robots.txt"}
 	if targetURL.Scheme != "http" && targetURL.Scheme != "https" {
-		hostLog.Warnf("Invalid scheme '%s', defaulting to https for robots.txt", targetURL.Scheme)
+		hostLog.Warn(fmt.Sprintf("Invalid scheme '%s', defaulting to https for robots.txt", targetURL.Scheme))
 		robotsURL.Scheme = "https"
 	}
 	robotsURLStr := robotsURL.String()
-	robotsLog := hostLog.WithField("robots_url", robotsURLStr)
+	robotsLog := hostLog.With("robots_url", robotsURLStr)
 	robotsLog.Info("Fetching robots.txt...")
 
 	semTimeout := config.DefaultSemaphoreAcquireTimeout
@@ -94,7 +95,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	err := rh.globalSemaphore.Acquire(ctxAcquire, 1)
 	cancelAcquire()
 	if err != nil {
-		robotsLog.Errorf("Error acquiring global semaphore: %v", err)
+		robotsLog.Error(fmt.Sprintf("Error acquiring global semaphore: %v", err))
 		rh.robotsCacheMu.Lock()
 		rh.robotsCache[host] = nil
 		rh.robotsCacheMu.Unlock() // Cache failure
@@ -113,7 +114,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, robotsURLStr, nil)
 	if err != nil {
-		robotsLog.Errorf("Error creating request: %v", err)
+		robotsLog.Error(fmt.Sprintf("Error creating request: %v", err))
 		rh.robotsCacheMu.Lock()
 		rh.robotsCache[host] = nil
 		rh.robotsCacheMu.Unlock()
@@ -125,7 +126,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	rh.rateLimiter.UpdateLastRequestTime(host)
 
 	if fetchErr != nil {
-		robotsLog.Errorf("Fetching robots.txt failed: %v", fetchErr)
+		robotsLog.Error(fmt.Sprintf("Fetching robots.txt failed: %v", fetchErr))
 		rh.robotsCacheMu.Lock()
 		rh.robotsCache[host] = nil
 		rh.robotsCacheMu.Unlock()
@@ -136,7 +137,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	const maxRobotsSize = 1 * 1024 * 1024 // 1 MB
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxRobotsSize))
 	if err != nil {
-		robotsLog.Errorf("Error reading body: %v", err)
+		robotsLog.Error(fmt.Sprintf("Error reading body: %v", err))
 		rh.robotsCacheMu.Lock()
 		rh.robotsCache[host] = nil
 		rh.robotsCacheMu.Unlock()
@@ -145,7 +146,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 
 	data, err := robotstxt.FromBytes(bodyBytes)
 	if err != nil {
-		robotsLog.Errorf("Error parsing content: %v", err)
+		robotsLog.Error(fmt.Sprintf("Error parsing content: %v", err))
 		rh.robotsCacheMu.Lock()
 		rh.robotsCache[host] = nil
 		rh.robotsCacheMu.Unlock()
@@ -158,7 +159,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	rh.robotsCacheMu.Unlock()
 
 	if rh.sitemapNotifier != nil && len(data.Sitemaps) > 0 {
-		robotsLog.Infof("Found %d sitemap directive(s)", len(data.Sitemaps))
+		robotsLog.Info(fmt.Sprintf("Found %d sitemap directive(s)", len(data.Sitemaps)))
 		for _, sitemapURL := range data.Sitemaps {
 			rh.sitemapNotifier.FoundSitemap(sitemapURL)
 		}

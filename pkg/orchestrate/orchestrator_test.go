@@ -5,17 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 )
 
-func silentLogger() *logrus.Entry {
-	l := logrus.New()
-	l.SetOutput(io.Discard)
-	return l.WithField("component", "orchestrate_test")
+func silentLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil)).With("component", "orchestrate_test")
 }
 
 func minimalAppConfig(t *testing.T) *config.AppConfig {

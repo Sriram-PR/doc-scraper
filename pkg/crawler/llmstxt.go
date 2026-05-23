@@ -25,7 +25,7 @@ func (om *OutputManager) writeLLMsTxtFiles() {
 	}
 	in, err := os.Open(om.jsonlFilePath)
 	if err != nil {
-		om.log.Warnf("llms.txt: cannot read JSONL %s: %v", om.jsonlFilePath, err)
+		om.log.Warn(fmt.Sprintf("llms.txt: cannot read JSONL %s: %v", om.jsonlFilePath, err))
 		return
 	}
 	defer in.Close()
@@ -33,7 +33,7 @@ func (om *OutputManager) writeLLMsTxtFiles() {
 	fullPath := filepath.Join(om.siteOutputDir, llmsFullTxtFilename)
 	fullFile, err := os.Create(fullPath)
 	if err != nil {
-		om.log.Warnf("llms.txt: cannot create %s: %v", fullPath, err)
+		om.log.Warn(fmt.Sprintf("llms.txt: cannot create %s: %v", fullPath, err))
 		return
 	}
 	defer fullFile.Close()
@@ -75,14 +75,14 @@ func (om *OutputManager) writeLLMsTxtFiles() {
 		fmt.Fprintf(fullFile, "---\n\n# %s\n\nURL: %s\n\n%s\n\n", escapeHeading(title), page.URL, page.Content)
 	}
 	if err := scanner.Err(); err != nil {
-		om.log.Warnf("llms.txt: scan error on %s: %v", om.jsonlFilePath, err)
+		om.log.Warn(fmt.Sprintf("llms.txt: scan error on %s: %v", om.jsonlFilePath, err))
 		return
 	}
 
 	indexPath := filepath.Join(om.siteOutputDir, llmsTxtFilename)
 	indexFile, err := os.Create(indexPath)
 	if err != nil {
-		om.log.Warnf("llms.txt: cannot create %s: %v", indexPath, err)
+		om.log.Warn(fmt.Sprintf("llms.txt: cannot create %s: %v", indexPath, err))
 		return
 	}
 	defer indexFile.Close()
@@ -97,7 +97,7 @@ func (om *OutputManager) writeLLMsTxtFiles() {
 		fmt.Fprintf(indexFile, "- [%s](%s)\n", escapeLinkText(p.title), p.url)
 	}
 
-	om.log.Infof("Wrote llms.txt (%d pages) and llms-full.txt to %s", len(pages), om.siteOutputDir)
+	om.log.Info(fmt.Sprintf("Wrote llms.txt (%d pages) and llms-full.txt to %s", len(pages), om.siteOutputDir))
 }
 
 // escapeLinkText escapes brackets, backslashes, and newlines in markdown link

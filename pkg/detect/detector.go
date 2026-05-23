@@ -1,10 +1,11 @@
 package detect
 
 import (
+	"fmt"
+	"log/slog"
 	"net/url"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/sirupsen/logrus"
 )
 
 // Framework represents a detected documentation framework
@@ -29,11 +30,11 @@ type DetectionResult struct {
 // ContentDetector detects the appropriate content selector for a page.
 type ContentDetector struct {
 	cache *SelectorCache
-	log   *logrus.Entry
+	log   *slog.Logger
 }
 
 // NewContentDetector creates a new content detector with per-domain caching.
-func NewContentDetector(log *logrus.Entry) *ContentDetector {
+func NewContentDetector(log *slog.Logger) *ContentDetector {
 	return &ContentDetector{
 		cache: NewSelectorCache(),
 		log:   log,
@@ -46,13 +47,13 @@ func (d *ContentDetector) Detect(doc *goquery.Document, pageURL *url.URL) Detect
 	domain := pageURL.Hostname()
 
 	if cached, ok := d.cache.Get(domain); ok {
-		d.log.Debugf("Using cached selector for domain %s: %s (framework: %s)", domain, cached.Selector, cached.Framework)
+		d.log.Debug(fmt.Sprintf("Using cached selector for domain %s: %s (framework: %s)", domain, cached.Selector, cached.Framework))
 		return cached
 	}
 
 	result := d.detectFramework(doc)
 	if result.Framework != FrameworkUnknown {
-		d.log.Infof("Detected framework %s for domain %s, using selector: %s", result.Framework, domain, result.Selector)
+		d.log.Info(fmt.Sprintf("Detected framework %s for domain %s, using selector: %s", result.Framework, domain, result.Selector))
 		d.cache.Set(domain, result)
 		return result
 	}
@@ -63,7 +64,7 @@ func (d *ContentDetector) Detect(doc *goquery.Document, pageURL *url.URL) Detect
 		Selector:  "", // Empty selector signals readability fallback
 		Fallback:  true,
 	}
-	d.log.Infof("No framework detected for domain %s, will use readability extraction", domain)
+	d.log.Info(fmt.Sprintf("No framework detected for domain %s, will use readability extraction", domain))
 	d.cache.Set(domain, result)
 	return result
 }

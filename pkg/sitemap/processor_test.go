@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
@@ -85,10 +85,8 @@ func (m *mockPageStore) visitedCount() int {
 }
 
 
-func discardLogger() *logrus.Entry {
-	l := logrus.New()
-	l.SetOutput(io.Discard)
-	return logrus.NewEntry(l)
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func defaultSiteCfg() *config.SiteConfig {

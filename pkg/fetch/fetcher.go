@@ -5,12 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"math/rand"
 	"net/http"
 	"time"
-
-	"github.com/sirupsen/logrus"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
@@ -25,11 +24,11 @@ type HTTPFetcher interface {
 type Fetcher struct {
 	client *http.Client
 	cfg    *config.AppConfig
-	log    *logrus.Entry
+	log    *slog.Logger
 }
 
 // NewFetcher creates a new Fetcher.
-func NewFetcher(client *http.Client, cfg *config.AppConfig, log *logrus.Entry) *Fetcher {
+func NewFetcher(client *http.Client, cfg *config.AppConfig, log *slog.Logger) *Fetcher {
 	return &Fetcher{
 		client: client,
 		cfg:    cfg,
@@ -42,7 +41,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 	var lastErr error
 	var currentResp *http.Response
 
-	reqLog := f.log.WithField("url", req.URL.String())
+	reqLog := f.log.With("url", req.URL.String())
 
 	maxRetries := f.cfg.MaxRetries
 	initialRetryDelay := f.cfg.InitialRetryDelay
@@ -52,7 +51,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 
 		select {
 		case <-ctx.Done():
-			reqLog.Warnf("Context cancelled before attempt %d: %v", attempt, ctx.Err())
+			reqLog.Warn(fmt.Sprintf("Context cancelled before attempt %d: %v", attempt, ctx.Err()))
 			if lastErr != nil {
 				return nil, fmt.Errorf("context cancelled (%v) during retry backoff after error: %w", ctx.Err(), lastErr) //nolint:errorlint // ctx.Err() is diagnostic info, lastErr is the wrapped error
 			}
@@ -77,12 +76,12 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 				finalDelay = 0
 			}
 
-			reqLog.WithFields(logrus.Fields{"attempt": attempt, "max_retries": maxRetries, "delay": finalDelay}).Warn("Retrying request...")
+			reqLog.Warn("Retrying request...", "attempt", attempt, "max_retries", maxRetries, "delay", finalDelay)
 
 			select {
 			case <-time.After(finalDelay):
 			case <-ctx.Done():
-				reqLog.Warnf("Context cancelled during retry sleep: %v", ctx.Err())
+				reqLog.Warn(fmt.Sprintf("Context cancelled during retry sleep: %v", ctx.Err()))
 				if lastErr != nil {
 					return nil, fmt.Errorf("context cancelled (%v) during retry delay after error: %w", ctx.Err(), lastErr) //nolint:errorlint // ctx.Err() is diagnostic info, lastErr is the wrapped error
 				}
@@ -95,7 +94,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 
 		if lastErr != nil {
 			if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
-				reqLog.Warnf("Context cancelled/timed out during HTTP request execution: %v", lastErr)
+				reqLog.Warn(fmt.Sprintf("Context cancelled/timed out during HTTP request execution: %v", lastErr))
 				if currentResp != nil {
 					io.Copy(io.Discard, currentResp.Body)
 					currentResp.Body.Close()
@@ -103,7 +102,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 				return nil, lastErr
 			}
 
-			reqLog.WithField("attempt", attempt).Errorf("Network error: %v", lastErr)
+			reqLog.Error(fmt.Sprintf("Network error: %v", lastErr), "attempt", attempt)
 			if currentResp != nil {
 				io.Copy(io.Discard, currentResp.Body)
 				currentResp.Body.Close()
@@ -112,7 +111,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 		}
 
 		statusCode := currentResp.StatusCode
-		resLog := reqLog.WithFields(logrus.Fields{"status_code": statusCode, "status": currentResp.Status, "attempt": attempt})
+		resLog := reqLog.With("status_code", statusCode, "status", currentResp.Status, "attempt", attempt)
 
 		switch {
 		case statusCode >= 200 && statusCode < 300:
@@ -140,12 +139,12 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 
 		default:
 			// Non-2xx, non-retryable; caller must close body.
-			resLog.Warnf("Non-retryable/unexpected status: %d", statusCode)
+			resLog.Warn(fmt.Sprintf("Non-retryable/unexpected status: %d", statusCode))
 			return currentResp, fmt.Errorf("%w: status %d %s", utils.ErrOtherHTTPError, statusCode, currentResp.Status)
 		}
 	}
 
-	reqLog.Errorf("All %d fetch retries failed. Last error: %v", maxRetries+1, lastErr)
+	reqLog.Error(fmt.Sprintf("All %d fetch retries failed. Last error: %v", maxRetries+1, lastErr))
 	if currentResp != nil {
 		io.Copy(io.Discard, currentResp.Body)
 		currentResp.Body.Close()

@@ -1,12 +1,13 @@
 package detect
 
 import (
+	"io"
+	"log/slog"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/sirupsen/logrus"
 )
 
 func TestIsAutoSelector(t *testing.T) {
@@ -52,9 +53,8 @@ func TestDetectDocusaurus(t *testing.T) {
 		t.Fatalf("Failed to parse HTML: %v", err)
 	}
 
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	detector := NewContentDetector(logrus.NewEntry(logger))
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	detector := NewContentDetector(logger)
 
 	pageURL, _ := url.Parse("https://docusaurus.io/docs/")
 	result := detector.Detect(doc, pageURL)
@@ -89,9 +89,8 @@ func TestDetectMkDocs(t *testing.T) {
 		t.Fatalf("Failed to parse HTML: %v", err)
 	}
 
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	detector := NewContentDetector(logrus.NewEntry(logger))
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	detector := NewContentDetector(logger)
 
 	pageURL, _ := url.Parse("https://squidfunk.github.io/mkdocs-material/")
 	result := detector.Detect(doc, pageURL)
@@ -124,9 +123,8 @@ func TestDetectSphinx(t *testing.T) {
 		t.Fatalf("Failed to parse HTML: %v", err)
 	}
 
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	detector := NewContentDetector(logrus.NewEntry(logger))
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	detector := NewContentDetector(logger)
 
 	pageURL, _ := url.Parse("https://www.sphinx-doc.org/en/master/")
 	result := detector.Detect(doc, pageURL)
@@ -158,9 +156,8 @@ func TestDetectReadTheDocs(t *testing.T) {
 		t.Fatalf("Failed to parse HTML: %v", err)
 	}
 
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	detector := NewContentDetector(logrus.NewEntry(logger))
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	detector := NewContentDetector(logger)
 
 	pageURL, _ := url.Parse("https://example.readthedocs.io/en/latest/")
 	result := detector.Detect(doc, pageURL)
@@ -189,9 +186,8 @@ func TestDetectGitBook(t *testing.T) {
 		t.Fatalf("Failed to parse HTML: %v", err)
 	}
 
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	detector := NewContentDetector(logrus.NewEntry(logger))
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	detector := NewContentDetector(logger)
 
 	pageURL, _ := url.Parse("https://docs.gitbook.com/")
 	result := detector.Detect(doc, pageURL)
@@ -219,9 +215,8 @@ func TestDetectUnknownFallback(t *testing.T) {
 		t.Fatalf("Failed to parse HTML: %v", err)
 	}
 
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	detector := NewContentDetector(logrus.NewEntry(logger))
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	detector := NewContentDetector(logger)
 
 	pageURL, _ := url.Parse("https://example.com/page")
 	result := detector.Detect(doc, pageURL)
@@ -248,9 +243,8 @@ func TestCaching(t *testing.T) {
 		t.Fatalf("Failed to parse HTML: %v", err)
 	}
 
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	detector := NewContentDetector(logrus.NewEntry(logger))
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	detector := NewContentDetector(logger)
 
 	pageURL1, _ := url.Parse("https://example.com/page1")
 	pageURL2, _ := url.Parse("https://example.com/page2")

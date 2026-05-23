@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"log/slog"
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
@@ -27,7 +27,7 @@ type SiteResult struct {
 // Orchestrator manages parallel crawling of multiple sites.
 type Orchestrator struct {
 	appCfg          *config.AppConfig
-	log             *logrus.Entry
+	log             *slog.Logger
 	siteKeys        []string
 	resume          bool
 	httpClient      fetch.HTTPFetcher
@@ -40,7 +40,7 @@ type Orchestrator struct {
 }
 
 // NewOrchestrator creates a new orchestrator for parallel site crawling.
-func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, log *logrus.Entry) *Orchestrator {
+func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, log *slog.Logger) *Orchestrator {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, log)
@@ -65,7 +65,7 @@ func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, l
 // Run starts parallel crawling of all sites and blocks until all finish.
 func (o *Orchestrator) Run() []SiteResult {
 	startTime := time.Now()
-	o.log.Infof("Starting parallel crawl of %d sites: %v", len(o.siteKeys), o.siteKeys)
+	o.log.Info(fmt.Sprintf("Starting parallel crawl of %d sites: %v", len(o.siteKeys), o.siteKeys))
 
 	var wg sync.WaitGroup
 
@@ -98,7 +98,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	if !exists {
 		result.Error = fmt.Errorf("site '%s' not found in configuration", siteKey)
 		result.Success = false
-		o.log.Errorf("Site '%s' not found in configuration", siteKey)
+		o.log.Error(fmt.Sprintf("Site '%s' not found in configuration", siteKey))
 		return result
 	}
 
@@ -109,7 +109,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create store for '%s': %w", siteKey, err)
 		result.Success = false
-		o.log.Errorf("Failed to create store for site '%s': %v", siteKey, err)
+		o.log.Error(fmt.Sprintf("Failed to create store for site '%s': %v", siteKey, err))
 		return result
 	}
 	defer store.Close()
@@ -135,18 +135,18 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create crawler for '%s': %w", siteKey, err)
 		result.Success = false
-		o.log.Errorf("Failed to create crawler for site '%s': %v", siteKey, err)
+		o.log.Error(fmt.Sprintf("Failed to create crawler for site '%s': %v", siteKey, err))
 		return result
 	}
 
-	o.log.Infof("Starting crawl for site '%s'", siteKey)
+	o.log.Info(fmt.Sprintf("Starting crawl for site '%s'", siteKey))
 	if err := c.Run(o.resume); err != nil {
 		result.Error = err
 		result.Success = false
-		o.log.Errorf("Crawl failed for site '%s': %v", siteKey, err)
+		o.log.Error(fmt.Sprintf("Crawl failed for site '%s': %v", siteKey, err))
 	} else {
 		result.Success = true
-		o.log.Infof("Crawl completed for site '%s'", siteKey)
+		o.log.Info(fmt.Sprintf("Crawl completed for site '%s'", siteKey))
 	}
 
 	progress := c.GetProgress()
@@ -180,7 +180,7 @@ func (o *Orchestrator) GetProgress() []crawler.CrawlerProgress {
 
 func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 	o.log.Info("============================================")
-	o.log.Infof("Parallel crawl completed in %v", totalDuration)
+	o.log.Info(fmt.Sprintf("Parallel crawl completed in %v", totalDuration))
 	o.log.Info("Site Results:")
 
 	var totalPages int64
@@ -197,15 +197,15 @@ func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 		}
 		totalPages += r.PagesProcessed
 
-		o.log.Infof("  %s: %s - %d pages in %v", r.SiteKey, status, r.PagesProcessed, r.Duration)
+		o.log.Info(fmt.Sprintf("  %s: %s - %d pages in %v", r.SiteKey, status, r.PagesProcessed, r.Duration))
 		if r.Error != nil {
-			o.log.Infof("    Error: %v", r.Error)
+			o.log.Info(fmt.Sprintf("    Error: %v", r.Error))
 		}
 	}
 
 	o.log.Info("--------------------------------------------")
-	o.log.Infof("Total: %d sites (%d success, %d failed), %d pages processed",
-		len(o.results), successCount, failCount, totalPages)
+	o.log.Info(fmt.Sprintf("Total: %d sites (%d success, %d failed), %d pages processed",
+		len(o.results), successCount, failCount, totalPages))
 	o.log.Info("============================================")
 }
 

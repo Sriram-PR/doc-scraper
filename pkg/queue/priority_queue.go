@@ -2,11 +2,10 @@ package queue
 
 import (
 	"container/heap"
+	"log/slog"
 	"sync"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
-
-	"github.com/sirupsen/logrus"
 )
 
 // PQItem represents an item in the priority queue.
@@ -54,11 +53,11 @@ type ThreadSafePriorityQueue struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
 	closed bool
-	log    *logrus.Entry
+	log    *slog.Logger
 }
 
 // NewThreadSafePriorityQueue creates a new thread-safe priority queue.
-func NewThreadSafePriorityQueue(logger *logrus.Entry) *ThreadSafePriorityQueue {
+func NewThreadSafePriorityQueue(logger *slog.Logger) *ThreadSafePriorityQueue {
 	tspq := &ThreadSafePriorityQueue{log: logger}
 	tspq.cond = sync.NewCond(&tspq.mu)
 	heap.Init(&tspq.pq)
@@ -71,7 +70,7 @@ func (tspq *ThreadSafePriorityQueue) Add(item *models.WorkItem) {
 	defer tspq.mu.Unlock()
 
 	if tspq.closed {
-		tspq.log.Warnf("Attempted to add item to closed queue: %s", item.URL)
+		tspq.log.Warn("Attempted to add item to closed queue", "url", item.URL)
 		return
 	}
 

@@ -2,10 +2,11 @@ package fetch
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -23,15 +24,15 @@ type HostSemaphorePool struct {
 	entries map[string]*hostEntry
 	mu      sync.Mutex
 	limit   int64
-	log     *logrus.Entry
+	log     *slog.Logger
 }
 
 // NewHostSemaphorePool creates a new pool with the given per-host concurrency limit.
-func NewHostSemaphorePool(maxPerHost int, log *logrus.Entry) *HostSemaphorePool {
+func NewHostSemaphorePool(maxPerHost int, log *slog.Logger) *HostSemaphorePool {
 	limit := int64(maxPerHost)
 	if limit <= 0 {
 		limit = 2
-		log.Warnf("max_requests_per_host invalid or zero, defaulting to %d", limit)
+		log.Warn(fmt.Sprintf("max_requests_per_host invalid or zero, defaulting to %d", limit))
 	}
 	return &HostSemaphorePool{
 		entries: make(map[string]*hostEntry),
@@ -48,7 +49,7 @@ func (p *HostSemaphorePool) Acquire(ctx context.Context, host string) error {
 	if !exists {
 		entry = &hostEntry{sem: semaphore.NewWeighted(p.limit)}
 		p.entries[host] = entry
-		p.log.WithFields(logrus.Fields{"host": host, "limit": p.limit}).Debug("Created new host semaphore")
+		p.log.Debug("Created new host semaphore", "host", host, "limit", p.limit)
 	}
 	entry.activeCount++
 	p.mu.Unlock()
@@ -68,7 +69,7 @@ func (p *HostSemaphorePool) Release(host string) {
 	entry, exists := p.entries[host]
 	if !exists {
 		p.mu.Unlock()
-		p.log.Errorf("hostsemaphore: Release called for unknown host: %s", host)
+		p.log.Error(fmt.Sprintf("hostsemaphore: Release called for unknown host: %s", host))
 		return
 	}
 	entry.activeCount--
@@ -93,7 +94,7 @@ func (p *HostSemaphorePool) RunEviction(ctx context.Context, interval time.Durat
 		case <-ticker.C:
 			p.evictIdle(interval)
 		case <-ctx.Done():
-			p.log.Infof("Stopping host semaphore eviction: %v", ctx.Err())
+			p.log.Info(fmt.Sprintf("Stopping host semaphore eviction: %v", ctx.Err()))
 			return
 		}
 	}
@@ -112,7 +113,7 @@ func (p *HostSemaphorePool) evictIdle(maxIdle time.Duration) {
 		}
 	}
 	if evicted > 0 {
-		p.log.Debugf("Evicted %d idle host semaphores, %d remain", evicted, len(p.entries))
+		p.log.Debug(fmt.Sprintf("Evicted %d idle host semaphores, %d remain", evicted, len(p.entries)))
 	}
 }
 

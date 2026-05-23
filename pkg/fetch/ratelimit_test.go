@@ -2,15 +2,14 @@ package fetch
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 func newTestRateLimiter() *RateLimiter {
-	log := logrus.NewEntry(logrus.New())
-	log.Logger.SetLevel(logrus.DebugLevel)
+	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	return NewRateLimiter(100*time.Millisecond, log)
 }
 

@@ -2,20 +2,17 @@ package queue
 
 import (
 	"io"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/sirupsen/logrus"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
 )
 
 // testLogger returns a logger that discards output
-func testLogger() *logrus.Entry {
-	log := logrus.New()
-	log.SetOutput(io.Discard)
-	return logrus.NewEntry(log)
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 

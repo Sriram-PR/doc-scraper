@@ -2,13 +2,13 @@ package fetch
 
 import (
 	"errors"
+	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
-
-	"github.com/sirupsen/logrus"
 )
 
 // Baked-in HTTP transport timings. These were exposed as config knobs prior to
@@ -25,7 +25,7 @@ const (
 )
 
 // NewClient creates an HTTP client with an SSRF-guarding dialer unless allow_private_networks is set.
-func NewClient(cfg config.HTTPClientConfig, log *logrus.Entry) *http.Client {
+func NewClient(cfg config.HTTPClientConfig, log *slog.Logger) *http.Client {
 	log.Info("Initializing HTTP client...")
 
 	dialer := &net.Dialer{
@@ -66,7 +66,7 @@ func NewClient(cfg config.HTTPClientConfig, log *logrus.Entry) *http.Client {
 			if len(via) >= 10 {
 				return errors.New("stopped after 10 redirects")
 			}
-			log.Debugf("Redirecting: %s -> %s (hop %d)", via[len(via)-1].URL, req.URL, len(via))
+			log.Debug(fmt.Sprintf("Redirecting: %s -> %s (hop %d)", via[len(via)-1].URL, req.URL, len(via)))
 			return nil
 		},
 	}

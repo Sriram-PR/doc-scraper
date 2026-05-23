@@ -2,11 +2,10 @@ package fetch
 
 import (
 	"context"
+	"log/slog"
 	"math/rand"
 	"sync"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 // RateLimiter manages request timing per host for politeness
@@ -14,11 +13,11 @@ type RateLimiter struct {
 	hostLastRequest   map[string]time.Time // hostname -> last request attempt time
 	hostLastRequestMu sync.Mutex           // Protects hostLastRequest map
 	defaultDelay      time.Duration        // Fallback delay if specific delay is invalid
-	log               *logrus.Entry
+	log               *slog.Logger
 }
 
 // NewRateLimiter creates a RateLimiter
-func NewRateLimiter(defaultDelay time.Duration, log *logrus.Entry) *RateLimiter {
+func NewRateLimiter(defaultDelay time.Duration, log *slog.Logger) *RateLimiter {
 	return &RateLimiter{
 		hostLastRequest: make(map[string]time.Time),
 		defaultDelay:    defaultDelay,
@@ -63,16 +62,14 @@ func (rl *RateLimiter) ApplyDelay(ctx context.Context, host string, minDelay tim
 			}
 
 			if finalSleep > 0 {
-				rl.log.WithFields(logrus.Fields{
-					"host": host, "sleep": finalSleep, "required_delay": minDelay, "elapsed": elapsed,
-				}).Debug("Rate limit applying sleep")
+				rl.log.Debug("Rate limit applying sleep", "host", host, "sleep", finalSleep, "required_delay", minDelay, "elapsed", elapsed)
 				timer := time.NewTimer(finalSleep)
 				select {
 				case <-timer.C:
 					// normal delay elapsed
 				case <-ctx.Done():
 					timer.Stop()
-					rl.log.WithField("host", host).Debug("Rate limit sleep interrupted by context cancellation")
+					rl.log.Debug("Rate limit sleep interrupted by context cancellation", "host", host)
 				}
 			}
 		}

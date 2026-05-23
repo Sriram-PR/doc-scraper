@@ -3,11 +3,12 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/sirupsen/logrus"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 )
@@ -24,14 +25,14 @@ const (
 type ServerConfig struct {
 	AppConfig  *config.AppConfig
 	ConfigPath string
-	Logger     *logrus.Logger
+	Logger     *slog.Logger
 }
 
 // Server wraps the MCP server with doc-scraper specific functionality
 type Server struct {
 	mcpServer  *server.MCPServer
 	cfg        *ServerConfig
-	log        *logrus.Entry
+	log        *slog.Logger
 	jobManager *JobManager
 }
 
@@ -41,7 +42,7 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		return nil, fmt.Errorf("AppConfig is required")
 	}
 	if cfg.Logger == nil {
-		cfg.Logger = logrus.New()
+		cfg.Logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
 
 	// Create the MCP server
@@ -51,7 +52,7 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		server.WithLogging(),
 	)
 
-	logEntry := cfg.Logger.WithField("component", "mcp")
+	logEntry := cfg.Logger.With("component", "mcp")
 	var jobsPath string
 	if cfg.AppConfig.StateDir != "" {
 		jobsPath = filepath.Join(cfg.AppConfig.StateDir, jobsFilename)
@@ -152,7 +153,7 @@ func (s *Server) registerTools() {
 	)
 	s.mcpServer.AddTool(listPagesTool, s.handleListPages)
 
-	s.log.Infof("Registered %d MCP tools", 7)
+	s.log.Info(fmt.Sprintf("Registered %d MCP tools", 7))
 }
 
 // Run starts the MCP server over the stdio transport.

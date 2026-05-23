@@ -15,16 +15,38 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"log/slog"
+
 	"gopkg.in/yaml.v3"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
+	pkglog "github.com/Sriram-PR/doc-scraper/pkg/log"
 	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/pkg/watch"
 )
+
+// fatal logs the message at error level and exits the process. Replaces
+// logrus's Fatalf; slog has no built-in equivalent because it deliberately
+// keeps process-control out of the logging API.
+func fatal(log *slog.Logger, format string, args ...interface{}) {
+	log.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
+}
+
+// setupLogger parses logLevelStr and returns a *slog.Logger with text format
+// on stderr. Mirrors the parse-then-fallback behavior the logrus version
+// provided: invalid levels warn and fall back to info.
+func setupLogger(logLevelStr string) *slog.Logger {
+	level, parseErr := pkglog.ParseLevel(logLevelStr)
+	log := pkglog.New(level, pkglog.FormatText, os.Stderr)
+	if parseErr != nil {
+		log.Warn(fmt.Sprintf("Invalid log level '%s', using default 'info'. Error: %v", logLevelStr, parseErr))
+	}
+	return log
+}
 
 const version = "2.2.2"
 
@@ -380,27 +402,18 @@ func runWatch(args []string) {
 
 // executeWatch runs the watch scheduler
 func executeWatch(configFile string, siteKeys []string, allSites bool, intervalStr, logLevelStr string) {
-	log := logrus.New()
-	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true, TimestampFormat: "15:04:05.000"})
-	log.SetLevel(logrus.InfoLevel)
-
-	level, err := logrus.ParseLevel(logLevelStr)
-	if err != nil {
-		log.Warnf("Invalid log level '%s', using default 'info'. Error: %v", logLevelStr, err)
-	} else {
-		log.SetLevel(level)
-	}
+	log := setupLogger(logLevelStr)
 
 	interval, err := watch.ParseInterval(intervalStr)
 	if err != nil {
-		log.Fatalf("Invalid interval: %v", err)
+		fatal(log, "Invalid interval: %v", err)
 	}
-	log.Infof("Watch interval: %v", interval)
+	log.Info(fmt.Sprintf("Watch interval: %v", interval))
 
-	log.Infof("Loading configuration from %s", configFile)
+	log.Info(fmt.Sprintf("Loading configuration from %s", configFile))
 	appCfg, err := loadConfig(configFile)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal(log, "Config error: %v", err)
 	}
 
 	appWarnings, _ := appCfg.Validate()
@@ -414,25 +427,25 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 
 	if allSites {
 		siteKeys = config.GetAllSiteKeys(appCfg)
-		log.Infof("All sites mode: found %d sites", len(siteKeys))
+		log.Info(fmt.Sprintf("All sites mode: found %d sites", len(siteKeys)))
 	}
 
 	if err := config.ValidateSiteKeys(appCfg, siteKeys); err != nil {
-		log.Fatalf("Invalid site keys: %v", err)
+		fatal(log, "Invalid site keys: %v", err)
 	}
 
 	for _, key := range siteKeys {
 		siteCfg := appCfg.Sites[key]
 		siteWarnings, err := siteCfg.Validate()
 		if err != nil {
-			log.Fatalf("Site '%s' configuration error: %v", key, err)
+			fatal(log, "Site '%s' configuration error: %v", key, err)
 		}
 		for _, w := range siteWarnings {
-			log.Warnf("[%s] %s", key, w)
+			log.Warn(fmt.Sprintf("[%s] %s", key, w))
 		}
 	}
 
-	logEntry := log.WithField("component", "watch")
+	logEntry := log.With("component", "watch")
 	scheduler := watch.NewScheduler(appCfg, siteKeys, interval, logEntry)
 
 	sigChan := make(chan os.Signal, 1)
@@ -440,12 +453,12 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 
 	go func() {
 		sig := <-sigChan
-		log.Warnf("Received signal %v, stopping watch...", sig)
+		log.Warn(fmt.Sprintf("Received signal %v, stopping watch...", sig))
 		scheduler.Stop()
 	}()
 
 	if err := scheduler.Run(); err != nil {
-		log.Fatalf("Watch scheduler error: %v", err)
+		fatal(log, "Watch scheduler error: %v", err)
 	}
 
 	log.Info("Watch mode stopped")
@@ -518,29 +531,12 @@ func doListSites(configPath string, jsonOut bool, stdout, stderr io.Writer) int 
 	return 0
 }
 
-// setupLogger creates a configured logrus.Logger with the given log level.
-func setupLogger(logLevelStr string) *logrus.Logger {
-	log := logrus.New()
-	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true, TimestampFormat: "15:04:05.000"})
-	log.SetLevel(logrus.InfoLevel)
-
-	level, err := logrus.ParseLevel(logLevelStr)
-	if err != nil {
-		log.Warnf("Invalid log level '%s', using default 'info'. Error: %v", logLevelStr, err)
-	} else {
-		log.SetLevel(level)
-		log.Infof("Setting log level to: %s", level.String())
-	}
-
-	return log
-}
-
 // loadAndValidateConfig loads the config file, validates it, and logs warnings.
-func loadAndValidateConfig(configFile string, log *logrus.Logger) *config.AppConfig {
-	log.Infof("Loading configuration from %s", configFile)
+func loadAndValidateConfig(configFile string, log *slog.Logger) *config.AppConfig {
+	log.Info(fmt.Sprintf("Loading configuration from %s", configFile))
 	appCfg, err := loadConfig(configFile)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal(log, "Config error: %v", err)
 	}
 
 	appWarnings, _ := appCfg.Validate()
@@ -552,7 +548,7 @@ func loadAndValidateConfig(configFile string, log *logrus.Logger) *config.AppCon
 }
 
 // applyIncrementalOverride applies CLI flag overrides for incremental/full crawl mode.
-func applyIncrementalOverride(appCfg *config.AppConfig, incremental, full bool, log *logrus.Logger) {
+func applyIncrementalOverride(appCfg *config.AppConfig, incremental, full bool, log *slog.Logger) {
 	if incremental {
 		appCfg.EnableIncremental = true
 		log.Info("Incremental mode enabled via CLI flag")
@@ -564,15 +560,15 @@ func applyIncrementalOverride(appCfg *config.AppConfig, incremental, full bool, 
 }
 
 // validateSiteConfigs validates the configuration for each site key and logs warnings.
-func validateSiteConfigs(appCfg *config.AppConfig, siteKeys []string, log *logrus.Logger) {
+func validateSiteConfigs(appCfg *config.AppConfig, siteKeys []string, log *slog.Logger) {
 	for _, key := range siteKeys {
 		siteCfg := appCfg.Sites[key]
 		siteWarnings, err := siteCfg.Validate()
 		if err != nil {
-			log.Fatalf("Site '%s' configuration error: %v", key, err)
+			fatal(log, "Site '%s' configuration error: %v", key, err)
 		}
 		for _, w := range siteWarnings {
-			log.Warnf("[%s] %s", key, w)
+			log.Warn(fmt.Sprintf("[%s] %s", key, w))
 		}
 	}
 }
@@ -589,17 +585,17 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 
 	if allSites {
 		siteKeys = config.GetAllSiteKeys(appCfg)
-		log.Infof("All sites mode: found %d sites", len(siteKeys))
+		log.Info(fmt.Sprintf("All sites mode: found %d sites", len(siteKeys)))
 	}
 
 	if err := config.ValidateSiteKeys(appCfg, siteKeys); err != nil {
-		log.Fatalf("Invalid site keys: %v", err)
+		fatal(log, "Invalid site keys: %v", err)
 	}
 
 	validateSiteConfigs(appCfg, siteKeys, log)
 	startPprof(pprofAddr, log)
 
-	logEntry := log.WithField("component", "parallel_crawl")
+	logEntry := log.With("component", "parallel_crawl")
 	orch := orchestrate.NewOrchestrator(appCfg, siteKeys, isResume, logEntry)
 
 	sigChan := make(chan os.Signal, 1)
@@ -607,7 +603,7 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 
 	go func() {
 		sig := <-sigChan
-		log.Warnf("Received signal %v, initiating graceful shutdown...", sig)
+		log.Warn(fmt.Sprintf("Received signal %v, initiating graceful shutdown...", sig))
 		orch.Cancel()
 	}()
 
@@ -636,12 +632,12 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 
 	siteCfg, ok := appCfg.Sites[siteKey]
 	if !ok {
-		log.Fatalf("Error: Site key '%s' not found in config file '%s'", siteKey, configFile)
+		fatal(log, "Error: Site key '%s' not found in config file '%s'", siteKey, configFile)
 	}
 
 	validateSiteConfigs(appCfg, []string{siteKey}, log)
-	log.Infof("Site Config for '%s': Domain: %s, Prefix: %s, ContentSel: '%s', ...",
-		siteKey, siteCfg.AllowedDomain, siteCfg.AllowedPathPrefix, siteCfg.ContentSelector)
+	log.Info(fmt.Sprintf("Site Config for '%s': Domain: %s, Prefix: %s, ContentSel: '%s', ...",
+		siteKey, siteCfg.AllowedDomain, siteCfg.AllowedPathPrefix, siteCfg.ContentSelector))
 
 	applyIncrementalOverride(appCfg, incrementalMode, fullMode, log)
 
@@ -659,7 +655,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 	var cancelCrawl context.CancelFunc
 
 	if appCfg.GlobalCrawlTimeout > 0 {
-		log.Infof("Setting global crawl timeout: %v", appCfg.GlobalCrawlTimeout)
+		log.Info(fmt.Sprintf("Setting global crawl timeout: %v", appCfg.GlobalCrawlTimeout))
 		crawlCtx, cancelCrawl = context.WithTimeout(context.Background(), appCfg.GlobalCrawlTimeout)
 	} else {
 		log.Info("No global crawl timeout set.")
@@ -675,16 +671,16 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Errorf("PANIC in signal handler: %v", r)
+				log.Error(fmt.Sprintf("PANIC in signal handler: %v", r))
 			}
 		}()
 		sig := <-sigChan
-		log.Warnf("Received signal: %v. Initiating graceful shutdown...", sig)
+		log.Warn(fmt.Sprintf("Received signal: %v. Initiating graceful shutdown...", sig))
 		cancelCrawl()
 
 		select {
 		case sig = <-sigChan:
-			log.Warnf("Received second signal: %v. Forcing exit.", sig)
+			log.Warn(fmt.Sprintf("Received second signal: %v. Forcing exit.", sig))
 			os.Exit(1)
 		case <-time.After(30 * time.Second):
 			log.Warn("Graceful shutdown period exceeded after signal. Forcing exit.")
@@ -695,11 +691,11 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 
 	// == Initialize Components ==
 	log.Info("Initializing components...")
-	logEntry := log.WithField("component", "crawl")
+	logEntry := log.With("component", "crawl")
 
 	store, err := storage.NewBadgerStore(crawlCtx, appCfg.StateDir, siteCfg.AllowedDomain, isResume, logEntry)
 	if err != nil {
-		log.Fatalf("Failed to initialize visited DB: %v", err)
+		fatal(log, "Failed to initialize visited DB: %v", err)
 	}
 	defer store.Close()
 
@@ -722,7 +718,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 		isResume,
 	)
 	if err != nil {
-		log.Fatalf("Failed to initialize crawler: %v", err)
+		fatal(log, "Failed to initialize crawler: %v", err)
 	}
 
 	// == Start Crawler Execution ==
@@ -738,7 +734,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 			log.Error("Crawl timed out (global timeout).")
 			os.Exit(1)
 		} else {
-			log.Errorf("Crawl finished with error: %v", err)
+			log.Error(fmt.Sprintf("Crawl finished with error: %v", err))
 			os.Exit(1)
 		}
 	}
@@ -748,23 +744,23 @@ func executeCrawl(configFile, siteKey, logLevelStr, pprofAddr string, isResume, 
 }
 
 // logAppConfig logs the effective global configuration
-func logAppConfig(appCfg *config.AppConfig, log *logrus.Logger) {
-	log.Infof("Global Config: Workers:%d, ImageWorkers:%d, MaxReqs:%d, MaxReqPerHost:%d",
-		appCfg.NumWorkers, appCfg.NumImageWorkers, appCfg.MaxRequests, appCfg.MaxRequestsPerHost)
-	log.Infof("Global Config: DefaultDelay:%v, StateDir:%s, OutputDir:%s",
-		appCfg.DefaultDelayPerHost, appCfg.StateDir, appCfg.OutputBaseDir)
-	log.Infof("Global Config Retries: Max:%d, InitialDelay:%v, MaxDelay:%v",
-		appCfg.MaxRetries, appCfg.InitialRetryDelay, appCfg.MaxRetryDelay)
-	log.Infof("Global Config Timeouts: GlobalCrawl:%v, PerPage:%v",
-		appCfg.GlobalCrawlTimeout, appCfg.PerPageTimeout)
+func logAppConfig(appCfg *config.AppConfig, log *slog.Logger) {
+	log.Info(fmt.Sprintf("Global Config: Workers:%d, ImageWorkers:%d, MaxReqs:%d, MaxReqPerHost:%d",
+		appCfg.NumWorkers, appCfg.NumImageWorkers, appCfg.MaxRequests, appCfg.MaxRequestsPerHost))
+	log.Info(fmt.Sprintf("Global Config: DefaultDelay:%v, StateDir:%s, OutputDir:%s",
+		appCfg.DefaultDelayPerHost, appCfg.StateDir, appCfg.OutputBaseDir))
+	log.Info(fmt.Sprintf("Global Config Retries: Max:%d, InitialDelay:%v, MaxDelay:%v",
+		appCfg.MaxRetries, appCfg.InitialRetryDelay, appCfg.MaxRetryDelay))
+	log.Info(fmt.Sprintf("Global Config Timeouts: GlobalCrawl:%v, PerPage:%v",
+		appCfg.GlobalCrawlTimeout, appCfg.PerPageTimeout))
 	globalSkipImages := true // Default: skip image downloads (text-first)
 	if appCfg.SkipImages != nil {
 		globalSkipImages = *appCfg.SkipImages
 	}
-	log.Infof("Global Config Images: Skip(default):%t, MaxSize:%d bytes",
-		globalSkipImages, appCfg.MaxImageSizeBytes)
-	log.Infof("Global Config HTTP Client: Timeout:%v, MaxIdlePerHost:%d, AllowPrivateNetworks:%t",
-		appCfg.HTTPClientSettings.Timeout, appCfg.HTTPClientSettings.MaxIdleConnsPerHost, appCfg.HTTPClientSettings.AllowPrivateNetworks)
-	log.Infof("Global Config JSONL Output: Enabled Globally:%t, Default Global Filename:'%s'",
-		appCfg.EnableJSONLOutput, appCfg.JSONLOutputFilename)
+	log.Info(fmt.Sprintf("Global Config Images: Skip(default):%t, MaxSize:%d bytes",
+		globalSkipImages, appCfg.MaxImageSizeBytes))
+	log.Info(fmt.Sprintf("Global Config HTTP Client: Timeout:%v, MaxIdlePerHost:%d, AllowPrivateNetworks:%t",
+		appCfg.HTTPClientSettings.Timeout, appCfg.HTTPClientSettings.MaxIdleConnsPerHost, appCfg.HTTPClientSettings.AllowPrivateNetworks))
+	log.Info(fmt.Sprintf("Global Config JSONL Output: Enabled Globally:%t, Default Global Filename:'%s'",
+		appCfg.EnableJSONLOutput, appCfg.JSONLOutputFilename))
 }

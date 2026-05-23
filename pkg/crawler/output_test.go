@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,11 +17,9 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
 )
 
-// silentLogger returns a logrus.Entry that discards all output.
-func silentLogger() *logrus.Entry {
-	lg := logrus.New()
-	lg.SetOutput(io.Discard)
-	return logrus.NewEntry(lg)
+// silentLogger returns a *slog.Logger that discards all output.
+func silentLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func TestFlushBufferedJSONL_SortsByURL(t *testing.T) {

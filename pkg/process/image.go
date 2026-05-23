@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -19,7 +20,6 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/sirupsen/logrus"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
@@ -42,7 +42,7 @@ type ImageDownloadTask struct {
 	BaseImgURL       *url.URL // Parsed absolute URL
 	ImgHost          string
 	ExtractedCaption string
-	ImgLogEntry      *logrus.Entry   // Logger with image-specific context
+	ImgLogEntry      *slog.Logger    // Logger with image-specific context
 	Ctx              context.Context // Context for this specific task
 }
 
@@ -56,7 +56,7 @@ type ImageProcessor struct {
 	hostSemPool     *fetch.HostSemaphorePool
 	resolved        *config.ResolvedSiteConfig
 	appCfg          *config.AppConfig
-	log             *logrus.Entry
+	log             *slog.Logger
 }
 
 // NewImageProcessor creates a new ImageProcessor.
@@ -69,7 +69,7 @@ func NewImageProcessor(
 	hostSemPool *fetch.HostSemaphorePool,
 	resolved *config.ResolvedSiteConfig,
 	appCfg *config.AppConfig,
-	log *logrus.Entry,
+	log *slog.Logger,
 ) *ImageProcessor {
 	return &ImageProcessor{
 		store:           store,
@@ -92,7 +92,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 	finalURL *url.URL, // Base URL of the page containing the images
 	siteCfg *config.SiteConfig, // Need site-specific image settings
 	siteOutputDir string, // Need for calculating local paths
-	taskLog *logrus.Entry, // Logger for the parent page task
+	taskLog *slog.Logger, // Logger for the parent page task
 	ctx context.Context, // Parent context
 ) (imageMap map[string]models.ImageData, imageErrs []error) {
 	taskLog.Debug("Processing images...")
@@ -118,7 +118,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 	}
 	imageTaskChan := make(chan ImageDownloadTask, numImageWorkers*2)
 
-	taskLog.Infof("Launching %d image download workers", numImageWorkers)
+	taskLog.Info(fmt.Sprintf("Launching %d image download workers", numImageWorkers))
 	for i := 1; i <= numImageWorkers; i++ {
 		go ip.imageWorker(i, imageTaskChan, siteCfg, siteOutputDir, imageMap, &imageErrs, &imgErrMu, &imgWg)
 	}
@@ -127,7 +127,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 	localImageDir := filepath.Join(siteOutputDir, ImageDir)
 	if mkDirErr := os.MkdirAll(localImageDir, 0755); mkDirErr != nil {
 		wrappedErr := fmt.Errorf("%w: creating base image directory '%s': %w", utils.ErrFilesystem, localImageDir, mkDirErr)
-		taskLog.Error(wrappedErr)
+		taskLog.Error(wrappedErr.Error())
 		imgErrMu.Lock()
 		imageErrs = append(imageErrs, wrappedErr)
 		imgErrMu.Unlock()
@@ -147,13 +147,13 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 
 		imgURL, imgParseErr := finalURL.Parse(imgSrc)
 		if imgParseErr != nil {
-			taskLog.Warnf("Image src parse error '%s': %v", imgSrc, imgParseErr)
+			taskLog.Warn(fmt.Sprintf("Image src parse error '%s': %v", imgSrc, imgParseErr))
 			element.SetAttr("data-crawl-status", "error-parse")
 			return
 		}
 		absoluteImgURL := imgURL.String()
 		imgHost := imgURL.Hostname()
-		imgLog := taskLog.WithFields(logrus.Fields{"img_url": absoluteImgURL, "img_host": imgHost})
+		imgLog := taskLog.With("img_url", absoluteImgURL, "img_host", imgHost)
 
 		if imgURL.Scheme != "http" && imgURL.Scheme != "https" {
 			element.SetAttr("data-crawl-status", "skipped-scheme")
@@ -172,7 +172,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 
 		imgNormURLStr, _, imgNormErr := parse.ParseAndNormalize(absoluteImgURL)
 		if imgNormErr != nil {
-			imgLog.Warnf("Cannot normalize image URL: %v", imgNormErr)
+			imgLog.Warn(fmt.Sprintf("Cannot normalize image URL: %v", imgNormErr))
 			element.SetAttr("data-crawl-status", "error-normalize")
 			return
 		}
@@ -180,7 +180,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 		dbStatus, dbEntry, dbErr := ip.store.CheckImageStatus(imgNormURLStr)
 		if dbErr != nil {
 			wrappedErr := fmt.Errorf("image DB check failed for '%s': %w", imgNormURLStr, dbErr)
-			imgLog.Error(wrappedErr)
+			imgLog.Error(wrappedErr.Error())
 			imgErrMu.Lock()
 			imageErrs = append(imageErrs, wrappedErr)
 			imgErrMu.Unlock()
@@ -215,7 +215,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 				}
 				imgErrMu.Unlock()
 			} else {
-				imgLog.Warnf("Image DB status 'success' but invalid entry (missing path) for '%s'. Re-scheduling download.", imgNormURLStr)
+				imgLog.Warn(fmt.Sprintf("Image DB status 'success' but invalid entry (missing path) for '%s'. Re-scheduling download.", imgNormURLStr))
 				shouldDispatch = true
 				element.SetAttr("data-crawl-status", "pending-download")
 			}
@@ -224,11 +224,11 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 			if dbEntry != nil {
 				errMsg = dbEntry.ErrorType
 			}
-			imgLog.Warnf("Image previously failed download ('%s'). Re-scheduling.", errMsg)
+			imgLog.Warn(fmt.Sprintf("Image previously failed download ('%s'). Re-scheduling.", errMsg))
 			shouldDispatch = true
 			element.SetAttr("data-crawl-status", "pending-download")
 		default:
-			imgLog.Debugf("Image '%s' new or previously failed check ('%s'). Scheduling download.", imgSrc, dbStatus)
+			imgLog.Debug(fmt.Sprintf("Image '%s' new or previously failed check ('%s'). Scheduling download.", imgSrc, dbStatus))
 			shouldDispatch = true
 			element.SetAttr("data-crawl-status", "pending-download")
 		}
@@ -248,7 +248,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 			select {
 			case imageTaskChan <- task:
 			case <-ctx.Done():
-				imgLog.Warnf("Context cancelled while trying to dispatch image task for '%s': %v", imgSrc, ctx.Err())
+				imgLog.Warn(fmt.Sprintf("Context cancelled while trying to dispatch image task for '%s': %v", imgSrc, ctx.Err()))
 				imgWg.Done()
 				element.SetAttr("data-crawl-status", "error-dispatch-context")
 			}
@@ -263,7 +263,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 	taskLog.Debug("All image download workers finished for this page.")
 
 	if len(imageErrs) > 0 {
-		taskLog.Warnf("Finished image processing for page with %d non-fatal error(s).", len(imageErrs))
+		taskLog.Warn(fmt.Sprintf("Finished image processing for page with %d non-fatal error(s).", len(imageErrs)))
 	} else {
 		taskLog.Debug("Image processing complete for page.")
 	}
@@ -280,7 +280,7 @@ func (ip *ImageProcessor) imageWorker(
 	imgErrMu *sync.Mutex,
 	imgWg *sync.WaitGroup,
 ) {
-	workerLog := ip.log.WithField("image_worker_id", id)
+	workerLog := ip.log.With("image_worker_id", id)
 	workerLog.Debug("Image worker started")
 
 	for task := range taskChan {
@@ -318,7 +318,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 			panicked = true
 			imgTaskErr = fmt.Errorf("panic processing img '%s': %v", task.AbsImgURL, r)
 			stackTrace := string(debug.Stack())
-			imgLogEntry.WithFields(logrus.Fields{"panic_info": r, "stack_trace": stackTrace}).Error("PANIC Recovered in processSingleImageTask")
+			imgLogEntry.Error("PANIC Recovered in processSingleImageTask", "panic_info", r, "stack_trace", stackTrace)
 			// Collect error (needs mutex)
 			imgErrMu.Lock()
 			*imageErrs = append(*imageErrs, imgTaskErr) // Use the error created above
@@ -345,7 +345,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 				LastAttempt: now,
 			}
 			if imgTaskErr != nil && !panicked {
-				imgLogEntry.Warnf("Image download/save failed: %v", imgTaskErr)
+				imgLogEntry.Warn(fmt.Sprintf("Image download/save failed: %v", imgTaskErr))
 				imgErrMu.Lock()
 				*imageErrs = append(*imageErrs, imgTaskErr)
 				imgErrMu.Unlock()
@@ -353,7 +353,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 		}
 		if updateErr := ip.store.UpdateImageStatus(task.NormImgURL, &entryToSave); updateErr != nil {
 			dbUpdateErr := fmt.Errorf("failed update DB status img '%s' to '%s': %w", task.NormImgURL, entryToSave.Status, updateErr)
-			imgLogEntry.Error(dbUpdateErr)
+			imgLogEntry.Error(dbUpdateErr.Error())
 			imgErrMu.Lock()
 			*imageErrs = append(*imageErrs, dbUpdateErr)
 			imgErrMu.Unlock()
@@ -426,7 +426,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 	}
 	imgErrMu.Unlock()
 
-	imgLogEntry.Debugf("Successfully saved image (%d bytes)", copiedBytes)
+	imgLogEntry.Debug(fmt.Sprintf("Successfully saved image (%d bytes)", copiedBytes))
 }
 
 // fetchImageData fetches the image with retries, validates Content-Length, and returns
@@ -463,7 +463,7 @@ func (ip *ImageProcessor) fetchImageData(task ImageDownloadTask, userAgent strin
 				return nil, fmt.Errorf("image '%s' exceeds max size based on header (%d > %d bytes)", task.AbsImgURL, headerSize, effectiveMaxBytes)
 			}
 		} else {
-			imgLogEntry.Warnf("Could not parse Content-Length header '%s'", headerSizeStr)
+			imgLogEntry.Warn(fmt.Sprintf("Could not parse Content-Length header '%s'", headerSizeStr))
 		}
 	}
 
@@ -485,11 +485,11 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 
 	relativeFilePath, relErr := filepath.Rel(siteOutputDir, localFilePath)
 	if relErr != nil {
-		imgLogEntry.Warnf("Could not calculate relative path from '%s' to '%s': %v. Using filename only.", siteOutputDir, localFilePath, relErr)
+		imgLogEntry.Warn(fmt.Sprintf("Could not calculate relative path from '%s' to '%s': %v. Using filename only.", siteOutputDir, localFilePath, relErr))
 		relativeFilePath = localFilename
 	}
 	relativeFilePath = filepath.ToSlash(relativeFilePath)
-	imgLogEntry.Debugf("Final image save path: %s (Relative: %s)", localFilePath, relativeFilePath)
+	imgLogEntry.Debug(fmt.Sprintf("Final image save path: %s (Relative: %s)", localFilePath, relativeFilePath))
 
 	if mkDirErr := os.MkdirAll(localImageDir, 0755); mkDirErr != nil {
 		io.Copy(io.Discard, imgResp.Body)
@@ -507,13 +507,13 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 		reader = io.LimitReader(imgResp.Body, effectiveMaxBytes)
 	}
 
-	imgLogEntry.Debugf("Streaming image data to %s", localFilePath)
+	imgLogEntry.Debug(fmt.Sprintf("Streaming image data to %s", localFilePath))
 	copiedBytes, copyErr := io.Copy(outFile, reader)
 
 	// Drain any remaining body bytes to allow connection reuse.
 	_, drainErr := io.Copy(io.Discard, imgResp.Body)
 	if drainErr != nil {
-		imgLogEntry.Warnf("Error draining response body after copy: %v", drainErr)
+		imgLogEntry.Warn(fmt.Sprintf("Error draining response body after copy: %v", drainErr))
 	}
 
 	if copyErr != nil {
@@ -529,7 +529,7 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 		headerSizeStr := imgResp.Header.Get("Content-Length")
 		if headerSizeStr != "" {
 			if headerSize, _ := strconv.ParseInt(headerSizeStr, 10, 64); headerSize <= effectiveMaxBytes {
-				imgLogEntry.Warnf("Copied bytes (%d) >= limit (%d), but Content-Length (%d) was <= limit. Keeping file.", copiedBytes, effectiveMaxBytes, headerSize)
+				imgLogEntry.Warn(fmt.Sprintf("Copied bytes (%d) >= limit (%d), but Content-Length (%d) was <= limit. Keeping file.", copiedBytes, effectiveMaxBytes, headerSize))
 				sizeExceeded = false
 			}
 		}
@@ -549,13 +549,13 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 }
 
 // generateLocalFilename creates a unique, safe filename for a downloaded image.
-func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType string, imgLogEntry *logrus.Entry) (string, error) { //nolint:gocyclo // filename generation with many content-type and extension edge cases
+func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType string, imgLogEntry *slog.Logger) (string, error) { //nolint:gocyclo // filename generation with many content-type and extension edge cases
 	originalExt := path.Ext(baseImgURL.Path)
 	imgBaseName := utils.SanitizeFilename(strings.TrimSuffix(path.Base(baseImgURL.Path), originalExt))
 	if imgBaseName == "" || imgBaseName == "_" {
 		urlHashOnly := fmt.Sprintf("%x", sha256.Sum256([]byte(absImgURL)))[:12]
 		imgBaseName = "image_" + urlHashOnly
-		imgLogEntry.Debugf("Sanitized base name was empty, using hash fallback: %s", imgBaseName)
+		imgLogEntry.Debug(fmt.Sprintf("Sanitized base name was empty, using hash fallback: %s", imgBaseName))
 	}
 
 	finalExt := originalExt
@@ -594,7 +594,7 @@ func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType st
 				}
 			}
 		} else {
-			imgLogEntry.Warnf("Could not parse Content-Type header '%s': %v", contentType, mimeErr)
+			imgLogEntry.Warn(fmt.Sprintf("Could not parse Content-Type header '%s': %v", contentType, mimeErr))
 			if finalExt == "" {
 				return "", fmt.Errorf("cannot determine file extension (unparsable Content-Type, no URL extension)")
 			}

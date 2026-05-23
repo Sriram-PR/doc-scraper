@@ -2,16 +2,15 @@ package fetch
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 func newTestPool(limit int) *HostSemaphorePool {
-	log := logrus.NewEntry(logrus.New())
-	log.Logger.SetLevel(logrus.DebugLevel)
+	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	return NewHostSemaphorePool(limit, log)
 }
 

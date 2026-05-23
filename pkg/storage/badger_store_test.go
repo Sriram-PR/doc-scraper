@@ -8,7 +8,7 @@ import (
 	"time"
 
 	badger "github.com/dgraph-io/badger/v4"
-	"github.com/sirupsen/logrus"
+	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,10 +16,8 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
-func testLogger() *logrus.Entry {
-	log := logrus.New()
-	log.SetOutput(io.Discard)
-	return logrus.NewEntry(log)
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func newTestStore(t *testing.T) *BadgerStore {

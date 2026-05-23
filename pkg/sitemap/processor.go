@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -13,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
@@ -35,7 +36,7 @@ type SitemapProcessor struct {
 	compiledDisallowedPatterns []*regexp.Regexp
 	siteCfg                    *config.SiteConfig
 	appCfg                     *config.AppConfig
-	log                        *logrus.Entry
+	log                        *slog.Logger
 	wg                         *sync.WaitGroup // main crawler WaitGroup
 	sitemapsProcessed          map[string]bool
 	sitemapsProcessedMu        sync.Mutex
@@ -52,7 +53,7 @@ func NewSitemapProcessor(
 	compiledDisallowedPatterns []*regexp.Regexp,
 	siteCfg *config.SiteConfig,
 	appCfg *config.AppConfig,
-	log *logrus.Entry,
+	log *slog.Logger,
 	wg *sync.WaitGroup,
 ) *SitemapProcessor {
 	return &SitemapProcessor{
@@ -65,7 +66,7 @@ func NewSitemapProcessor(
 		compiledDisallowedPatterns: compiledDisallowedPatterns,
 		siteCfg:                    siteCfg,
 		appCfg:                     appCfg,
-		log:               log.WithField("component", "sitemap_processor"),
+		log:               log.With("component", "sitemap_processor"),
 		wg:                wg,
 		sitemapsProcessed: make(map[string]bool),
 	}
@@ -103,7 +104,7 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 	for {
 		select {
 		case <-ctx.Done():
-			sp.log.Warnf("Context cancelled, stopping sitemap processing: %v", ctx.Err())
+			sp.log.Warn(fmt.Sprintf("Context cancelled, stopping sitemap processing: %v", ctx.Err()))
 			return
 
 		case sitemapURL, ok := <-sp.sitemapQueue:
@@ -122,20 +123,20 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 				defer func() {
 					if r := recover(); r != nil {
 						stackTrace := string(debug.Stack())
-						sp.log.WithFields(logrus.Fields{
-							"sitemap_url": smURL,
-							"panic_info":  r,
-							"stack_trace": stackTrace,
-						}).Error("PANIC Recovered in sitemap processing goroutine")
+						sp.log.Error("PANIC Recovered in sitemap processing goroutine",
+							"sitemap_url", smURL,
+							"panic_info", r,
+							"stack_trace", stackTrace,
+						)
 					}
 				}()
 
-				sitemapLog := sp.log.WithField("sitemap_url", smURL)
+				sitemapLog := sp.log.With("sitemap_url", smURL)
 				sitemapLog.Info("Processing sitemap")
 
 				parsedSitemapURL, err := url.Parse(smURL)
 				if err != nil {
-					sitemapLog.Errorf("Failed parse URL: %v", err)
+					sitemapLog.Error(fmt.Sprintf("Failed parse URL: %v", err))
 					return
 				}
 				sitemapHost := parsedSitemapURL.Hostname()
@@ -147,11 +148,11 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 					// Check if the error was due to the main context being cancelled
 					switch {
 					case errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil:
-						sitemapLog.Warnf("Could not acquire GLOBAL semaphore due to main context cancellation: %v", ctx.Err())
+						sitemapLog.Warn(fmt.Sprintf("Could not acquire GLOBAL semaphore due to main context cancellation: %v", ctx.Err()))
 					case errors.Is(err, context.DeadlineExceeded):
-						sitemapLog.Errorf("Timeout acquiring GLOBAL semaphore: %v", err)
+						sitemapLog.Error(fmt.Sprintf("Timeout acquiring GLOBAL semaphore: %v", err))
 					default:
-						sitemapLog.Errorf("Error acquiring GLOBAL semaphore: %v", err)
+						sitemapLog.Error(fmt.Sprintf("Error acquiring GLOBAL semaphore: %v", err))
 					}
 					return // Stop processing this sitemap if semaphore not acquired
 				}
@@ -161,7 +162,7 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 
 				req, err := http.NewRequestWithContext(ctx, http.MethodGet, smURL, nil)
 				if err != nil {
-					sitemapLog.Errorf("Req Create error: %v", err)
+					sitemapLog.Error(fmt.Sprintf("Req Create error: %v", err))
 					return
 				}
 				req.Header.Set("User-Agent", userAgent)
@@ -170,7 +171,7 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 				sp.rateLimiter.UpdateLastRequestTime(sitemapHost)
 
 				if fetchErr != nil {
-					sitemapLog.Errorf("Fetch failed: %v", fetchErr)
+					sitemapLog.Error(fmt.Sprintf("Fetch failed: %v", fetchErr))
 					if resp != nil {
 						io.Copy(io.Discard, resp.Body)
 						resp.Body.Close()
@@ -182,21 +183,21 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 				const maxSitemapSize = 10 * 1024 * 1024 // 10 MB
 				sitemapBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxSitemapSize))
 				if readErr != nil {
-					sitemapLog.Errorf("Read body error: %v", readErr)
+					sitemapLog.Error(fmt.Sprintf("Read body error: %v", readErr))
 					return
 				}
 
 				var index parse.XMLSitemapIndex
 				errIndex := xml.Unmarshal(sitemapBytes, &index)
 				if errIndex == nil && len(index.Sitemaps) > 0 {
-					sitemapLog.Infof("Parsed as Sitemap Index, found %d references.", len(index.Sitemaps))
+					sitemapLog.Info(fmt.Sprintf("Parsed as Sitemap Index, found %d references.", len(index.Sitemaps)))
 					queuedCount := 0
 					for _, sitemapEntry := range index.Sitemaps {
 						nestedSmURL := sitemapEntry.Loc
-						nestedSmLog := sitemapLog.WithField("nested_sitemap", nestedSmURL)
+						nestedSmLog := sitemapLog.With("nested_sitemap", nestedSmURL)
 						_, nestedErr := url.ParseRequestURI(nestedSmURL)
 						if nestedErr != nil {
-							nestedSmLog.Warnf("Invalid nested sitemap URL: %v", nestedErr)
+							nestedSmLog.Warn(fmt.Sprintf("Invalid nested sitemap URL: %v", nestedErr))
 							continue
 						}
 
@@ -209,7 +210,7 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 								nestedSmLog.Debug("Successfully queued nested sitemap.")
 
 							case <-ctx.Done():
-								nestedSmLog.Warnf("Context cancelled while trying to queue nested sitemap '%s': %v", nestedSmURL, ctx.Err())
+								nestedSmLog.Warn(fmt.Sprintf("Context cancelled while trying to queue nested sitemap '%s': %v", nestedSmURL, ctx.Err()))
 								sp.sitemapsProcessedMu.Lock()
 								delete(sp.sitemapsProcessed, nestedSmURL)
 								sp.sitemapsProcessedMu.Unlock()
@@ -223,10 +224,10 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 								sp.wg.Done()
 							}
 						} else {
-							nestedSmLog.Debugf("Nested sitemap already processed/queued: %s", nestedSmURL)
+							nestedSmLog.Debug(fmt.Sprintf("Nested sitemap already processed/queued: %s", nestedSmURL))
 						}
 					}
-					sitemapLog.Infof("Queued %d nested sitemaps.", queuedCount)
+					sitemapLog.Info(fmt.Sprintf("Queued %d nested sitemaps.", queuedCount))
 					return // Return after processing index
 				}
 
@@ -235,14 +236,14 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 				if errURLSet != nil {
 					// Only log error if it wasn't successfully parsed as an index either
 					if errIndex != nil {
-						sitemapLog.Errorf("Failed parse XML (Index err=%v; URLSet err=%v)", errIndex, errURLSet)
+						sitemapLog.Error(fmt.Sprintf("Failed parse XML (Index err=%v; URLSet err=%v)", errIndex, errURLSet))
 					} else {
-						sitemapLog.Warnf("Content was not a valid Sitemap Index or URL Set (URLSet err=%v)", errURLSet)
+						sitemapLog.Warn(fmt.Sprintf("Content was not a valid Sitemap Index or URL Set (URLSet err=%v)", errURLSet))
 					}
 					return
 				}
 
-				sitemapLog.Infof("Parsed as URL Set, found %d URLs.", len(urlSet.URLs))
+				sitemapLog.Info(fmt.Sprintf("Parsed as URL Set, found %d URLs.", len(urlSet.URLs)))
 				queuedCount := 0
 				dbErrorCount := 0
 				for _, urlEntry := range urlSet.URLs {
@@ -250,14 +251,14 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 					pageLastMod := urlEntry.LastMod
 
 					if pageLastMod != "" {
-						sitemapLog.Debugf("Found URL: %s (LastMod: %s)", pageURL, pageLastMod)
+						sitemapLog.Debug(fmt.Sprintf("Found URL: %s (LastMod: %s)", pageURL, pageLastMod))
 					} else {
-						sitemapLog.Debugf("Found URL: %s (No LastMod specified)", pageURL)
+						sitemapLog.Debug(fmt.Sprintf("Found URL: %s (No LastMod specified)", pageURL))
 					}
 
 					parsedPageURL, err := url.Parse(pageURL)
 					if err != nil {
-						sitemapLog.Warnf("Sitemap URL parse error: %v", err)
+						sitemapLog.Warn(fmt.Sprintf("Sitemap URL parse error: %v", err))
 						continue
 					}
 					if parsedPageURL.Scheme != "http" && parsedPageURL.Scheme != "https" {
@@ -286,13 +287,13 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 
 					normalizedPageURL, _, errNorm := parse.ParseAndNormalize(pageURL)
 					if errNorm != nil {
-						sitemapLog.Warnf("Sitemap URL normalize error: %v", errNorm)
+						sitemapLog.Warn(fmt.Sprintf("Sitemap URL normalize error: %v", errNorm))
 						continue
 					}
 
 					added, visitErr := sp.store.MarkPageVisited(normalizedPageURL)
 					if visitErr != nil {
-						sitemapLog.Errorf("Sitemap URL DB mark error: %v", visitErr)
+						sitemapLog.Error(fmt.Sprintf("Sitemap URL DB mark error: %v", visitErr))
 						dbErrorCount++
 						continue
 					}
@@ -308,9 +309,9 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 				}
 
 				if dbErrorCount > 0 {
-					sitemapLog.Warnf("Finished URL Set. Queued %d new URLs, encountered %d DB errors.", queuedCount, dbErrorCount)
+					sitemapLog.Warn(fmt.Sprintf("Finished URL Set. Queued %d new URLs, encountered %d DB errors.", queuedCount, dbErrorCount))
 				} else {
-					sitemapLog.Infof("Finished URL Set. Queued %d new URLs.", queuedCount)
+					sitemapLog.Info(fmt.Sprintf("Finished URL Set. Queued %d new URLs.", queuedCount))
 				}
 
 			}(sitemapURL)

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
@@ -18,7 +18,7 @@ type Scheduler struct {
 	appCfg       *config.AppConfig
 	siteKeys     []string
 	interval     time.Duration
-	log          *logrus.Entry
+	log          *slog.Logger
 	stateManager *StateManager
 
 	ctx    context.Context
@@ -27,7 +27,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new watch scheduler.
-func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Duration, log *logrus.Entry) *Scheduler {
+func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Duration, log *slog.Logger) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Scheduler{
@@ -44,10 +44,10 @@ func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Dur
 // Run starts the watch scheduler and blocks until stopped.
 func (s *Scheduler) Run() error {
 	if err := s.stateManager.Load(); err != nil {
-		s.log.Warnf("Failed to load watch state: %v (starting fresh)", err)
+		s.log.Warn(fmt.Sprintf("Failed to load watch state: %v (starting fresh)", err))
 	}
 
-	s.log.Infof("Starting watch mode for %d sites with interval %v", len(s.siteKeys), s.interval)
+	s.log.Info(fmt.Sprintf("Starting watch mode for %d sites with interval %v", len(s.siteKeys), s.interval))
 	s.logSchedule()
 
 	s.runDueSites()
@@ -80,7 +80,7 @@ func (s *Scheduler) runDueSites() {
 		return
 	}
 
-	s.log.Infof("Running crawl for %d due sites: %v", len(dueSites), dueSites)
+	s.log.Info(fmt.Sprintf("Running crawl for %d due sites: %v", len(dueSites), dueSites))
 
 	// Watch is incremental by construction (see executeWatch); pass resume=true
 	// so scheduled re-crawls reuse the persisted visited DB instead of wiping it.
@@ -101,7 +101,7 @@ func (s *Scheduler) runDueSites() {
 		}
 
 		if err := s.stateManager.Save(); err != nil {
-			s.log.Errorf("Failed to save watch state: %v", err)
+			s.log.Error(fmt.Sprintf("Failed to save watch state: %v", err))
 		}
 
 		s.logNextRun()
@@ -140,14 +140,14 @@ func (s *Scheduler) logSchedule() {
 			if !state.LastRunSuccess {
 				status = "failed"
 			}
-			s.log.Infof("  %s: last run %v (%s, %d pages), next run %v",
+			s.log.Info(fmt.Sprintf("  %s: last run %v (%s, %d pages), next run %v",
 				siteKey,
 				state.LastRunTime.Format(time.RFC3339),
 				status,
 				state.PagesProcessed,
-				nextRun.Format(time.RFC3339))
+				nextRun.Format(time.RFC3339)))
 		} else {
-			s.log.Infof("  %s: never run, will run immediately", siteKey)
+			s.log.Info(fmt.Sprintf("  %s: never run, will run immediately", siteKey))
 		}
 	}
 }
@@ -176,7 +176,7 @@ func (s *Scheduler) logNextRun() {
 		if until < 0 {
 			until = 0
 		}
-		s.log.Infof("Next crawl: %s in %v (at %s)", next.site, until.Round(time.Second), next.time.Format("15:04:05"))
+		s.log.Info(fmt.Sprintf("Next crawl: %s in %v (at %s)", next.site, until.Round(time.Second), next.time.Format("15:04:05")))
 	}
 }
 
