@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -167,6 +168,7 @@ func runConfig(args []string) {
 		fs := flag.NewFlagSet("config validate", flag.ExitOnError)
 		configFile := fs.String("config", "config.yaml", "Path to config file")
 		siteKey := fs.String("site", "", "Site key to validate (optional, validates all if empty)")
+		jsonOut := fs.Bool("json", false, "Emit a single JSON object instead of human-readable text")
 		fs.Usage = func() {
 			fmt.Fprintf(os.Stderr, "Usage: doc-scraper config validate [options]\n\nOptions:\n")
 			fs.PrintDefaults()
@@ -174,10 +176,11 @@ func runConfig(args []string) {
 		if err := fs.Parse(rest); err != nil {
 			os.Exit(1)
 		}
-		os.Exit(doValidate(*configFile, *siteKey, os.Stdout, os.Stderr))
+		os.Exit(doValidate(*configFile, *siteKey, *jsonOut, os.Stdout, os.Stderr))
 	case "list":
 		fs := flag.NewFlagSet("config list", flag.ExitOnError)
 		configFile := fs.String("config", "config.yaml", "Path to config file")
+		jsonOut := fs.Bool("json", false, "Emit a single JSON object instead of human-readable text")
 		fs.Usage = func() {
 			fmt.Fprintf(os.Stderr, "Usage: doc-scraper config list [options]\n\nOptions:\n")
 			fs.PrintDefaults()
@@ -185,7 +188,7 @@ func runConfig(args []string) {
 		if err := fs.Parse(rest); err != nil {
 			os.Exit(1)
 		}
-		os.Exit(doListSites(*configFile, os.Stdout, os.Stderr))
+		os.Exit(doListSites(*configFile, *jsonOut, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown config action: %s (expected: validate | list)\n", action)
 		os.Exit(1)
@@ -193,65 +196,140 @@ func runConfig(args []string) {
 }
 
 // doValidate performs validation and writes output to provided writers.
-// Returns exit code (0 = success, 1 = error).
-func doValidate(configPath, siteKey string, stdout, stderr io.Writer) int {
+// When jsonOut is true, a single JSON object is written to stdout with the
+// per-site verdict; in text mode, formatted lines are written. Returns exit
+// code (0 = success, 1 = error). In JSON mode no diagnostic text is written
+// to stderr on the success path so consumers can rely on stdout being the
+// sole machine-readable channel.
+func doValidate(configPath, siteKey string, jsonOut bool, stdout, stderr io.Writer) int {
 	appCfg, err := loadConfig(configPath)
 	if err != nil {
+		if jsonOut {
+			emitValidateJSON(stdout, configPath, false, nil, []string{err.Error()}, nil)
+			return 1
+		}
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
 
-	// Validate app config
-	warnings, _ := appCfg.Validate()
-	for _, w := range warnings {
-		fmt.Fprintf(stdout, "WARN: %s\n", w)
+	globalWarnings, _ := appCfg.Validate()
+
+	// Per-site results.
+	type siteResult struct {
+		Key      string   `json:"key"`
+		Valid    bool     `json:"valid"`
+		Warnings []string `json:"warnings,omitempty"`
+		Error    string   `json:"error,omitempty"`
 	}
 
+	var results []siteResult
+	hasError := false
+
 	if siteKey != "" {
-		// Validate specific site
 		siteCfg, ok := appCfg.Sites[siteKey]
 		if !ok {
-			fmt.Fprintf(stderr, "Error: site '%s' not found in config\n", siteKey)
+			msg := fmt.Sprintf("site '%s' not found in config", siteKey)
+			if jsonOut {
+				emitValidateJSON(stdout, configPath, false, globalWarnings, []string{msg}, nil)
+				return 1
+			}
+			fmt.Fprintf(stderr, "Error: %s\n", msg)
 			return 1
 		}
 		siteWarnings, err := siteCfg.Validate()
+		r := siteResult{Key: siteKey, Valid: err == nil, Warnings: siteWarnings}
 		if err != nil {
-			fmt.Fprintf(stderr, "ERROR: [%s] %v\n", siteKey, err)
-			return 1
+			r.Error = err.Error()
+			hasError = true
 		}
-		for _, w := range siteWarnings {
-			fmt.Fprintf(stdout, "WARN: [%s] %s\n", siteKey, w)
-		}
-		fmt.Fprintf(stdout, "OK: Site '%s' configuration is valid\n", siteKey)
+		results = append(results, r)
 	} else {
-		// Validate all sites
-		hasError := false
 		keys := make([]string, 0, len(appCfg.Sites))
 		for k := range appCfg.Sites {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-
 		for _, key := range keys {
 			siteCfg := appCfg.Sites[key]
 			siteWarnings, err := siteCfg.Validate()
+			r := siteResult{Key: key, Valid: err == nil, Warnings: siteWarnings}
 			if err != nil {
-				fmt.Fprintf(stderr, "ERROR: [%s] %v\n", key, err)
+				r.Error = err.Error()
 				hasError = true
-				continue
 			}
-			for _, w := range siteWarnings {
-				fmt.Fprintf(stdout, "WARN: [%s] %s\n", key, w)
-			}
-			fmt.Fprintf(stdout, "OK: [%s]\n", key)
-		}
-		if hasError {
-			return 1
+			results = append(results, r)
 		}
 	}
 
+	if jsonOut {
+		anyResults := make([]map[string]any, 0, len(results))
+		for _, r := range results {
+			entry := map[string]any{"key": r.Key, "valid": r.Valid}
+			if len(r.Warnings) > 0 {
+				entry["warnings"] = r.Warnings
+			}
+			if r.Error != "" {
+				entry["error"] = r.Error
+			}
+			anyResults = append(anyResults, entry)
+		}
+		emitValidateJSON(stdout, configPath, !hasError, globalWarnings, nil, anyResults)
+		if hasError {
+			return 1
+		}
+		return 0
+	}
+
+	// Text mode (legacy human output).
+	for _, w := range globalWarnings {
+		fmt.Fprintf(stdout, "WARN: %s\n", w)
+	}
+	for _, r := range results {
+		if r.Error != "" {
+			fmt.Fprintf(stderr, "ERROR: [%s] %s\n", r.Key, r.Error)
+			continue
+		}
+		for _, w := range r.Warnings {
+			fmt.Fprintf(stdout, "WARN: [%s] %s\n", r.Key, w)
+		}
+		if siteKey != "" {
+			fmt.Fprintf(stdout, "OK: Site '%s' configuration is valid\n", r.Key)
+		} else {
+			fmt.Fprintf(stdout, "OK: [%s]\n", r.Key)
+		}
+	}
+	if hasError {
+		return 1
+	}
 	fmt.Fprintln(stdout, "\nConfiguration valid.")
 	return 0
+}
+
+// emitValidateJSON writes the structured validate result to w. valid is the
+// aggregate (true only when no errors at any level); errors carries top-level
+// failures (config load failures, unknown site key) separate from per-site
+// errors which live inside results.
+func emitValidateJSON(w io.Writer, configPath string, valid bool, globalWarnings, errors []string, results []map[string]any) {
+	payload := map[string]any{
+		"config_path": configPath,
+		"valid":       valid,
+		"site_count":  len(results),
+	}
+	if len(globalWarnings) > 0 {
+		payload["global_warnings"] = globalWarnings
+	}
+	if len(errors) > 0 {
+		payload["errors"] = errors
+	}
+	if results != nil {
+		payload["sites"] = results
+	}
+	b, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		fmt.Fprintf(w, "{\"valid\": false, \"errors\": [\"failed to marshal result: %s\"]}\n", err.Error())
+		return
+	}
+	fmt.Fprintln(w, string(b))
 }
 
 // runWatch handles the watch subcommand
@@ -385,19 +463,56 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 
 // doListSites lists sites and writes output to provided writers.
 // Returns exit code (0 = success, 1 = error).
-func doListSites(configPath string, stdout, stderr io.Writer) int {
+func doListSites(configPath string, jsonOut bool, stdout, stderr io.Writer) int {
 	appCfg, err := loadConfig(configPath)
 	if err != nil {
+		if jsonOut {
+			b, _ := json.MarshalIndent(map[string]any{
+				"config_path": configPath,
+				"sites":       []any{},
+				"count":       0,
+				"errors":      []string{err.Error()},
+			}, "", "  ")
+			fmt.Fprintln(stdout, string(b))
+			return 1
+		}
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
 
-	// Sort keys for consistent output
 	keys := make([]string, 0, len(appCfg.Sites))
 	for k := range appCfg.Sites {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+
+	if jsonOut {
+		sites := make([]map[string]any, 0, len(keys))
+		for _, key := range keys {
+			site := appCfg.Sites[key]
+			entry := map[string]any{
+				"key":              key,
+				"domain":           site.AllowedDomain,
+				"start_urls_count": len(site.StartURLs),
+			}
+			if site.AllowedPathPrefix != "" {
+				entry["path_prefix"] = site.AllowedPathPrefix
+			}
+			sites = append(sites, entry)
+		}
+		payload := map[string]any{
+			"config_path": configPath,
+			"sites":       sites,
+			"count":       len(sites),
+		}
+		b, err := json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			fmt.Fprintf(stdout, "{\"count\": 0, \"errors\": [\"failed to marshal result: %s\"]}\n", err.Error())
+			return 1
+		}
+		fmt.Fprintln(stdout, string(b))
+		return 0
+	}
 
 	fmt.Fprintf(stdout, "Sites in %s:\n\n", configPath)
 	for _, key := range keys {

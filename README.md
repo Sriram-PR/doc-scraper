@@ -271,12 +271,14 @@ Execute the compiled binary from the project root directory:
 |------|-------------|---------|
 | `-config <path>` | Path to config file | `config.yaml` |
 | `-site <key>` | Site key to validate (optional, validates all if empty) | - |
+| `-json` | Emit a single JSON object instead of human-readable text | `false` |
 
 **config list:**
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-config <path>` | Path to config file | `config.yaml` |
+| `-json` | Emit a single JSON object instead of human-readable text | `false` |
 
 **mcp-server:** (stdio transport only; the SSE transport was removed in v2.x)
 

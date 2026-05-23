@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,7 +68,7 @@ sites:
 	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0644))
 
 	var stdout, stderr bytes.Buffer
-	exitCode := doValidate(cfgPath, "", &stdout, &stderr)
+	exitCode := doValidate(cfgPath, "", false, &stdout, &stderr)
 
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, stdout.String(), "OK: [site_a]")
@@ -88,7 +89,7 @@ sites:
 	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0644))
 
 	var stdout, stderr bytes.Buffer
-	exitCode := doValidate(cfgPath, "my_site", &stdout, &stderr)
+	exitCode := doValidate(cfgPath, "my_site", false, &stdout, &stderr)
 
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, stdout.String(), "OK: Site 'my_site'")
@@ -107,7 +108,7 @@ sites:
 	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0644))
 
 	var stdout, stderr bytes.Buffer
-	exitCode := doValidate(cfgPath, "nonexistent", &stdout, &stderr)
+	exitCode := doValidate(cfgPath, "nonexistent", false, &stdout, &stderr)
 
 	assert.Equal(t, 1, exitCode)
 	assert.Contains(t, stderr.String(), "not found")
@@ -126,7 +127,7 @@ sites:
 	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0644))
 
 	var stdout, stderr bytes.Buffer
-	exitCode := doValidate(cfgPath, "bad_site", &stdout, &stderr)
+	exitCode := doValidate(cfgPath, "bad_site", false, &stdout, &stderr)
 
 	assert.Equal(t, 1, exitCode)
 	assert.Contains(t, stderr.String(), "ERROR")
@@ -134,7 +135,7 @@ sites:
 
 func TestDoValidate_ConfigNotFound(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	exitCode := doValidate("/nonexistent.yaml", "", &stdout, &stderr)
+	exitCode := doValidate("/nonexistent.yaml", "", false, &stdout, &stderr)
 
 	assert.Equal(t, 1, exitCode)
 	assert.Contains(t, stderr.String(), "Error")
@@ -158,7 +159,7 @@ sites:
 	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0644))
 
 	var stdout, stderr bytes.Buffer
-	exitCode := doListSites(cfgPath, &stdout, &stderr)
+	exitCode := doListSites(cfgPath, false, &stdout, &stderr)
 
 	assert.Equal(t, 0, exitCode)
 	out := stdout.String()
@@ -171,10 +172,103 @@ sites:
 
 func TestDoListSites_ConfigNotFound(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	exitCode := doListSites("/nonexistent.yaml", &stdout, &stderr)
+	exitCode := doListSites("/nonexistent.yaml", false, &stdout, &stderr)
 
 	assert.Equal(t, 1, exitCode)
 	assert.Contains(t, stderr.String(), "Error")
+}
+
+func TestDoValidate_JSONHappyPath(t *testing.T) {
+	content := `
+default_delay_per_host: 500ms
+num_workers: 4
+max_requests: 16
+max_requests_per_host: 4
+output_base_dir: "./out"
+state_dir: "./state"
+sites:
+  alpha:
+    start_urls: ["https://alpha.com/"]
+    allowed_domain: "alpha.com"
+    allowed_path_prefix: "/"
+    content_selector: "body"
+    max_depth: 1
+  beta:
+    start_urls: ["https://beta.com/"]
+    allowed_domain: "beta.com"
+    allowed_path_prefix: "/"
+    content_selector: "body"
+    max_depth: 1
+`
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0644))
+
+	var stdout, stderr bytes.Buffer
+	exitCode := doValidate(cfgPath, "", true, &stdout, &stderr)
+	assert.Equal(t, 0, exitCode)
+	assert.Empty(t, stderr.String(), "JSON mode must not write to stderr on success")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	assert.Equal(t, true, payload["valid"])
+	assert.Equal(t, float64(2), payload["site_count"])
+	sites, ok := payload["sites"].([]any)
+	require.True(t, ok)
+	require.Len(t, sites, 2)
+	// Sites must be sorted alphabetically.
+	assert.Equal(t, "alpha", sites[0].(map[string]any)["key"])
+	assert.Equal(t, "beta", sites[1].(map[string]any)["key"])
+}
+
+func TestDoValidate_JSONConfigLoadFailure(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	exitCode := doValidate("/nonexistent.yaml", "", true, &stdout, &stderr)
+	assert.Equal(t, 1, exitCode)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	assert.Equal(t, false, payload["valid"])
+	errors, ok := payload["errors"].([]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, errors)
+}
+
+func TestDoListSites_JSONHappyPath(t *testing.T) {
+	content := `
+default_delay_per_host: 500ms
+num_workers: 4
+max_requests: 16
+max_requests_per_host: 4
+output_base_dir: "./out"
+state_dir: "./state"
+sites:
+  alpha:
+    start_urls: ["https://alpha.com/"]
+    allowed_domain: "alpha.com"
+    allowed_path_prefix: "/docs"
+    content_selector: "body"
+    max_depth: 1
+`
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0644))
+
+	var stdout, stderr bytes.Buffer
+	exitCode := doListSites(cfgPath, true, &stdout, &stderr)
+	assert.Equal(t, 0, exitCode)
+	assert.Empty(t, stderr.String(), "JSON mode must not write to stderr on success")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	assert.Equal(t, float64(1), payload["count"])
+	sites := payload["sites"].([]any)
+	require.Len(t, sites, 1)
+	site := sites[0].(map[string]any)
+	assert.Equal(t, "alpha", site["key"])
+	assert.Equal(t, "alpha.com", site["domain"])
+	assert.Equal(t, "/docs", site["path_prefix"])
+	assert.Equal(t, float64(1), site["start_urls_count"])
 }
 
 func TestPrintUsageTo(t *testing.T) {
