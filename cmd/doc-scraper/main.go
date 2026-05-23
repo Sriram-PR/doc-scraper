@@ -57,7 +57,7 @@ func logFormatFor(jsonOut bool) string {
 	return pkglog.FormatText
 }
 
-const version = "2.2.2"
+const version = "2.3.0"
 
 func main() {
 	if len(os.Args) < 2 {
