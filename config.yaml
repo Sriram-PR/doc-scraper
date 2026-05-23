@@ -65,7 +65,10 @@ sites:
     # AUTO: Detects Sphinx framework automatically
     content_selector: "auto"
 
-    max_depth: 2                    # Limit depth
+    # Depth: seed is depth 0; max_depth is the exclusive upper bound, so
+    # max_depth=2 fetches depth 0 and 1 (seed plus one level). max_depth=0
+    # means unlimited.
+    max_depth: 2
     delay_per_host: 500ms           # Polite crawling
     respect_nofollow: true
 
@@ -96,7 +99,7 @@ sites:
     # EXPLICIT: Pallets docs use this structure
     content_selector: "div.body, article"
 
-    max_depth: 2                    # Limited depth
+    max_depth: 2                    # seed + one level (see depth note above)
     delay_per_host: 300ms           # Faster crawling
     respect_nofollow: false         # Follow all links
 
@@ -121,7 +124,7 @@ sites:
       - "nav.nav-wrapper"
       - "main#content"
 
-    max_depth: 0                    # Unlimited
+    max_depth: 0                    # unlimited (see depth note above)
     delay_per_host: 500ms           # Default delay
     respect_nofollow: true
 

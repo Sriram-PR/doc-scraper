@@ -13,6 +13,8 @@ type SiteConfig struct {
 	RespectNofollow         bool          `yaml:"respect_nofollow,omitempty"`
 	UserAgent               string        `yaml:"user_agent,omitempty"`
 	DelayPerHost            time.Duration `yaml:"delay_per_host,omitempty"`
+	// MaxDepth is the exclusive upper bound on crawl depth. Seed pages are
+	// depth 0, so MaxDepth=2 fetches depth 0 and 1. 0 means unlimited.
 	MaxDepth                int           `yaml:"max_depth"`
 	SkipImages              *bool         `yaml:"skip_images,omitempty"`
 	MaxImageSizeBytes       *int64        `yaml:"max_image_size_bytes,omitempty"`
