@@ -275,10 +275,6 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	}
 
 	contentSelector := request.GetString("content_selector", "body")
-	maxTokens := request.GetInt("max_tokens", 0)
-	if maxTokens < 0 {
-		maxTokens = 0
-	}
 
 	// Parse URL
 	parsedURL, err := url.Parse(urlStr)
@@ -348,19 +344,15 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	}
 	content = strings.TrimSpace(content)
 
-	content, approxTokens, truncated := applyTokenBudget(content, maxTokens)
-
 	// Calculate metrics
 	fetchTimeMs := time.Since(startTime).Milliseconds()
 
 	result := map[string]interface{}{
-		"url":                parsedURL.String(),
-		"title":              title,
-		"content":            content,
-		"content_length":     len(content),
-		"approximate_tokens": approxTokens,
-		"truncated":          truncated,
-		"fetch_time_ms":      fetchTimeMs,
+		"url":            parsedURL.String(),
+		"title":          title,
+		"content":        content,
+		"content_length": len(content),
+		"fetch_time_ms":  fetchTimeMs,
 	}
 
 	return mcp.NewToolResultText(formatJSON(result)), nil
@@ -551,26 +543,6 @@ func (s *Server) getLastCrawledTime(_ string, siteCfg *config.SiteConfig) time.T
 		}
 	}
 	return lastEnded
-}
-
-// applyTokenBudget truncates content when approximate token count exceeds the
-// budget. Tokens are estimated as runes/4 (a coarse char-based heuristic; agents
-// should treat the count as a hint, not an exact figure). A non-positive
-// maxTokens disables the limit. Truncation, when it happens, splits at the
-// rune boundary and appends a marker so consumers can detect it via either the
-// truncated flag or the marker text.
-func applyTokenBudget(content string, maxTokens int) (string, int, bool) {
-	runes := []rune(content)
-	approxTokens := len(runes) / 4
-	if maxTokens <= 0 || approxTokens <= maxTokens {
-		return content, approxTokens, false
-	}
-	runeBudget := maxTokens * 4
-	if runeBudget >= len(runes) {
-		return content, approxTokens, false
-	}
-	const marker = "\n\n...[content truncated by max_tokens budget; request again with a larger max_tokens or omit it for full content]"
-	return string(runes[:runeBudget]) + marker, approxTokens, true
 }
 
 // formatJSON formats data as an indented JSON string

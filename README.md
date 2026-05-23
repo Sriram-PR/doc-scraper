@@ -613,8 +613,8 @@ Result: Returns all configured sites with their domains and crawl status
 
 ```
 Tool: get_page
-Arguments: { "url": "https://docs.example.com/guide", "content_selector": "article", "max_tokens": 4000 }
-Result: Returns page content as markdown with metadata. With max_tokens > 0 the response is bounded (approximate, rune-based heuristic); the response includes truncated: true and a marker when truncation occurred.
+Arguments: { "url": "https://docs.example.com/guide", "content_selector": "article" }
+Result: Returns page content as markdown with metadata
 ```
 
 **Start a background crawl:**
