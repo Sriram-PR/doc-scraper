@@ -15,30 +15,26 @@ import (
 func runMcpServer(args []string) {
 	fs := flag.NewFlagSet("mcp-server", flag.ExitOnError)
 	configFile := fs.String("config", "config.yaml", "Path to config file")
-	transport := fs.String("transport", "stdio", "Transport type (stdio, sse)")
-	port := fs.Int("port", 8080, "HTTP port (for sse transport)")
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: doc-scraper mcp-server [options]
 
 Start an MCP (Model Context Protocol) server for AI tool integration.
+Uses the stdio transport (compatible with Claude Desktop, Claude Code, Cursor).
 
 Options:
 `)
 		fs.PrintDefaults()
 		fmt.Fprintf(os.Stderr, `
-Examples:
-  # Start with stdio transport (for Claude Desktop)
+Example:
   doc-scraper mcp-server -config config.yaml
-
-  # Start with SSE transport on port 8080
-  doc-scraper mcp-server -config config.yaml -transport sse -port 8080
 
 Available MCP Tools:
   list_sites      List all configured sites
   get_page        Fetch a single URL as markdown
   crawl_site      Start a background crawl for a site
+  get_job_status  Check the status of a crawl job
   search_crawled  Search previously crawled content
 `)
 	}
@@ -47,12 +43,12 @@ Available MCP Tools:
 		os.Exit(1)
 	}
 
-	exitCode := doMcpServer(*configFile, *transport, *port, *logLevel, os.Stdout, os.Stderr)
+	exitCode := doMcpServer(*configFile, *logLevel, os.Stdout, os.Stderr)
 	os.Exit(exitCode)
 }
 
 // doMcpServer is the testable implementation of the MCP server
-func doMcpServer(configPath, transport string, port int, logLevel string, _, stderr io.Writer) int {
+func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 	// Setup logger
 	log := logrus.New()
 	log.SetOutput(stderr) // MCP protocol uses stdout, logs go to stderr
@@ -78,8 +74,6 @@ func doMcpServer(configPath, transport string, port int, logLevel string, _, std
 	serverCfg := &mcp.ServerConfig{
 		AppConfig:  appCfg,
 		ConfigPath: configPath,
-		Transport:  transport,
-		Port:       port,
 		Logger:     log,
 	}
 
@@ -89,7 +83,7 @@ func doMcpServer(configPath, transport string, port int, logLevel string, _, std
 		return 1
 	}
 
-	log.Infof("Starting MCP server (transport: %s)", transport)
+	log.Info("Starting MCP server (stdio transport)")
 
 	if err := server.Run(); err != nil {
 		fmt.Fprintf(stderr, "MCP server error: %v\n", err)

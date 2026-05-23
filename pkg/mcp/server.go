@@ -16,12 +16,13 @@ const (
 	serverVersion = "2.0.1"
 )
 
-// ServerConfig holds configuration for the MCP server
+// ServerConfig holds configuration for the MCP server. Only the stdio
+// transport is supported (Claude Desktop, Claude Code, Cursor). The older
+// unauthenticated SSE transport was removed in v2.x because it exposed an
+// unauthenticated crawl endpoint on a TCP port.
 type ServerConfig struct {
 	AppConfig  *config.AppConfig
 	ConfigPath string
-	Transport  string // "stdio" or "sse"
-	Port       int
 	Logger     *logrus.Logger
 }
 
@@ -125,20 +126,10 @@ func (s *Server) registerTools() {
 	s.log.Infof("Registered %d MCP tools", 5)
 }
 
-// Run starts the MCP server with the configured transport
+// Run starts the MCP server over the stdio transport.
 func (s *Server) Run() error {
-	switch s.cfg.Transport {
-	case "stdio":
-		s.log.Info("Starting MCP server with stdio transport")
-		return server.ServeStdio(s.mcpServer)
-	case "sse":
-		addr := fmt.Sprintf(":%d", s.cfg.Port)
-		s.log.Infof("Starting MCP server with SSE transport on %s", addr)
-		sseServer := server.NewSSEServer(s.mcpServer)
-		return sseServer.Start(addr)
-	default:
-		return fmt.Errorf("unknown transport: %s (supported: stdio, sse)", s.cfg.Transport)
-	}
+	s.log.Info("Starting MCP server with stdio transport")
+	return server.ServeStdio(s.mcpServer)
 }
 
 // Shutdown gracefully shuts down the server

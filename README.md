@@ -286,13 +286,11 @@ Execute the compiled binary from the project root directory:
 |------|-------------|---------|
 | `-config <path>` | Path to config file | `config.yaml` |
 
-**mcp-server:**
+**mcp-server:** (stdio transport only; the SSE transport was removed in v2.x)
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-config <path>` | Path to config file | `config.yaml` |
-| `-transport <type>` | Transport type (`stdio`, `sse`) | `stdio` |
-| `-port <num>` | HTTP port (for SSE transport) | `8080` |
 | `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
 
 **watch:**
@@ -363,12 +361,6 @@ Execute the compiled binary from the project root directory:
 
 ```bash
 ./doc-scraper mcp-server -config config.yaml
-```
-
-**Start MCP Server with SSE Transport:**
-
-```bash
-./doc-scraper mcp-server -config config.yaml -transport sse -port 8080
 ```
 
 ## Output Structure
@@ -618,16 +610,10 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 
 ### Usage
 
-**Stdio Transport (for Claude Desktop/Cursor):**
+The MCP server uses the stdio transport, compatible with Claude Desktop, Claude Code, and Cursor.
 
 ```bash
 ./doc-scraper mcp-server -config config.yaml
-```
-
-**SSE Transport (HTTP-based):**
-
-```bash
-./doc-scraper mcp-server -config config.yaml -transport sse -port 8080
 ```
 
 ### Claude Code Integration
