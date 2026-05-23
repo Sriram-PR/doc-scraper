@@ -247,50 +247,6 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }
 
-// handleSearchCrawled handles the search_crawled tool
-func (s *Server) handleSearchCrawled(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	query := request.GetString("query", "")
-	if query == "" {
-		return mcp.NewToolResultError("query parameter is required"), nil
-	}
-
-	siteKey := request.GetString("site_key", "")
-	maxResults := request.GetInt("max_results", 10)
-	if maxResults <= 0 {
-		maxResults = 10
-	}
-	if maxResults > 100 {
-		maxResults = 100
-	}
-
-	// Determine which sites to search
-	sitesToSearch := make(map[string]*config.SiteConfig)
-	if siteKey != "" {
-		if siteCfg, exists := s.cfg.AppConfig.Sites[siteKey]; exists {
-			sitesToSearch[siteKey] = siteCfg
-		} else {
-			return mcp.NewToolResultError(fmt.Sprintf("site '%s' not found", siteKey)), nil
-		}
-	} else {
-		sitesToSearch = s.cfg.AppConfig.Sites
-	}
-
-	// Search JSONL files
-	results := s.searchJSONL(query, sitesToSearch, maxResults)
-
-	response := map[string]interface{}{
-		"query":         query,
-		"results":       results,
-		"total_matches": len(results),
-	}
-
-	if siteKey != "" {
-		response["site_key"] = siteKey
-	}
-
-	return mcp.NewToolResultText(formatJSON(response)), nil
-}
-
 // runCrawlJob runs a crawl job in the background
 func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string) {
 	s.jobManager.UpdateStatus(job.ID, JobStatusRunning, "")
@@ -357,97 +313,6 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 	s.jobManager.UpdateStatus(job.ID, JobStatusCompleted, "")
 }
 
-// searchJSONL searches JSONL files for matching content. Sites are iterated
-// in sorted key order so that truncation by maxResults is deterministic across
-// runs (map iteration is randomized in Go).
-func (s *Server) searchJSONL(query string, sites map[string]*config.SiteConfig, maxResults int) []map[string]interface{} {
-	results := make([]map[string]interface{}, 0)
-	queryLower := strings.ToLower(query)
-
-	siteKeys := make([]string, 0, len(sites))
-	for k := range sites {
-		siteKeys = append(siteKeys, k)
-	}
-	sort.Strings(siteKeys)
-
-	for _, siteKey := range siteKeys {
-		siteCfg := sites[siteKey]
-		siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
-		jsonlPath := filepath.Join(siteOutputDir, config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig))
-
-		// Stream JSONL file line-by-line to avoid loading it all into memory
-		file, err := os.Open(jsonlPath)
-		if err != nil {
-			continue // Skip if file doesn't exist
-		}
-
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // up to 10MB per line
-
-		for scanner.Scan() {
-			if len(results) >= maxResults {
-				break
-			}
-
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-
-			var page models.PageJSONL
-			if err := parseJSONLine(line, &page); err != nil {
-				continue
-			}
-			// Skip the crawl_meta summary record; only page records are searchable.
-			if page.RecordType == models.RecordTypeCrawlMeta {
-				continue
-			}
-
-			// Search in content, title, and headings
-			contentLower := strings.ToLower(page.Content)
-			titleLower := strings.ToLower(page.Title)
-
-			matched := false
-			matchLocation := ""
-
-			switch {
-			case strings.Contains(titleLower, queryLower):
-				matched = true
-				matchLocation = "title"
-			case strings.Contains(contentLower, queryLower):
-				matched = true
-				matchLocation = "content"
-			default:
-				for _, heading := range page.Headings {
-					if strings.Contains(strings.ToLower(heading), queryLower) {
-						matched = true
-						matchLocation = "headings"
-						break
-					}
-				}
-			}
-
-			if matched {
-				snippet := extractSnippet(page.Content, query, 150)
-				results = append(results, map[string]interface{}{
-					"url":            page.URL,
-					"title":          page.Title,
-					"snippet":        snippet,
-					"site_key":       siteKey,
-					"match_location": matchLocation,
-				})
-			}
-		}
-		file.Close()
-
-		if len(results) >= maxResults {
-			break
-		}
-	}
-
-	return results
-}
-
 // getLastCrawledTime returns the end time of the most recent crawl by scanning
 // the site's JSONL output for crawl_meta records. The last such record in the
 // file is authoritative (a resumed crawl appends a fresh one). Returns the zero
@@ -482,56 +347,6 @@ func (s *Server) getLastCrawledTime(_ string, siteCfg *config.SiteConfig) time.T
 		}
 	}
 	return lastEnded
-}
-
-// extractSnippet extracts a snippet around the query match, slicing on rune
-// boundaries so multi-byte UTF-8 characters are never split.
-func extractSnippet(content, query string, maxLen int) string {
-	runes := []rune(content)
-	queryRunes := []rune(strings.ToLower(query))
-	contentLowerRunes := []rune(strings.ToLower(content))
-
-	// Find match position in runes
-	idx := -1
-	for i := 0; i <= len(contentLowerRunes)-len(queryRunes); i++ {
-		if string(contentLowerRunes[i:i+len(queryRunes)]) == string(queryRunes) {
-			idx = i
-			break
-		}
-	}
-
-	if idx == -1 {
-		if len(runes) > maxLen {
-			return string(runes[:maxLen]) + "..."
-		}
-		return content
-	}
-
-	// Calculate start and end positions in rune space
-	start := idx - maxLen/2
-	if start < 0 {
-		start = 0
-	}
-
-	end := idx + len(queryRunes) + maxLen/2
-	if end > len(runes) {
-		end = len(runes)
-	}
-
-	snippet := string(runes[start:end])
-	if start > 0 {
-		snippet = "..." + snippet
-	}
-	if end < len(runes) {
-		snippet += "..."
-	}
-
-	return snippet
-}
-
-// parseJSONLine parses a single JSON line into a PageJSONL struct
-func parseJSONLine(line string, page *models.PageJSONL) error {
-	return json.Unmarshal([]byte(line), page)
 }
 
 // formatJSON formats data as an indented JSON string

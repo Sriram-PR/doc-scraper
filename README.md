@@ -395,7 +395,7 @@ Each generated Markdown file contains:
 
 ## JSONL Output
 
-When enabled, the crawler writes one JSON object per line to a JSONL file. This format is designed for ingestion into RAG pipelines and is required by the MCP `search_crawled` tool.
+When enabled, the crawler writes one JSON object per line to a JSONL file. This format is designed for ingestion into RAG pipelines and downstream indexers.
 
 **Enable it:**
 
@@ -606,7 +606,6 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 | `get_page` | Fetch a single URL and return content as markdown |
 | `crawl_site` | Start a background crawl for a site (returns job ID) |
 | `get_job_status` | Check the status of a background crawl job |
-| `search_crawled` | Search previously crawled content in JSONL files |
 
 ### Usage
 
@@ -662,14 +661,6 @@ Result: Returns job ID for tracking progress
 Tool: get_job_status
 Arguments: { "job_id": "abc-123-def" }
 Result: Returns status, pages processed, and completion info
-```
-
-**Search crawled content:**
-
-```
-Tool: search_crawled
-Arguments: { "query": "neural network", "site_key": "pytorch_docs", "max_results": 10 }
-Result: Returns matching pages with snippets
 ```
 
 ## Contributing

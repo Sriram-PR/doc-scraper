@@ -115,23 +115,7 @@ func (s *Server) registerTools() {
 	)
 	s.mcpServer.AddTool(getJobStatusTool, s.handleGetJobStatus)
 
-	// search_crawled - Search previously crawled content
-	searchCrawledTool := mcp.NewTool("search_crawled",
-		mcp.WithDescription("Search previously crawled content using text matching"),
-		mcp.WithString("query",
-			mcp.Required(),
-			mcp.Description("Search query (case-insensitive substring match)"),
-		),
-		mcp.WithString("site_key",
-			mcp.Description("Limit search to specific site (optional)"),
-		),
-		mcp.WithNumber("max_results",
-			mcp.Description("Maximum number of results to return (default: 10, max: 100)"),
-		),
-	)
-	s.mcpServer.AddTool(searchCrawledTool, s.handleSearchCrawled)
-
-	s.log.Infof("Registered %d MCP tools", 5)
+	s.log.Infof("Registered %d MCP tools", 4)
 }
 
 // Run starts the MCP server over the stdio transport.
