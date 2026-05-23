@@ -130,7 +130,7 @@ func runCrawl(args []string) {
 	sites := fs.String("sites", "", "Comma-separated site keys for parallel crawling")
 	allSites := fs.Bool("all-sites", false, "Crawl all configured sites in parallel")
 	resume := fs.Bool("resume", false, "Resume an interrupted crawl from existing state")
-	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
+	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error)")
 	jsonLogs := fs.Bool("json", false, "Emit logs as JSON (one record per line) instead of slog's text format")
 	pprofAddr := fs.String("pprof", "", "pprof address, e.g. localhost:6060 (disabled by default)")
 	incrementalMode := fs.Bool("incremental", false, "Enable incremental crawling (skip unchanged pages)")
@@ -373,7 +373,7 @@ func runWatch(args []string) {
 	sites := fs.String("sites", "", "Comma-separated site keys")
 	allSites := fs.Bool("all-sites", false, "Watch all configured sites")
 	interval := fs.String("interval", "24h", "Crawl interval (e.g., 30m, 1h, 24h, 7d)")
-	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error, fatal)")
+	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error)")
 	jsonLogs := fs.Bool("json", false, "Emit logs as JSON (one record per line) instead of slog's text format")
 
 	fs.Usage = func() {
