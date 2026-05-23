@@ -114,6 +114,12 @@ func (m *JobManager) load() {
 		return
 	}
 	now := time.Now()
+	// One shared, already-cancelled context for all loaded jobs: loaded jobs
+	// are always in a terminal state and only need a non-nil ctx for GetContext
+	// to return safely. Building one per iteration is the pattern fatcontext
+	// (rightly) warns about; the shared cancelled context is correct here.
+	deadCtx, deadCancel := context.WithCancel(context.Background())
+	deadCancel()
 	for _, job := range file.Jobs {
 		if job == nil || job.ID == "" {
 			continue
@@ -125,11 +131,8 @@ func (m *JobManager) load() {
 				job.CompletedAt = now
 			}
 		}
-		// Reattach a cancelled context so GetContext always returns a usable value.
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		job.ctx = ctx
-		job.cancel = cancel
+		job.ctx = deadCtx //nolint:fatcontext // safe: shared already-cancelled context; loaded jobs are terminal and only need a non-nil ctx for GetContext.
+		job.cancel = deadCancel
 		m.jobs[job.ID] = job
 	}
 	if m.log != nil {

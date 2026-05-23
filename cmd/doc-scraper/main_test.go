@@ -212,7 +212,7 @@ sites:
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
 	assert.Equal(t, true, payload["valid"])
-	assert.Equal(t, float64(2), payload["site_count"])
+	assert.EqualValues(t, 2, payload["site_count"])
 	sites, ok := payload["sites"].([]any)
 	require.True(t, ok)
 	require.Len(t, sites, 2)
@@ -261,14 +261,14 @@ sites:
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
-	assert.Equal(t, float64(1), payload["count"])
+	assert.EqualValues(t, 1, payload["count"])
 	sites := payload["sites"].([]any)
 	require.Len(t, sites, 1)
 	site := sites[0].(map[string]any)
 	assert.Equal(t, "alpha", site["key"])
 	assert.Equal(t, "alpha.com", site["domain"])
 	assert.Equal(t, "/docs", site["path_prefix"])
-	assert.Equal(t, float64(1), site["start_urls_count"])
+	assert.EqualValues(t, 1, site["start_urls_count"])
 }
 
 func TestPrintUsageTo(t *testing.T) {

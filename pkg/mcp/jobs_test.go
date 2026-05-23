@@ -389,7 +389,7 @@ func TestPersistence_ProgressIsDebounced(t *testing.T) {
 	st0, err := os.Stat(path)
 	require.NoError(t, err)
 
-	for i := int64(0); i < 50; i++ {
+	for i := range int64(50) {
 		jm.UpdateProgress(job.ID, i, 100)
 	}
 	// No flush should have happened yet (interval is multi-second).
@@ -443,11 +443,11 @@ func TestPersistence_ConcurrentWritesSafe(t *testing.T) {
 	const perWorker = 25
 
 	var wg sync.WaitGroup
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for i := 0; i < perWorker; i++ {
+			for i := range perWorker {
 				j, err := jm.CreateJob("site-"+strconv.Itoa(id*1000+i), false)
 				if err == nil && j != nil {
 					jm.UpdateProgress(j.ID, int64(i), int64(perWorker))

@@ -96,9 +96,9 @@ func TestHandleListPages_HappyPath(t *testing.T) {
 	got := callListPages(t, s, map[string]any{"site_key": "docs"})
 
 	assert.Equal(t, "docs", got["site_key"])
-	assert.Equal(t, float64(3), got["total"], "crawl_meta record must not be counted")
-	assert.Equal(t, float64(0), got["offset"])
-	assert.Equal(t, float64(3), got["returned"])
+	assert.EqualValues(t, 3, got["total"], "crawl_meta record must not be counted")
+	assert.EqualValues(t, 0, got["offset"])
+	assert.EqualValues(t, 3, got["returned"])
 
 	pages, ok := got["pages"].([]any)
 	require.True(t, ok)
@@ -117,14 +117,15 @@ func TestHandleListPages_HappyPath(t *testing.T) {
 	// Metadata shape includes content_length but not content body.
 	first := pages[0].(map[string]any)
 	assert.Equal(t, "A", first["title"])
-	assert.Equal(t, float64(9), first["content_length"], "content_length should be len(\"content A\")")
+	assert.EqualValues(t, 9, first["content_length"], "content_length should be len(\"content A\")")
 	assert.NotContains(t, first, "content")
 }
 
 func TestHandleListPages_Pagination(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
-	var records []interface{}
-	for _, c := range []string{"a", "b", "c", "d", "e"} {
+	letters := []string{"a", "b", "c", "d", "e"}
+	records := make([]interface{}, 0, len(letters))
+	for _, c := range letters {
 		records = append(records, models.PageJSONL{
 			RecordType: models.RecordTypePage,
 			URL:        "https://docs.example.com/" + c,
@@ -139,9 +140,9 @@ func TestHandleListPages_Pagination(t *testing.T) {
 		"offset":      float64(2),
 	})
 
-	assert.Equal(t, float64(5), got["total"])
-	assert.Equal(t, float64(2), got["offset"])
-	assert.Equal(t, float64(2), got["returned"])
+	assert.EqualValues(t, 5, got["total"])
+	assert.EqualValues(t, 2, got["offset"])
+	assert.EqualValues(t, 2, got["returned"])
 
 	pages, ok := got["pages"].([]any)
 	require.True(t, ok)
@@ -161,8 +162,8 @@ func TestHandleListPages_OffsetBeyondTotalReturnsEmpty(t *testing.T) {
 		"offset":   float64(100),
 	})
 
-	assert.Equal(t, float64(1), got["total"])
-	assert.Equal(t, float64(0), got["returned"])
+	assert.EqualValues(t, 1, got["total"])
+	assert.EqualValues(t, 0, got["returned"])
 	pages, ok := got["pages"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, pages)
@@ -200,8 +201,8 @@ func TestHandleListPages_NoCrawlYet(t *testing.T) {
 
 	got := callListPages(t, s, map[string]any{"site_key": "docs"})
 
-	assert.Equal(t, float64(0), got["total"])
-	assert.Equal(t, float64(0), got["returned"])
+	assert.EqualValues(t, 0, got["total"])
+	assert.EqualValues(t, 0, got["returned"])
 	pages, ok := got["pages"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, pages)
@@ -235,8 +236,8 @@ func TestHandleDescribeServer_BasicShape(t *testing.T) {
 	require.True(t, ok)
 	assert.Empty(t, jobs, "no jobs run yet")
 
-	assert.Equal(t, float64(1), got["total_sites"])
-	assert.Equal(t, float64(0), got["total_jobs"])
+	assert.EqualValues(t, 1, got["total_sites"])
+	assert.EqualValues(t, 0, got["total_jobs"])
 	assert.Equal(t, false, got["jobs_capped"])
 	assert.NotEmpty(t, got["next_actions"])
 }
@@ -339,12 +340,12 @@ func TestHandleListPages_ClampsMaxResults(t *testing.T) {
 		"site_key":    "docs",
 		"max_results": float64(-5),
 	})
-	assert.Equal(t, float64(100), got["max_results"])
+	assert.EqualValues(t, 100, got["max_results"])
 
 	// max_results above 1000 is clamped to 1000.
 	got = callListPages(t, s, map[string]any{
 		"site_key":    "docs",
 		"max_results": float64(50000),
 	})
-	assert.Equal(t, float64(1000), got["max_results"])
+	assert.EqualValues(t, 1000, got["max_results"])
 }

@@ -127,7 +127,12 @@ func (s *Server) registerTools() {
 
 	// describe_server - Orientation manifest; intended to be called first
 	describeServerTool := mcp.NewTool("describe_server",
-		mcp.WithDescription("Returns server identity, configured sites, and recent crawl jobs in one call. Call this first to orient yourself: it consolidates what would otherwise require list_sites plus several get_job_status calls. The MCP tool list is already advertised by the protocol so it is not duplicated here."),
+		mcp.WithDescription(
+			"Returns server identity, configured sites, and recent crawl jobs in one call. "+
+				"Call this first to orient yourself: it consolidates what would otherwise "+
+				"require list_sites plus several get_job_status calls. The MCP tool list is "+
+				"already advertised by the protocol so it is not duplicated here.",
+		),
 	)
 	s.mcpServer.AddTool(describeServerTool, s.handleDescribeServer)
 
