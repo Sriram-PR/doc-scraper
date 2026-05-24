@@ -47,6 +47,11 @@ type AppConfig struct {
 	EnableJSONLOutput   bool                   `yaml:"enable_jsonl_output,omitempty"`
 	JSONLOutputFilename string                 `yaml:"jsonl_output_filename,omitempty"`
 	EnableIncremental   bool                   `yaml:"enable_incremental,omitempty"`
+	// CrawlHistoryRetention is the number of past crawls per site kept in the
+	// SQLite history index (state_dir/index.db) that powers get_freshness and
+	// diff_crawl. Anything older is pruned at write time. 0 means use the
+	// default in pkg/storage/index (10).
+	CrawlHistoryRetention int `yaml:"crawl_history_retention,omitempty"`
 }
 
 // HTTPClientConfig holds settings for the shared HTTP client. The Go-default

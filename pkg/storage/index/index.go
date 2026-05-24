@@ -1,0 +1,166 @@
+// Package index is the SQLite-backed crawl history store. It records one row
+// per crawl (with mode + timestamps) and one row per page-in-crawl (with the
+// markdown SHA-256), bounded by a per-site retention count. get_freshness and
+// diff_crawl read from here. The same database file is the v3.0 storage spine
+// that FTS5 and sqlite-vec virtual tables will sit alongside later.
+package index
+
+import (
+	"context"
+	"database/sql"
+	_ "embed"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"sync"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+//go:embed schema.sql
+var schemaDDL string
+
+// Mode is the crawl mode label persisted with each crawl record.
+type Mode string
+
+const (
+	ModeFull        Mode = "full"
+	ModeIncremental Mode = "incremental"
+	ModeResume      Mode = "resume"
+)
+
+// DefaultRetention is the per-site crawl-history depth when no config value is provided.
+const DefaultRetention = 10
+
+// Index owns the SQLite handle. Writes are serialized with writeMu so the
+// many-tiny-tx pattern (one tx per crawl finish) stays simple under parallel
+// --all-sites crawls; SQLite's own busy_timeout backs that up.
+type Index struct {
+	db        *sql.DB
+	log       *slog.Logger
+	writeMu   sync.Mutex
+	retention int
+	path      string
+}
+
+// PageRecord is one page row passed to RecordCrawl.
+type PageRecord struct {
+	URL         string
+	Title       string
+	ContentHash string
+	Depth       int
+}
+
+// CrawlRecord is the per-crawl bundle passed to RecordCrawl.
+type CrawlRecord struct {
+	SiteKey        string
+	CrawlStartedAt time.Time
+	CrawlEndedAt   time.Time
+	Mode           Mode
+	Pages          []PageRecord
+}
+
+// LatestCrawl is the row returned by GetLatestCrawl.
+type LatestCrawl struct {
+	ID             int64
+	SiteKey        string
+	CrawlStartedAt time.Time
+	CrawlEndedAt   time.Time
+	TotalPages     int
+	Mode           Mode
+}
+
+// DiffEntry is one row in DiffResult.Entries. Kind is "added", "removed", or "changed".
+// For "added" and "changed", ContentHash is the current hash; for "changed", PriorHash
+// is the baseline hash. For "removed", ContentHash is the baseline hash and
+// PriorHash is empty.
+type DiffEntry struct {
+	Kind        string
+	URL         string
+	Title       string
+	ContentHash string
+	PriorHash   string
+	Depth       int
+}
+
+// DiffResult bundles the diff response. BaselineCrawl is nil if no crawl ended
+// at or before the requested since; CurrentCrawl is nil if the site has never
+// been crawled.
+type DiffResult struct {
+	BaselineCrawl  *LatestCrawl
+	CurrentCrawl   *LatestCrawl
+	Entries        []DiffEntry
+	Total          int
+	UnchangedCount int
+}
+
+// Open opens or creates the SQLite database at path, applies the schema, and
+// returns an *Index. retention<=0 means use DefaultRetention.
+func Open(path string, retention int, log *slog.Logger) (*Index, error) {
+	if path == "" {
+		return nil, fmt.Errorf("index path is required")
+	}
+	if retention <= 0 {
+		retention = DefaultRetention
+	}
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", path)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// Apply pragmas that survive the connection.
+	pragmas := []string{
+		"PRAGMA journal_mode = WAL",
+		"PRAGMA synchronous = NORMAL",
+		"PRAGMA foreign_keys = ON",
+	}
+	for _, p := range pragmas {
+		if _, err := db.ExecContext(ctx, p); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("pragma %q: %w", p, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, schemaDDL); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("apply schema: %w", err)
+	}
+	idx := &Index{
+		db:        db,
+		log:       log.With("component", "index", "path", path),
+		retention: retention,
+		path:      path,
+	}
+	idx.log.Info("crawl-history index opened", "retention", retention)
+	return idx, nil
+}
+
+// Close releases the database handle. Safe to call on a nil receiver.
+func (i *Index) Close() error {
+	if i == nil || i.db == nil {
+		return nil
+	}
+	return i.db.Close()
+}
+
+// Path returns the on-disk file path of the database.
+func (i *Index) Path() string {
+	if i == nil {
+		return ""
+	}
+	return i.path
+}
+
+// OpenAt is the canonical constructor for callers that already know stateDir:
+// it places the database at <stateDir>/index.db. An empty stateDir is logged
+// and returns (nil, nil) so callers can degrade gracefully (no history capture,
+// no error path bloat).
+func OpenAt(stateDir string, retention int, log *slog.Logger) (*Index, error) {
+	if stateDir == "" {
+		log.Warn("state_dir is empty; crawl-history index disabled")
+		return nil, nil
+	}
+	return Open(filepath.Join(stateDir, "index.db"), retention, log)
+}
