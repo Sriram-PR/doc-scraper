@@ -16,9 +16,12 @@ import (
 
 	"log/slog"
 
+	"context"
+
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/pkg/process"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
@@ -43,6 +46,18 @@ type OutputManager struct {
 	// Set by the crawler before Run; both feed the crawl_meta record at Close.
 	crawlStartTime time.Time
 	pagesRecorded  atomic.Int64
+
+	// Optional crawl-history index. SetIndex wires both fields; if idx is nil
+	// the index write at Close is skipped.
+	idx       *index.Index
+	indexMode index.Mode
+}
+
+// SetIndex attaches a crawl-history index handle and the mode label that will
+// be persisted for this crawl. nil idx disables the index write at Close.
+func (om *OutputManager) SetIndex(idx *index.Index, mode index.Mode) {
+	om.idx = idx
+	om.indexMode = mode
 }
 
 // NewOutputManager creates an OutputManager. Call OpenFiles once the output
@@ -138,14 +153,82 @@ func stripLeftoverCrawlMeta(path string) (int64, error) {
 	return pages, nil
 }
 
-// Close flushes buffered records, appends crawl_meta, closes the file, then
-// writes llms.txt/llms-full.txt from the resulting JSONL.
+// Close flushes buffered records, appends crawl_meta, closes the file, writes
+// llms.txt/llms-full.txt from the resulting JSONL, and finally records this
+// crawl into the history index (if attached).
 func (om *OutputManager) Close() error {
 	om.flushBufferedJSONL()
 	om.writeCrawlMetaRecord()
 	om.closeJSONLFile()
 	om.writeLLMsTxtFiles()
+	om.writeToIndex()
 	return nil
+}
+
+// writeToIndex rescans the just-closed JSONL for page records and records the
+// crawl in the history index. Re-scan keeps the path uniform across fresh
+// (buffered) and resume (streamed-append) modes; the on-disk JSONL is the
+// authoritative source of truth after Close. Errors are logged, not returned,
+// so a busted index can never break a successful crawl.
+func (om *OutputManager) writeToIndex() {
+	if om.idx == nil || om.jsonlFilePath == "" {
+		return
+	}
+	pages, err := readJSONLPagesForIndex(om.jsonlFilePath)
+	if err != nil {
+		om.log.Warn("index: failed to read JSONL for history capture", "path", om.jsonlFilePath, "err", err)
+		return
+	}
+	record := index.CrawlRecord{
+		SiteKey:        om.siteKey,
+		CrawlStartedAt: om.crawlStartTime,
+		CrawlEndedAt:   time.Now(),
+		Mode:           om.indexMode,
+		Pages:          pages,
+	}
+	if err := om.idx.RecordCrawl(context.Background(), record); err != nil {
+		om.log.Warn("index: failed to record crawl", "err", err)
+	}
+}
+
+// readJSONLPagesForIndex extracts a minimal per-page row for the index. Skips
+// crawl_meta and any malformed line. Title/depth/content_hash come straight
+// from the JSONL record; content body is not loaded into memory.
+func readJSONLPagesForIndex(path string) ([]index.PageRecord, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	out := make([]index.PageRecord, 0, 256)
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if !bytes.Contains(line, []byte(`"record_type":"page"`)) {
+			continue
+		}
+		var p models.PageJSONL
+		if err := json.Unmarshal(line, &p); err != nil {
+			continue
+		}
+		if p.RecordType != models.RecordTypePage {
+			continue
+		}
+		out = append(out, index.PageRecord{
+			URL:         p.URL,
+			Title:       p.Title,
+			ContentHash: p.ContentHash,
+			Depth:       p.Depth,
+		})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // PagesSaved returns the number of pages recorded during the crawl.

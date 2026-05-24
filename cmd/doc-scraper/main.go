@@ -25,6 +25,7 @@ import (
 	pkglog "github.com/Sriram-PR/doc-scraper/pkg/log"
 	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/pkg/watch"
 )
 
@@ -458,7 +459,13 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 	}
 
 	logEntry := log.With("component", "watch")
-	scheduler := watch.NewScheduler(appCfg, siteKeys, interval, logEntry)
+	idx, err := index.OpenAt(appCfg.StateDir, appCfg.CrawlHistoryRetention, logEntry)
+	if err != nil {
+		fatal(log, "Failed to open crawl-history index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	scheduler := watch.NewScheduler(appCfg, siteKeys, interval, logEntry).WithIndex(idx)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -608,7 +615,13 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	startPprof(pprofAddr, log)
 
 	logEntry := log.With("component", "parallel_crawl")
-	orch := orchestrate.NewOrchestrator(appCfg, siteKeys, isResume, logEntry)
+	idx, err := index.OpenAt(appCfg.StateDir, appCfg.CrawlHistoryRetention, logEntry)
+	if err != nil {
+		fatal(log, "Failed to open crawl-history index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	orch := orchestrate.NewOrchestrator(appCfg, siteKeys, isResume, logEntry).WithIndex(idx)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -717,7 +730,13 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	fetcher := fetch.NewFetcher(httpClient, appCfg, logEntry)
 	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logEntry)
 
-	crawlerInstance, err := crawler.NewCrawler(
+	idx, err := index.OpenAt(appCfg.StateDir, appCfg.CrawlHistoryRetention, logEntry)
+	if err != nil {
+		fatal(log, "Failed to open crawl-history index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	crawlerInstance, err := crawler.NewCrawlerWithOptions(
 		appCfg,
 		siteCfg,
 		siteKey,
@@ -728,6 +747,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 		crawlCtx,
 		cancelCrawl,
 		isResume,
+		&crawler.CrawlerOptions{Index: idx},
 	)
 	if err != nil {
 		fatal(log, "Failed to initialize crawler: %v", err)

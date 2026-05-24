@@ -29,6 +29,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/queue"
 	"github.com/Sriram-PR/doc-scraper/pkg/sitemap"
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
@@ -77,6 +78,9 @@ type Crawler struct {
 	// Output file management (Markdown files + JSONL + llms.txt)
 	output *OutputManager
 
+	// Optional crawl-history index handle; passed to OutputManager in Run.
+	idx *index.Index
+
 	// Optional periodic progress reporter (e.g. MCP job status updates).
 	// Invoked from the progress reporter goroutine, never per-page, so it
 	// is safe to do a small amount of work (lock + write) inside.
@@ -93,6 +97,10 @@ type CrawlerOptions struct {
 	// count and remaining queue depth. Fired one final time when the
 	// progress reporter exits so observers see the terminal state.
 	ProgressCallback func(processed, queued int64)
+
+	// Index, if non-nil, receives a crawl-history record at end of crawl.
+	// nil disables history capture (useful for tests and the get_page MCP path).
+	Index *index.Index
 }
 
 // NewCrawler creates and initializes a new Crawler instance and its components
@@ -174,6 +182,7 @@ func NewCrawlerWithOptions(
 	}
 	if opts != nil {
 		c.progressCallback = opts.ProgressCallback
+		c.idx = opts.Index
 	}
 
 	c.output = NewOutputManager(logger, resolved, siteCfg, siteKey, siteOutputDir)
@@ -187,6 +196,19 @@ func NewCrawlerWithOptions(
 	c.linkProcessor = process.NewLinkProcessor(c.store, c.pq, c.compiledDisallowedPatterns, logger)
 
 	return c, nil
+}
+
+// deriveMode picks the index.Mode label for a crawl run. EnableIncremental
+// implies resume per the v2.2.2 wiring, so the incremental check wins.
+func deriveMode(resume, incremental bool) index.Mode {
+	switch {
+	case incremental:
+		return index.ModeIncremental
+	case resume:
+		return index.ModeResume
+	default:
+		return index.ModeFull
+	}
 }
 
 // FoundSitemap implements fetch.SitemapDiscoverer for the RobotsHandler callback.
@@ -227,6 +249,7 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 // Run starts the crawling process for the configured site and blocks until completion or cancellation.
 func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration function with many sequential setup/teardown steps
 	c.output.crawlStartTime = time.Now() // Record CRAWL START TIME for metadata
+	c.output.SetIndex(c.idx, deriveMode(resume, c.appCfg.EnableIncremental))
 	// runLog adds the per-run context (domain, resume) on top of c.log's site_key.
 	runLog := c.log.With("domain", c.siteCfg.AllowedDomain, "resume", resume)
 	runLog.Info(fmt.Sprintf("Crawl starting with %d worker(s)...", c.appCfg.NumWorkers))

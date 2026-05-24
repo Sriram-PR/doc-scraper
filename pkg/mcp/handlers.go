@@ -25,6 +25,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 )
 
 // handleListSites handles the list_sites tool
@@ -165,7 +166,10 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 		"total_sites":   len(sites),
 		"total_jobs":    len(jobs),
 		"jobs_capped":   len(s.jobManager.ListJobs()) > maxJobs,
-		"next_actions":  "Use list_sites for full site config, list_pages to enumerate crawled pages, crawl_site to start a crawl, get_job_status to check a job, get_page to fetch a single URL.",
+		"next_actions": "Use list_sites for full site config, list_pages to enumerate crawled " +
+			"pages, crawl_site to start a crawl, get_job_status to check a job, get_page to " +
+			"fetch a single URL, get_freshness to check how stale a site's crawl is, diff_crawl " +
+			"to see what changed since a given timestamp.",
 	}
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }
@@ -494,6 +498,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 			ProgressCallback: func(processed, queued int64) {
 				s.jobManager.UpdateProgress(jobID, processed, queued)
 			},
+			Index: s.idx,
 		},
 	)
 	if err != nil {
@@ -545,6 +550,182 @@ func (s *Server) getLastCrawledTime(_ string, siteCfg *config.SiteConfig) time.T
 		}
 	}
 	return lastEnded
+}
+
+// resolveSiteOrError validates site_key against the configured sites and
+// returns either the site config or a sorted-available-sites error result.
+func (s *Server) resolveSiteOrError(siteKey string) (*config.SiteConfig, *mcp.CallToolResult) {
+	siteCfg, exists := s.cfg.AppConfig.Sites[siteKey]
+	if exists {
+		return siteCfg, nil
+	}
+	availableKeys := make([]string, 0, len(s.cfg.AppConfig.Sites))
+	for k := range s.cfg.AppConfig.Sites {
+		availableKeys = append(availableKeys, k)
+	}
+	sort.Strings(availableKeys)
+	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", siteKey, availableKeys))
+}
+
+// handleGetFreshness answers "is the local crawl recent enough to query, or
+// should I run crawl_site first?" Pulls the latest crawl from the history
+// index, derives age, reports running-job presence.
+func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	siteKey := request.GetString("site_key", "")
+	if siteKey == "" {
+		return mcp.NewToolResultError("site_key parameter is required"), nil
+	}
+	siteCfg, errResult := s.resolveSiteOrError(siteKey)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
+	stateDBPath := filepath.Join(s.cfg.AppConfig.StateDir, siteCfg.AllowedDomain+"_visited_db")
+	outputExists := dirExists(siteOutputDir)
+	stateExists := dirExists(stateDBPath)
+
+	result := map[string]interface{}{
+		"site_key":         siteKey,
+		"output_dir":       siteOutputDir,
+		"output_exists":    outputExists,
+		"state_dir_exists": stateExists,
+	}
+
+	if s.idx != nil {
+		latest, err := s.idx.GetLatestCrawl(ctx, siteKey)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to query crawl history: %v", err)), nil
+		}
+		if latest != nil {
+			now := time.Now()
+			result["last_crawl_id"] = latest.ID
+			result["last_crawl_started_at"] = latest.CrawlStartedAt.Format(time.RFC3339)
+			result["last_crawl_ended_at"] = latest.CrawlEndedAt.Format(time.RFC3339)
+			result["last_crawl_total_pages"] = latest.TotalPages
+			result["last_crawl_mode"] = string(latest.Mode)
+			result["age_seconds"] = int64(now.Sub(latest.CrawlEndedAt).Seconds())
+		}
+	}
+
+	if s.jobManager.IsRunning(siteKey) {
+		if job := s.jobManager.GetJobBySite(siteKey); job != nil {
+			result["running_job"] = map[string]interface{}{
+				"job_id":          job.ID,
+				"started_at":      job.StartedAt.Format(time.RFC3339),
+				"pages_processed": job.PagesProcessed,
+				"pages_queued":    job.PagesQueued,
+				"incremental":     job.Incremental,
+			}
+		}
+	}
+
+	if _, ok := result["last_crawl_ended_at"]; !ok {
+		result["next_actions"] = "No prior crawl recorded. Run crawl_site to populate the history index."
+	} else {
+		result["next_actions"] = "list_pages or get_page to read; crawl_site to refresh; diff_crawl with since=last_crawl_ended_at to compute what changed."
+	}
+
+	return mcp.NewToolResultText(formatJSON(result)), nil
+}
+
+// handleDiffCrawl returns added/removed/changed pages between the latest crawl
+// and the most recent crawl whose crawl_ended_at <= since. Hash-based verdicts
+// from the SQLite history index.
+func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	siteKey := request.GetString("site_key", "")
+	if siteKey == "" {
+		return mcp.NewToolResultError("site_key parameter is required"), nil
+	}
+	if _, errResult := s.resolveSiteOrError(siteKey); errResult != nil {
+		return errResult, nil
+	}
+	if s.idx == nil {
+		return mcp.NewToolResultError("crawl-history index is disabled (state_dir is unset)"), nil
+	}
+
+	sinceStr := request.GetString("since", "")
+	if sinceStr == "" {
+		return mcp.NewToolResultError("since parameter is required (RFC3339 timestamp, e.g. 2026-05-23T22:00:00Z)"), nil
+	}
+	since, err := time.Parse(time.RFC3339, sinceStr)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid since timestamp %q: expected RFC3339 (e.g. 2026-05-23T22:00:00Z): %v", sinceStr, err)), nil
+	}
+
+	maxResults := request.GetInt("max_results", 100)
+	offset := request.GetInt("offset", 0)
+
+	res, err := s.idx.DiffSince(ctx, siteKey, since, maxResults, offset)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("diff_crawl failed: %v", err)), nil
+	}
+
+	added := make([]map[string]interface{}, 0)
+	removed := make([]map[string]interface{}, 0)
+	changed := make([]map[string]interface{}, 0)
+	for _, e := range res.Entries {
+		entry := map[string]interface{}{
+			"url":          e.URL,
+			"title":        e.Title,
+			"content_hash": e.ContentHash,
+			"depth":        e.Depth,
+		}
+		switch e.Kind {
+		case "added":
+			added = append(added, entry)
+		case "removed":
+			removed = append(removed, entry)
+		case "changed":
+			entry["prior_hash"] = e.PriorHash
+			changed = append(changed, entry)
+		}
+	}
+
+	out := map[string]interface{}{
+		"site_key":        siteKey,
+		"since":           since.Format(time.RFC3339),
+		"added":           added,
+		"removed":         removed,
+		"changed":         changed,
+		"unchanged_count": res.UnchangedCount,
+		"total":           res.Total,
+		"returned":        len(res.Entries),
+		"offset":          offset,
+		"max_results":     maxResults,
+	}
+	if res.CurrentCrawl != nil {
+		out["current_crawl"] = summarizeCrawl(res.CurrentCrawl)
+	}
+	if res.BaselineCrawl != nil {
+		out["baseline_crawl"] = summarizeCrawl(res.BaselineCrawl)
+	}
+	switch {
+	case res.CurrentCrawl == nil:
+		out["note"] = "No crawl has been recorded for this site yet. Run crawl_site to seed the history."
+	case res.BaselineCrawl == nil:
+		out["note"] = "No baseline crawl ended at or before since; cannot diff. Re-issue with an earlier since, or treat the current crawl as the baseline going forward."
+	case res.BaselineCrawl.ID == res.CurrentCrawl.ID:
+		out["note"] = "Baseline and current crawl are the same (since is newer than the latest crawl_ended_at)."
+	}
+	return mcp.NewToolResultText(formatJSON(out)), nil
+}
+
+// dirExists returns true if path is a directory.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// summarizeCrawl renders a LatestCrawl for the diff_crawl response payload.
+func summarizeCrawl(c *index.LatestCrawl) map[string]interface{} {
+	return map[string]interface{}{
+		"crawl_id":         c.ID,
+		"crawl_started_at": c.CrawlStartedAt.Format(time.RFC3339),
+		"crawl_ended_at":   c.CrawlEndedAt.Format(time.RFC3339),
+		"total_pages":      c.TotalPages,
+		"mode":             string(c.Mode),
+	}
 }
 
 // formatJSON formats data as an indented JSON string

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 )
 
 // Scheduler manages periodic crawling of sites.
@@ -24,6 +25,14 @@ type Scheduler struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	idx    *index.Index
+}
+
+// WithIndex attaches a crawl-history index passed to every orchestrator the
+// scheduler spawns. nil is safe and disables history capture.
+func (s *Scheduler) WithIndex(idx *index.Index) *Scheduler {
+	s.idx = idx
+	return s
 }
 
 // NewScheduler creates a new watch scheduler.
@@ -84,7 +93,7 @@ func (s *Scheduler) runDueSites() {
 
 	// Watch is incremental by construction (see executeWatch); pass resume=true
 	// so scheduled re-crawls reuse the persisted visited DB instead of wiping it.
-	orch := orchestrate.NewOrchestrator(s.appCfg, dueSites, true, s.log)
+	orch := orchestrate.NewOrchestrator(s.appCfg, dueSites, true, s.log).WithIndex(s.idx)
 
 	s.wg.Add(1)
 	go func() {

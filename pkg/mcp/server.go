@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 )
 
 const (
@@ -34,6 +35,7 @@ type Server struct {
 	cfg        *ServerConfig
 	log        *slog.Logger
 	jobManager *JobManager
+	idx        *index.Index
 }
 
 // NewServer creates a new MCP server instance
@@ -59,11 +61,16 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 	} else {
 		logEntry.Warn("state_dir is empty; MCP jobs will not persist across restarts")
 	}
+	idx, err := index.OpenAt(cfg.AppConfig.StateDir, cfg.AppConfig.CrawlHistoryRetention, logEntry)
+	if err != nil {
+		return nil, fmt.Errorf("open crawl-history index: %w", err)
+	}
 	s := &Server{
 		mcpServer:  mcpServer,
 		cfg:        cfg,
 		log:        logEntry,
 		jobManager: NewJobManager(jobsPath, logEntry),
+		idx:        idx,
 	}
 
 	// Register all tools
@@ -153,7 +160,43 @@ func (s *Server) registerTools() {
 	)
 	s.mcpServer.AddTool(listPagesTool, s.handleListPages)
 
-	s.log.Info(fmt.Sprintf("Registered %d MCP tools", 7))
+	// get_freshness - Is the local crawl recent enough?
+	getFreshnessTool := mcp.NewTool("get_freshness",
+		mcp.WithDescription("Return the most recent crawl summary for a site "+
+			"(last_crawl_started_at/ended_at, total_pages, mode, age_seconds) plus output/state "+
+			"dir presence and any running job. Use this to decide whether to query the existing "+
+			"crawl or run crawl_site first."),
+		mcp.WithString("site_key",
+			mcp.Required(),
+			mcp.Description("Site key from config (use list_sites to discover available keys)"),
+		),
+	)
+	s.mcpServer.AddTool(getFreshnessTool, s.handleGetFreshness)
+
+	// diff_crawl - What changed since a given timestamp?
+	diffCrawlTool := mcp.NewTool("diff_crawl",
+		mcp.WithDescription("Return added/removed/changed pages between the latest crawl and "+
+			"the most recent crawl whose crawl_ended_at <= since. Hash-based verdicts from the "+
+			"SQLite history index. Pair with get_freshness: pass the last_crawl_ended_at value "+
+			"as since after running crawl_site --incremental to see exactly what changed."),
+		mcp.WithString("site_key",
+			mcp.Required(),
+			mcp.Description("Site key from config"),
+		),
+		mcp.WithString("since",
+			mcp.Required(),
+			mcp.Description("RFC3339 timestamp; the most recent crawl whose crawl_ended_at <= since is the baseline (e.g. 2026-05-23T22:00:00Z)"),
+		),
+		mcp.WithNumber("max_results",
+			mcp.Description("Maximum diff entries to return (default 100, max 1000)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Pagination offset, 0-based"),
+		),
+	)
+	s.mcpServer.AddTool(diffCrawlTool, s.handleDiffCrawl)
+
+	s.log.Info(fmt.Sprintf("Registered %d MCP tools", 9))
 }
 
 // Run starts the MCP server over the stdio transport.
@@ -169,5 +212,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.jobManager.CancelAll()
 	// Flush and stop the persistence flusher
 	s.jobManager.Stop()
+	if s.idx != nil {
+		if err := s.idx.Close(); err != nil {
+			s.log.Warn("error closing crawl-history index", "err", err)
+		}
+	}
 	return nil
 }

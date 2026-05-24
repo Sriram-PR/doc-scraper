@@ -13,6 +13,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 )
 
 // SiteResult contains the result of crawling a single site.
@@ -37,6 +38,14 @@ type Orchestrator struct {
 	resultsMu       sync.Mutex
 	ctx             context.Context
 	cancel          context.CancelFunc
+	idx             *index.Index
+}
+
+// WithIndex attaches a crawl-history index shared across every per-site
+// crawler this orchestrator runs. nil is safe and disables history capture.
+func (o *Orchestrator) WithIndex(idx *index.Index) *Orchestrator {
+	o.idx = idx
+	return o
 }
 
 // NewOrchestrator creates a new orchestrator for parallel site crawling.
@@ -117,6 +126,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 
 	opts := &crawler.CrawlerOptions{
 		SharedSemaphore: o.globalSemaphore,
+		Index:           o.idx,
 	}
 
 	c, err := crawler.NewCrawlerWithOptions(

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 )
 
 // silentTestLogger returns a *slog.Logger that discards output (tests should
@@ -350,4 +352,178 @@ func TestHandleListPages_ClampsMaxResults(t *testing.T) {
 		"max_results": float64(50000),
 	})
 	assert.EqualValues(t, 1000, got["max_results"])
+}
+
+// --- get_freshness / diff_crawl tests ---
+
+// attachIndex opens a fresh on-disk SQLite index in a temp dir and attaches it
+// to s. Returns the index for direct seeding by tests.
+func attachIndex(t *testing.T, s *Server) *index.Index {
+	t.Helper()
+	idx, err := index.Open(filepath.Join(t.TempDir(), "index.db"), 5, silentTestLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = idx.Close() })
+	s.idx = idx
+	return idx
+}
+
+func callJSON(t *testing.T, fn func(context.Context, mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error), args map[string]any) (*mcpgo.CallToolResult, map[string]any) {
+	t.Helper()
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = args
+	result, err := fn(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, result.Content, 1)
+	tc, ok := result.Content[0].(mcpgo.TextContent)
+	require.True(t, ok, "expected TextContent")
+	if result.IsError {
+		return result, nil
+	}
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &got))
+	return result, got
+}
+
+func TestHandleGetFreshness_NeverCrawled(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	attachIndex(t, s)
+	_, got := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "docs"})
+	require.NotNil(t, got)
+	assert.Equal(t, "docs", got["site_key"])
+	_, hasLast := got["last_crawl_ended_at"]
+	assert.False(t, hasLast, "expected no last_crawl_ended_at for never-crawled site")
+	assert.Contains(t, got["next_actions"], "No prior crawl recorded")
+}
+
+func TestHandleGetFreshness_AfterCrawl(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	idx := attachIndex(t, s)
+	started := time.Now().Add(-2 * time.Minute)
+	ended := time.Now().Add(-time.Minute)
+	require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+		SiteKey:        "docs",
+		CrawlStartedAt: started,
+		CrawlEndedAt:   ended,
+		Mode:           index.ModeFull,
+		Pages: []index.PageRecord{
+			{URL: "https://docs.example.com/a", Title: "A", ContentHash: "h1"},
+		},
+	}))
+	_, got := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "docs"})
+	require.NotNil(t, got)
+	assert.InDelta(t, float64(1), got["last_crawl_total_pages"], 0)
+	assert.Equal(t, "full", got["last_crawl_mode"])
+	age, ok := got["age_seconds"].(float64)
+	require.True(t, ok)
+	assert.GreaterOrEqual(t, age, 0.0)
+	assert.Less(t, age, 600.0, "age should be on the order of seconds, not 10+ min")
+	assert.Contains(t, got["next_actions"], "diff_crawl")
+}
+
+func TestHandleGetFreshness_UnknownSite(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	attachIndex(t, s)
+	result, _ := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "ghost"})
+	require.True(t, result.IsError)
+}
+
+func TestHandleDiffCrawl_RequiresSinceAndSiteKey(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	attachIndex(t, s)
+	r, _ := callJSON(t, s.handleDiffCrawl, map[string]any{})
+	assert.True(t, r.IsError)
+	r, _ = callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs"})
+	assert.True(t, r.IsError, "missing since should error")
+}
+
+func TestHandleDiffCrawl_InvalidSince(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	attachIndex(t, s)
+	r, _ := callJSON(t, s.handleDiffCrawl, map[string]any{
+		"site_key": "docs",
+		"since":    "not-a-timestamp",
+	})
+	assert.True(t, r.IsError)
+}
+
+func TestHandleDiffCrawl_IndexDisabled(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	// no attachIndex → s.idx is nil
+	r, _ := callJSON(t, s.handleDiffCrawl, map[string]any{
+		"site_key": "docs",
+		"since":    time.Now().Format(time.RFC3339),
+	})
+	assert.True(t, r.IsError)
+}
+
+func TestHandleDiffCrawl_NoBaseline(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	idx := attachIndex(t, s)
+	end := time.Now()
+	require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+		SiteKey:        "docs",
+		CrawlStartedAt: end.Add(-time.Minute),
+		CrawlEndedAt:   end,
+		Mode:           index.ModeFull,
+		Pages:          []index.PageRecord{{URL: "https://docs.example.com/a", ContentHash: "h1"}},
+	}))
+	// since predates the only crawl → no baseline
+	_, got := callJSON(t, s.handleDiffCrawl, map[string]any{
+		"site_key": "docs",
+		"since":    end.Add(-time.Hour).Format(time.RFC3339),
+	})
+	require.NotNil(t, got)
+	assert.EqualValues(t, 0, got["total"])
+	assert.NotContains(t, got, "baseline_crawl")
+	assert.Contains(t, got, "current_crawl")
+	assert.Contains(t, got["note"], "No baseline crawl")
+}
+
+func TestHandleDiffCrawl_AddedRemovedChanged(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	idx := attachIndex(t, s)
+	base := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	// baseline: A(v1), B(v1), C(v1)
+	require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+		SiteKey:        "docs",
+		CrawlStartedAt: base,
+		CrawlEndedAt:   base.Add(time.Minute),
+		Mode:           index.ModeFull,
+		Pages: []index.PageRecord{
+			{URL: "https://docs.example.com/a", Title: "A", ContentHash: "ha1"},
+			{URL: "https://docs.example.com/b", Title: "B", ContentHash: "hb1"},
+			{URL: "https://docs.example.com/c", Title: "C", ContentHash: "hc1"},
+		},
+	}))
+	// current: A(v2 changed), C(unchanged), D(added); B removed
+	require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+		SiteKey:        "docs",
+		CrawlStartedAt: base.Add(time.Hour),
+		CrawlEndedAt:   base.Add(time.Hour + time.Minute),
+		Mode:           index.ModeIncremental,
+		Pages: []index.PageRecord{
+			{URL: "https://docs.example.com/a", Title: "A2", ContentHash: "ha2"},
+			{URL: "https://docs.example.com/c", Title: "C", ContentHash: "hc1"},
+			{URL: "https://docs.example.com/d", Title: "D", ContentHash: "hd1"},
+		},
+	}))
+	_, got := callJSON(t, s.handleDiffCrawl, map[string]any{
+		"site_key": "docs",
+		"since":    base.Add(2 * time.Minute).Format(time.RFC3339),
+	})
+	require.NotNil(t, got)
+	assert.EqualValues(t, 1, got["unchanged_count"])
+	added := got["added"].([]any)
+	removed := got["removed"].([]any)
+	changed := got["changed"].([]any)
+	require.Len(t, added, 1)
+	require.Len(t, removed, 1)
+	require.Len(t, changed, 1)
+	assert.Equal(t, "https://docs.example.com/d", added[0].(map[string]any)["url"])
+	assert.Equal(t, "https://docs.example.com/b", removed[0].(map[string]any)["url"])
+	chgEntry := changed[0].(map[string]any)
+	assert.Equal(t, "https://docs.example.com/a", chgEntry["url"])
+	assert.Equal(t, "ha2", chgEntry["content_hash"])
+	assert.Equal(t, "ha1", chgEntry["prior_hash"])
 }
