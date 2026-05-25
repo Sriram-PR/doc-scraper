@@ -26,6 +26,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
 	"github.com/Sriram-PR/doc-scraper/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/pkg/taskspec"
 	"github.com/Sriram-PR/doc-scraper/pkg/watch"
 )
 
@@ -71,6 +72,8 @@ func main() {
 		runCrawl(os.Args[2:])
 	case "watch":
 		runWatch(os.Args[2:])
+	case "run":
+		runStdinTask(os.Args[2:])
 	case "config":
 		runConfig(os.Args[2:])
 	case "mcp-server":
@@ -100,6 +103,7 @@ Usage:
 Commands:
   crawl       Start a crawl (use --resume to continue an interrupted one)
   watch       Watch sites and re-crawl on schedule
+  run         Read a JSON task spec from stdin and execute it (for agents driving doc-scraper as a subprocess)
   config      Inspect configuration: 'config validate' or 'config list'
   mcp-server  Start MCP server for AI tool integration
   version     Show version info
@@ -364,6 +368,84 @@ func emitValidateJSON(w io.Writer, configPath string, valid bool, globalWarnings
 		return
 	}
 	fmt.Fprintln(w, string(b))
+}
+
+// runStdinTask reads a JSON TaskSpec from stdin and dispatches to the same
+// execute* functions the flag-driven subcommands use. Only -h is accepted as
+// an argument; all task parameters come from the JSON payload to keep the
+// contract unambiguous for orchestration agents.
+func runStdinTask(args []string) {
+	for _, a := range args {
+		if a == "-h" || a == "--help" || a == "help" {
+			printRunUsage(os.Stdout)
+			return
+		}
+	}
+	if len(args) > 0 {
+		fmt.Fprintf(os.Stderr, "Error: run takes no flags; pass the task spec on stdin\n\n")
+		printRunUsage(os.Stderr)
+		os.Exit(1)
+	}
+
+	spec, err := taskspec.Parse(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := spec.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	dispatchTaskSpec(spec)
+}
+
+// dispatchTaskSpec routes a validated TaskSpec to the same execute* entry
+// points the flag-driven subcommands use.
+func dispatchTaskSpec(spec *taskspec.TaskSpec) {
+	logFormat := logFormatFor(spec.JSONLogs)
+	siteKeys := spec.SiteKeys()
+	switch spec.Command {
+	case taskspec.CommandCrawl:
+		if spec.AllSites || len(siteKeys) > 1 {
+			executeParallelCrawl(spec.Config, siteKeys, spec.AllSites, spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full)
+		} else {
+			executeCrawl(spec.Config, siteKeys[0], spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full)
+		}
+	case taskspec.CommandWatch:
+		executeWatch(spec.Config, siteKeys, spec.AllSites, spec.Interval, spec.Loglevel, logFormat)
+	}
+}
+
+func printRunUsage(w io.Writer) {
+	fmt.Fprintln(w, `Usage: doc-scraper run
+
+Reads a single JSON object from stdin describing a task and executes it.
+Designed for orchestration agents that prefer building a JSON payload over
+constructing shell arguments.
+
+JSON schema:
+  {
+    "command":     "crawl" | "watch",   // required
+    "config":      "config.yaml",        // optional, defaults to config.yaml
+    "site":        "site_key",           // OR
+    "sites":       ["a", "b"],           // OR
+    "all_sites":   true,                 // exactly one of site|sites|all_sites
+    "resume":      false,                // crawl only
+    "incremental": false,                // crawl only (implies resume)
+    "full":        false,                // crawl only (mutually exclusive with incremental)
+    "interval":    "24h",                // watch only, defaults to 24h
+    "loglevel":    "info",               // defaults to info
+    "json_logs":   false,                // emit slog records as JSON on stderr
+    "pprof":       ""                    // crawl only, e.g. localhost:6060
+  }
+
+Examples:
+  echo '{"command":"crawl","site":"rust_cli_small"}' | doc-scraper run
+  echo '{"command":"crawl","all_sites":true,"incremental":true,"json_logs":true}' | doc-scraper run
+  echo '{"command":"watch","sites":["a","b"],"interval":"6h"}' | doc-scraper run
+
+Unknown JSON fields are rejected to surface typos. Logs are written to stderr;
+the process exit code matches the equivalent flag-driven subcommand.`)
 }
 
 // runWatch handles the watch subcommand

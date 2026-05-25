@@ -281,4 +281,17 @@ func TestPrintUsageTo(t *testing.T) {
 	assert.Contains(t, out, "config")
 	assert.Contains(t, out, "mcp-server")
 	assert.Contains(t, out, "version")
+	assert.Contains(t, out, "run")
+}
+
+func TestPrintRunUsage(t *testing.T) {
+	var buf bytes.Buffer
+	printRunUsage(&buf)
+
+	out := buf.String()
+	assert.Contains(t, out, "stdin")
+	assert.Contains(t, out, "\"command\":")
+	assert.Contains(t, out, "site")
+	assert.Contains(t, out, "all_sites")
+	assert.Contains(t, out, "interval")
 }
