@@ -247,13 +247,12 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 }
 
 // Run starts the crawling process for the configured site and blocks until completion or cancellation.
-func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration function with many sequential setup/teardown steps
-	c.output.crawlStartTime = time.Now() // Record CRAWL START TIME for metadata
+func (c *Crawler) Run(resume bool) error {
+	c.output.crawlStartTime = time.Now()
 	c.output.SetIndex(c.idx, deriveMode(resume, c.appCfg.EnableIncremental))
-	// runLog adds the per-run context (domain, resume) on top of c.log's site_key.
 	runLog := c.log.With("domain", c.siteCfg.AllowedDomain, "resume", resume)
 	runLog.Info(fmt.Sprintf("Crawl starting with %d worker(s)...", c.appCfg.NumWorkers))
-	overallCrawlStartTimeForDuration := time.Now() // For calculating overall duration visible in final log
+	overallStart := time.Now()
 
 	defer func() {
 		if err := c.output.Close(); err != nil {
@@ -261,12 +260,59 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		}
 	}()
 
+	validStartURLs, firstValidParsedURL, err := c.validateStartURLs(runLog)
+	if err != nil {
+		return err
+	}
+
+	if err := c.prepareOutputDir(resume, runLog); err != nil {
+		return err
+	}
+	c.output.OpenFiles(resume)
+
+	initialTasksFromDB, err := c.requeueIncomplete(resume, runLog)
+	if err != nil {
+		return err
+	}
+
+	c.startWorkers(runLog)
+	c.sitemapProcessor.Start(c.crawlCtx)
+
+	waiterDone := make(chan struct{})
+	go c.runWaiter(firstValidParsedURL, runLog, waiterDone)
+
+	initialURLsAddedFromSeed := c.seedStartURLs(validStartURLs, runLog)
+	if initialURLsAddedFromSeed == 0 && initialTasksFromDB == 0 && len(c.foundSitemaps) == 0 {
+		runLog.Error("CRITICAL: No tasks seeded (no valid start URLs, no resume tasks, no initial sitemaps). Crawl will likely terminate.")
+	} else {
+		runLog.Info(fmt.Sprintf("Finished seeding %d start URLs. Total initial WG count from seeding & resume: %d.",
+			initialURLsAddedFromSeed, initialTasksFromDB+initialURLsAddedFromSeed))
+	}
+
+	runLog.Info("Main: Waiting for waiter goroutine to complete...")
+	select {
+	case <-waiterDone:
+		runLog.Info("Main: Waiter finished signal received.")
+	case <-c.crawlCtx.Done():
+		runLog.Warn(fmt.Sprintf("Main: Crawl context cancelled while waiting for waiter: %v", c.crawlCtx.Err()))
+		<-waiterDone // Still wait for waiter to finish its cleanup (closing queues, etc.)
+		runLog.Info("Main: Waiter finished after context cancellation.")
+	}
+
+	c.logRunSummary(overallStart, runLog)
+	return c.crawlCtx.Err()
+}
+
+// validateStartURLs keeps only the configured start URLs that parse, match the
+// allowed domain, and fall under the allowed path prefix. It returns the first
+// valid parsed URL (used to derive the host for the initial robots.txt fetch),
+// or an error if none survive.
+func (c *Crawler) validateStartURLs(runLog *slog.Logger) ([]string, *url.URL, error) {
 	var validStartURLs []string
 	seenStartURLs := make(map[string]bool, len(c.siteCfg.StartURLs))
-	var firstValidParsedURL *url.URL // Used for initial robots.txt fetch
+	var firstValidParsedURL *url.URL
 	runLog.Info(fmt.Sprintf("Validating %d provided start URLs...", len(c.siteCfg.StartURLs)))
 	for i, startURLStr := range c.siteCfg.StartURLs {
-		// Use task-specific logger for each start URL validation attempt
 		startValidateLog := c.log.With("index", i, "url", startURLStr)
 		if seenStartURLs[startURLStr] {
 			startValidateLog.Warn("Duplicate start URL. Skipping.")
@@ -284,7 +330,7 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		}
 		targetPath := parsed.Path
 		if targetPath == "" {
-			targetPath = "/" // Normalize empty path to root
+			targetPath = "/"
 		}
 		if !strings.HasPrefix(targetPath, c.siteCfg.AllowedPathPrefix) {
 			startValidateLog.Warn(fmt.Sprintf("Path prefix mismatch ('%s' not under '%s'). Skipping.", targetPath, c.siteCfg.AllowedPathPrefix))
@@ -293,181 +339,205 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 		startValidateLog.Debug("Start URL format and scope validated.")
 		validStartURLs = append(validStartURLs, startURLStr)
 		if firstValidParsedURL == nil {
-			firstValidParsedURL = parsed // Store the first valid one
+			firstValidParsedURL = parsed
 		}
 	}
 	if len(validStartURLs) == 0 {
-		return fmt.Errorf("no valid start_urls found for site '%s' matching scope", c.siteKey)
+		return nil, nil, fmt.Errorf("no valid start_urls found for site '%s' matching scope", c.siteKey)
 	}
 	runLog.Info(fmt.Sprintf("Using %d valid StartURLs: %v", len(validStartURLs), validStartURLs))
+	return validStartURLs, firstValidParsedURL, nil
+}
 
+// prepareOutputDir cleans (on a fresh crawl) and ensures the site output
+// directory and its image subdirectory exist.
+func (c *Crawler) prepareOutputDir(resume bool, runLog *slog.Logger) error {
 	runLog.Info(fmt.Sprintf("Site output target directory: %s", c.siteOutputDir))
 	if !resume {
 		if err := c.cleanSiteOutputDir(); err != nil {
-			// Log error but attempt to continue; subsequent MkdirAll might succeed or fail clearly.
 			runLog.Error(fmt.Sprintf("Failed to clean site output directory, attempting to continue: %v", err))
 		}
 	}
-	// Ensure base site directory and image subdirectory exist
-	err := os.MkdirAll(filepath.Join(c.siteOutputDir, process.ImageDir), 0755)
-	if err != nil {
+	if err := os.MkdirAll(filepath.Join(c.siteOutputDir, process.ImageDir), 0755); err != nil {
 		return fmt.Errorf("error creating site output dir '%s' for site '%s': %w", c.siteOutputDir, c.siteKey, err)
 	}
 	runLog.Info(fmt.Sprintf("Ensured site output directory exists: %s", c.siteOutputDir))
+	return nil
+}
 
-	c.output.OpenFiles(resume)
-
-	initialTasksFromDB := 0
-	if resume {
-		runLog.Info("Resume mode: Scanning database for incomplete tasks to requeue...")
-		requeueChan := make(chan models.WorkItem, 100) // Buffered channel for items from DB
-		var requeueWg sync.WaitGroup
-		requeueWg.Add(1)
-		go func() { // Goroutine to add items from store scan to the main priority queue
-			defer requeueWg.Done()
-			for item := range requeueChan {
-				c.wg.Add(1) // Increment main WaitGroup for each task being requeued
-				c.pq.Add(&item)
-				initialTasksFromDB++
-			}
-		}()
-
-		// RequeueIncomplete scans DB and sends items to requeueChan
-		_, _, scanErr := c.store.RequeueIncomplete(c.crawlCtx, requeueChan)
-		close(requeueChan) // Close channel once scan is complete
-		requeueWg.Wait()   // Wait for all items from channel to be added to PQ
-
-		if scanErr != nil && !errors.Is(scanErr, context.Canceled) && !errors.Is(scanErr, context.DeadlineExceeded) {
-			runLog.Error(fmt.Sprintf("Error encountered during DB requeue scan: %v", scanErr))
-		}
-		if c.crawlCtx.Err() != nil { // Check if context was cancelled during scan
-			runLog.Warn(fmt.Sprintf("Crawl context cancelled during resume scan: %v", c.crawlCtx.Err()))
-			return c.crawlCtx.Err() // Exit if cancelled
-		}
-		runLog.Info(fmt.Sprintf("DB requeue scan complete. Requeued %d tasks.", initialTasksFromDB))
+// requeueIncomplete, on a resume, scans the store for incomplete tasks and adds
+// them to the priority queue. It returns the number requeued, or the context
+// error if the crawl was cancelled mid-scan.
+func (c *Crawler) requeueIncomplete(resume bool, runLog *slog.Logger) (int, error) {
+	if !resume {
+		return 0, nil
 	}
+	runLog.Info("Resume mode: Scanning database for incomplete tasks to requeue...")
+	initialTasksFromDB := 0
+	requeueChan := make(chan models.WorkItem, 100)
+	var requeueWg sync.WaitGroup
+	requeueWg.Add(1)
+	go func() {
+		defer requeueWg.Done()
+		for item := range requeueChan {
+			c.wg.Add(1)
+			c.pq.Add(&item)
+			initialTasksFromDB++
+		}
+	}()
 
+	_, _, scanErr := c.store.RequeueIncomplete(c.crawlCtx, requeueChan)
+	close(requeueChan)
+	requeueWg.Wait()
+
+	if scanErr != nil && !errors.Is(scanErr, context.Canceled) && !errors.Is(scanErr, context.DeadlineExceeded) {
+		runLog.Error(fmt.Sprintf("Error encountered during DB requeue scan: %v", scanErr))
+	}
+	if c.crawlCtx.Err() != nil {
+		runLog.Warn(fmt.Sprintf("Crawl context cancelled during resume scan: %v", c.crawlCtx.Err()))
+		return initialTasksFromDB, c.crawlCtx.Err()
+	}
+	runLog.Info(fmt.Sprintf("DB requeue scan complete. Requeued %d tasks.", initialTasksFromDB))
+	return initialTasksFromDB, nil
+}
+
+func (c *Crawler) startWorkers(runLog *slog.Logger) {
 	runLog.Info(fmt.Sprintf("Starting %d workers...", c.appCfg.NumWorkers))
 	for i := 1; i <= c.appCfg.NumWorkers; i++ {
-		// Each worker gets a logger with its ID (site_key is already in c.log)
 		workerLog := c.log.With("worker_id", i)
 		go c.worker(workerLog)
 	}
 	runLog.Info(fmt.Sprintf("%d workers started.", c.appCfg.NumWorkers))
-	c.sitemapProcessor.Start(c.crawlCtx) // Sitemap processor uses its own contextualized logger
+}
 
-	waiterDone := make(chan struct{})
-	go func() { // This goroutine manages the sequence of startup and waiting for completion.
-		defer close(waiterDone) // Signal that the waiter goroutine itself has finished.
+// runWaiter manages the startup-and-completion sequence: it starts the progress
+// reporter, performs the initial robots.txt fetch, queues sitemaps discovered
+// there, waits for all tasks to finish (or the context to cancel), and then
+// closes the work queues. It closes waiterDone when it returns.
+func (c *Crawler) runWaiter(firstValidParsedURL *url.URL, runLog *slog.Logger, waiterDone chan struct{}) {
+	defer close(waiterDone)
 
-		// Progress Reporting Goroutine (nested)
-		progTicker := time.NewTicker(30 * time.Second) // Report progress periodically
-		progDone := make(chan bool)                    // Channel to signal progress reporter to stop
-		defer func() {
-			progTicker.Stop()
-			close(progDone)
-			runLog.Info("Waiter: Progress reporter stopped.")
-		}()
-		go func() { // Progress reporting loop
-			runLog.Info("Progress reporter started.")
-			defer func() {
-				// Fire one final callback so external observers (e.g. MCP
-				// get_job_status) see the terminal state without waiting
-				// for the next tick that will never come.
-				if c.progressCallback != nil {
-					c.progressCallback(c.processedCounter.Load(), int64(c.pq.Len()+len(c.sitemapQueue)))
-				}
-			}()
-			for {
-				select {
-				case <-progDone:
-					return // Exit progress reporter
-				case <-c.crawlCtx.Done():
-					return // Exit if main crawl context is cancelled
-				case <-progTicker.C: // On each tick, log progress
-					vCount, _ := c.store.GetVisitedCount()
-					pqLen := c.pq.Len()
-					smQLen := len(c.sitemapQueue) // Approximate, as it's a buffered channel
-					procCount := c.processedCounter.Load()
-					c.log.Info("Crawl Progress",
-						"site_key", c.siteKey,
-						"visited_db", vCount,
-						"page_queue_len", pqLen,
-						"sitemap_queue_len", smQLen,
-						"processed_tasks", procCount,
-					)
-					if c.progressCallback != nil {
-						c.progressCallback(procCount, int64(pqLen+smQLen))
-					}
-				}
-			}
-		}()
-
-		// Initial Robots.txt Fetch (must complete before seeding sitemaps from it)
-		if firstValidParsedURL != nil { // Ensure we have a valid URL to derive host
-			runLog.Info("Triggering initial robots.txt fetch...")
-			initialRobotsDone := make(chan bool, 1)                                              // Buffered channel to signal completion
-			go c.robotsHandler.GetRobotsData(firstValidParsedURL, initialRobotsDone, c.crawlCtx) // robotsHandler uses its own logger
-			select {
-			case <-initialRobotsDone:
-				runLog.Info("Waiter: Initial robots.txt fetch signaled complete.")
-			case <-c.crawlCtx.Done(): // If context is cancelled while waiting
-				runLog.Warn(fmt.Sprintf("Waiter: Context cancelled while waiting for initial robots.txt: %v", c.crawlCtx.Err()))
-				return // Exit waiter goroutine
-			}
-		} else {
-			runLog.Warn("No valid start URL found to fetch initial robots.txt.")
-		}
-
-		// Queue Sitemaps Found During Initial Robots Fetch
-		runLog.Info("Waiter: Processing initially discovered sitemaps...")
-		c.foundSitemapsMu.Lock()
-		var initialSitemapsToQueue []string
-		for smURL := range c.foundSitemaps { // Iterate over sitemaps reported by RobotsHandler
-			// MarkSitemapProcessed ensures we don't queue the same sitemap multiple times via this initial step
-			if c.sitemapProcessor.MarkSitemapProcessed(smURL) {
-				initialSitemapsToQueue = append(initialSitemapsToQueue, smURL)
-			}
-		}
-		c.foundSitemapsMu.Unlock()
-
-		if len(initialSitemapsToQueue) > 0 {
-			runLog.Info(fmt.Sprintf("Waiter: Found %d initial sitemaps to queue.", len(initialSitemapsToQueue)))
-			for _, smURL := range initialSitemapsToQueue {
-				c.wg.Add(1) // Increment main WaitGroup for each sitemap task
-				select {
-				case c.sitemapQueue <- smURL:
-					runLog.Debug(fmt.Sprintf("Waiter: Sent initial sitemap %s to queue.", smURL))
-				case <-c.crawlCtx.Done():
-					runLog.Warn(fmt.Sprintf("Waiter: Context cancelled while sending initial sitemap %s: %v", smURL, c.crawlCtx.Err()))
-					c.wg.Done() // Decrement WG as task won't be processed
-				case <-time.After(10 * time.Second): // Timeout for sending to queue
-					runLog.Error(fmt.Sprintf("Waiter: Timeout sending initial sitemap %s. Undoing WG.", smURL))
-					c.wg.Done() // Decrement WG
-				}
-			}
-		} else {
-			runLog.Info("Waiter: No new initial sitemaps found to queue from robots.txt.")
-		}
-
-		// Wait for All Tasks (page workers + sitemap tasks via c.wg)
-		runLog.Info("Waiter: Waiting for ALL tasks (pages, sitemaps) via WaitGroup...")
-		waitTasksDone := make(chan struct{})
-		go func() { c.wg.Wait(); close(waitTasksDone) }() // Wait for WG in a separate goroutine
-		select {
-		case <-waitTasksDone: // WG completed normally
-			runLog.Info("Waiter: WaitGroup finished normally (all tasks done).")
-		case <-c.crawlCtx.Done(): // Main crawl context cancelled/timed out
-			runLog.Warn(fmt.Sprintf("Waiter: Global context cancelled/timed out (%v) while waiting for tasks. Initiating shutdown.", c.crawlCtx.Err()))
-		}
-
-		// Initiate Shutdown of Queues (signals workers and sitemap processor to stop)
-		runLog.Info("Waiter: Closing priority queue for pages...")
-		c.pq.Close()
-		runLog.Info("Waiter: Closing sitemap processing queue...")
-		close(c.sitemapQueue)
+	progTicker := time.NewTicker(30 * time.Second)
+	progDone := make(chan bool)
+	defer func() {
+		progTicker.Stop()
+		close(progDone)
+		runLog.Info("Waiter: Progress reporter stopped.")
 	}()
+	go c.reportProgress(runLog, progTicker, progDone)
 
+	if !c.fetchInitialRobots(firstValidParsedURL, runLog) {
+		return
+	}
+	c.queueInitialSitemaps(runLog)
+	c.awaitTasksAndCloseQueues(runLog)
+}
+
+func (c *Crawler) reportProgress(runLog *slog.Logger, progTicker *time.Ticker, progDone chan bool) {
+	runLog.Info("Progress reporter started.")
+	defer func() {
+		// Fire one final callback so external observers (e.g. MCP
+		// get_job_status) see the terminal state without waiting
+		// for the next tick that will never come.
+		if c.progressCallback != nil {
+			c.progressCallback(c.processedCounter.Load(), int64(c.pq.Len()+len(c.sitemapQueue)))
+		}
+	}()
+	for {
+		select {
+		case <-progDone:
+			return
+		case <-c.crawlCtx.Done():
+			return
+		case <-progTicker.C:
+			vCount, _ := c.store.GetVisitedCount()
+			pqLen := c.pq.Len()
+			smQLen := len(c.sitemapQueue)
+			procCount := c.processedCounter.Load()
+			c.log.Info("Crawl Progress",
+				"site_key", c.siteKey,
+				"visited_db", vCount,
+				"page_queue_len", pqLen,
+				"sitemap_queue_len", smQLen,
+				"processed_tasks", procCount,
+			)
+			if c.progressCallback != nil {
+				c.progressCallback(procCount, int64(pqLen+smQLen))
+			}
+		}
+	}
+}
+
+// fetchInitialRobots triggers the initial robots.txt fetch and blocks until it
+// completes. It reports false if the crawl context was cancelled while waiting,
+// signalling the waiter to abort.
+func (c *Crawler) fetchInitialRobots(firstValidParsedURL *url.URL, runLog *slog.Logger) bool {
+	if firstValidParsedURL == nil {
+		runLog.Warn("No valid start URL found to fetch initial robots.txt.")
+		return true
+	}
+	runLog.Info("Triggering initial robots.txt fetch...")
+	initialRobotsDone := make(chan bool, 1)
+	go c.robotsHandler.GetRobotsData(firstValidParsedURL, initialRobotsDone, c.crawlCtx)
+	select {
+	case <-initialRobotsDone:
+		runLog.Info("Waiter: Initial robots.txt fetch signaled complete.")
+		return true
+	case <-c.crawlCtx.Done():
+		runLog.Warn(fmt.Sprintf("Waiter: Context cancelled while waiting for initial robots.txt: %v", c.crawlCtx.Err()))
+		return false
+	}
+}
+
+func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) {
+	runLog.Info("Waiter: Processing initially discovered sitemaps...")
+	c.foundSitemapsMu.Lock()
+	var initialSitemapsToQueue []string
+	for smURL := range c.foundSitemaps {
+		if c.sitemapProcessor.MarkSitemapProcessed(smURL) {
+			initialSitemapsToQueue = append(initialSitemapsToQueue, smURL)
+		}
+	}
+	c.foundSitemapsMu.Unlock()
+
+	if len(initialSitemapsToQueue) == 0 {
+		runLog.Info("Waiter: No new initial sitemaps found to queue from robots.txt.")
+		return
+	}
+	runLog.Info(fmt.Sprintf("Waiter: Found %d initial sitemaps to queue.", len(initialSitemapsToQueue)))
+	for _, smURL := range initialSitemapsToQueue {
+		c.wg.Add(1)
+		select {
+		case c.sitemapQueue <- smURL:
+			runLog.Debug(fmt.Sprintf("Waiter: Sent initial sitemap %s to queue.", smURL))
+		case <-c.crawlCtx.Done():
+			runLog.Warn(fmt.Sprintf("Waiter: Context cancelled while sending initial sitemap %s: %v", smURL, c.crawlCtx.Err()))
+			c.wg.Done()
+		case <-time.After(10 * time.Second):
+			runLog.Error(fmt.Sprintf("Waiter: Timeout sending initial sitemap %s. Undoing WG.", smURL))
+			c.wg.Done()
+		}
+	}
+}
+
+func (c *Crawler) awaitTasksAndCloseQueues(runLog *slog.Logger) {
+	runLog.Info("Waiter: Waiting for ALL tasks (pages, sitemaps) via WaitGroup...")
+	waitTasksDone := make(chan struct{})
+	go func() { c.wg.Wait(); close(waitTasksDone) }()
+	select {
+	case <-waitTasksDone:
+		runLog.Info("Waiter: WaitGroup finished normally (all tasks done).")
+	case <-c.crawlCtx.Done():
+		runLog.Warn(fmt.Sprintf("Waiter: Global context cancelled/timed out (%v) while waiting for tasks. Initiating shutdown.", c.crawlCtx.Err()))
+	}
+
+	runLog.Info("Waiter: Closing priority queue for pages...")
+	c.pq.Close()
+	runLog.Info("Waiter: Closing sitemap processing queue...")
+	close(c.sitemapQueue)
+}
+
+func (c *Crawler) seedStartURLs(validStartURLs []string, runLog *slog.Logger) int {
 	runLog.Info("Seeding priority queue with validated start URLs...")
 	initialURLsAddedFromSeed := 0
 	for _, startURLStr := range validStartURLs {
@@ -490,36 +560,21 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 			continue
 		}
 		runLog.Info(fmt.Sprintf("Adding start URL '%s' to queue (Depth 0).", normalizedSeed))
-		c.wg.Add(1) // Increment main WaitGroup for each initial URL
+		c.wg.Add(1)
 		c.pq.Add(&models.WorkItem{URL: normalizedSeed, Depth: 0})
 		initialURLsAddedFromSeed++
 	}
-	if initialURLsAddedFromSeed == 0 && initialTasksFromDB == 0 && len(c.foundSitemaps) == 0 { // Check all potential sources
-		runLog.Error("CRITICAL: No tasks seeded (no valid start URLs, no resume tasks, no initial sitemaps). Crawl will likely terminate.")
-		// Optionally, call c.cancelCrawl() here if this is a fatal startup condition
-	} else {
-		runLog.Info(fmt.Sprintf("Finished seeding %d start URLs. Total initial WG count from seeding & resume: %d.",
-			initialURLsAddedFromSeed, initialTasksFromDB+initialURLsAddedFromSeed))
-	}
+	return initialURLsAddedFromSeed
+}
 
-	runLog.Info("Main: Waiting for waiter goroutine to complete...")
-	select {
-	case <-waiterDone: // Waiter completed its sequence (including waiting for wg)
-		runLog.Info("Main: Waiter finished signal received.")
-	case <-c.crawlCtx.Done(): // Main context cancelled while waiting for waiter (should be rare)
-		runLog.Warn(fmt.Sprintf("Main: Crawl context cancelled while waiting for waiter: %v", c.crawlCtx.Err()))
-		<-waiterDone // Still wait for waiter to finish its cleanup (closing queues, etc.)
-		runLog.Info("Main: Waiter finished after context cancellation.")
-	}
-
-	duration := time.Since(overallCrawlStartTimeForDuration)
+func (c *Crawler) logRunSummary(overallStart time.Time, runLog *slog.Logger) {
+	duration := time.Since(overallStart)
 	finalVisitedCount, countErr := c.store.GetVisitedCount()
 	if countErr != nil {
 		runLog.Warn(fmt.Sprintf("Could not get final visited count from DB: %v", countErr))
-		finalVisitedCount = -1 // Indicate error in count
+		finalVisitedCount = -1
 	}
 	finalProcessedCount := c.processedCounter.Load()
-	// Base log already includes site_key. Add domain for clarity in this specific summary.
 	summaryLog := c.log.With("domain", c.siteCfg.AllowedDomain)
 	summaryLog.Info("========================================================================")
 	summaryLog.Info("CRAWL FINISHED")
@@ -527,8 +582,6 @@ func (c *Crawler) Run(resume bool) error { //nolint:gocyclo // orchestration fun
 	summaryLog.Info(fmt.Sprintf("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Pages Saved (for YAML): %d",
 		finalVisitedCount, finalProcessedCount, c.output.PagesSaved()))
 	summaryLog.Info("========================================================================")
-
-	return c.crawlCtx.Err() // Return error from context (nil if completed normally, Canceled/DeadlineExceeded otherwise)
 }
 
 // worker runs the loop for a single worker goroutine, processing tasks from the priority queue.
