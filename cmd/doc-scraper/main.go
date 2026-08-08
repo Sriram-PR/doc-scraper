@@ -703,7 +703,7 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	}
 	defer func() { _ = idx.Close() }()
 
-	orch := orchestrate.NewOrchestrator(appCfg, siteKeys, isResume, logEntry).WithIndex(idx)
+	orch := orchestrate.NewOrchestrator(context.Background(), appCfg, siteKeys, isResume, logEntry).WithIndex(idx)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

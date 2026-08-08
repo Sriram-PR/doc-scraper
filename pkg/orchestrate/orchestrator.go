@@ -48,9 +48,11 @@ func (o *Orchestrator) WithIndex(idx *index.Index) *Orchestrator {
 	return o
 }
 
-// NewOrchestrator creates a new orchestrator for parallel site crawling.
-func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, log *slog.Logger) *Orchestrator {
-	ctx, cancel := context.WithCancel(context.Background())
+// NewOrchestrator creates a new orchestrator for parallel site crawling. The
+// orchestrator's context derives from parent, so cancelling parent (e.g. the
+// watch scheduler's context on shutdown) aborts every in-flight crawl.
+func NewOrchestrator(parent context.Context, appCfg *config.AppConfig, siteKeys []string, resume bool, log *slog.Logger) *Orchestrator {
+	ctx, cancel := context.WithCancel(parent)
 
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, log)
 	fetcher := fetch.NewFetcher(httpClient, appCfg, log)
