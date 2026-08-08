@@ -278,10 +278,17 @@ func (c *Crawler) Run(resume bool) error {
 	c.startWorkers(runLog)
 	c.sitemapProcessor.Start(c.crawlCtx)
 
+	// Guard token: keep the WaitGroup above zero until seeding finishes so the
+	// waiter's wg.Wait() cannot observe a transient zero (fresh crawl, robots
+	// with no sitemaps) and shut the queues down before the seed URLs are even
+	// enqueued.
+	c.wg.Add(1)
+
 	waiterDone := make(chan struct{})
 	go c.runWaiter(firstValidParsedURL, runLog, waiterDone)
 
 	initialURLsAddedFromSeed := c.seedStartURLs(validStartURLs, runLog)
+	c.wg.Done() // seeding complete; release the guard token
 	if initialURLsAddedFromSeed == 0 && initialTasksFromDB == 0 && len(c.foundSitemaps) == 0 {
 		runLog.Error("CRITICAL: No tasks seeded (no valid start URLs, no resume tasks, no initial sitemaps). Crawl will likely terminate.")
 	} else {
