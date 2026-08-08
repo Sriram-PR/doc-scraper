@@ -33,7 +33,6 @@ type StateManager struct {
 	mu        sync.RWMutex
 }
 
-// NewStateManager creates a new StateManager.
 func NewStateManager(stateDir string) *StateManager {
 	return &StateManager{
 		stateDir:  stateDir,

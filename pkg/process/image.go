@@ -59,7 +59,6 @@ type ImageProcessor struct {
 	log             *slog.Logger
 }
 
-// NewImageProcessor creates a new ImageProcessor.
 func NewImageProcessor(
 	store storage.ImageStore,
 	fetcher fetch.HTTPFetcher,

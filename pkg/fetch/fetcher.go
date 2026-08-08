@@ -26,7 +26,6 @@ type Fetcher struct {
 	log    *slog.Logger
 }
 
-// NewFetcher creates a new Fetcher.
 func NewFetcher(client *http.Client, cfg *config.AppConfig, log *slog.Logger) *Fetcher {
 	return &Fetcher{
 		client: client,

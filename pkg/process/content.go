@@ -27,7 +27,6 @@ type ContentProcessor struct {
 	readabilityExtractor *detect.ReadabilityExtractor
 }
 
-// NewContentProcessor creates a ContentProcessor.
 func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig, log *slog.Logger) *ContentProcessor {
 	return &ContentProcessor{
 		imgProcessor:         imgProcessor,

@@ -38,7 +38,6 @@ type Server struct {
 	idx        *index.Index
 }
 
-// NewServer creates a new MCP server instance
 func NewServer(cfg *ServerConfig) (*Server, error) {
 	if cfg.AppConfig == nil {
 		return nil, fmt.Errorf("AppConfig is required")

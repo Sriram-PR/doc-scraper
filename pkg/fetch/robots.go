@@ -46,7 +46,6 @@ type RobotsHandler struct {
 	log             *slog.Logger
 }
 
-// NewRobotsHandler creates a RobotsHandler.
 func NewRobotsHandler(
 	fetcher HTTPFetcher,
 	rateLimiter *RateLimiter,

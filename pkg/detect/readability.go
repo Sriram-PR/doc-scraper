@@ -13,7 +13,6 @@ import (
 // ReadabilityExtractor extracts main content using Mozilla's Readability algorithm.
 type ReadabilityExtractor struct{}
 
-// NewReadabilityExtractor creates a new ReadabilityExtractor.
 func NewReadabilityExtractor() *ReadabilityExtractor {
 	return &ReadabilityExtractor{}
 }

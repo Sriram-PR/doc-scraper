@@ -10,7 +10,6 @@ type SelectorCache struct {
 	cache map[string]DetectionResult
 }
 
-// NewSelectorCache creates a new SelectorCache.
 func NewSelectorCache() *SelectorCache {
 	return &SelectorCache{
 		cache: make(map[string]DetectionResult),

@@ -42,7 +42,6 @@ type SitemapProcessor struct {
 	sitemapsProcessedMu        sync.Mutex
 }
 
-// NewSitemapProcessor creates a new SitemapProcessor.
 func NewSitemapProcessor(
 	sitemapQueue chan string,
 	pq *queue.ThreadSafePriorityQueue,

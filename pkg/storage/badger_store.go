@@ -112,7 +112,6 @@ func (s *BadgerStore) dbUpdate(fn func(txn *badger.Txn) error) error {
 	return fmt.Errorf("%w: transaction conflict not resolved after %d retries", utils.ErrDatabase, maxConflictRetries)
 }
 
-// MarkPageVisited implements the VisitedStore interface.
 func (s *BadgerStore) MarkPageVisited(normalizedPageURL string) (bool, error) {
 	if s.db == nil {
 		return false, errors.New("visitedDB not initialized")
@@ -144,7 +143,6 @@ func (s *BadgerStore) MarkPageVisited(normalizedPageURL string) (bool, error) {
 	return added, nil
 }
 
-// CheckPageStatus implements the VisitedStore interface.
 func (s *BadgerStore) CheckPageStatus(normalizedPageURL string) (models.PageStatus, *models.PageDBEntry, error) {
 	status := models.PageStatusNotFound
 	var entry *models.PageDBEntry = nil
@@ -189,7 +187,6 @@ func (s *BadgerStore) CheckPageStatus(normalizedPageURL string) (models.PageStat
 	return status, entry, nil
 }
 
-// UpdatePageStatus implements the VisitedStore interface.
 func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.PageDBEntry) error {
 	if s.db == nil {
 		return errors.New("visitedDB not initialized")
@@ -239,7 +236,6 @@ func (s *BadgerStore) GetPageContentHash(normalizedPageURL string) (hash string,
 	return "", false, nil
 }
 
-// CheckImageStatus implements the VisitedStore interface.
 func (s *BadgerStore) CheckImageStatus(normalizedImgURL string) (models.ImageStatus, *models.ImageDBEntry, error) {
 	status := models.ImageStatusNotFound
 	var entry *models.ImageDBEntry = nil
@@ -284,7 +280,6 @@ func (s *BadgerStore) CheckImageStatus(normalizedImgURL string) (models.ImageSta
 	return status, entry, nil
 }
 
-// UpdateImageStatus implements the VisitedStore interface.
 func (s *BadgerStore) UpdateImageStatus(normalizedImgURL string, entry *models.ImageDBEntry) error {
 	if s.db == nil {
 		return errors.New("visitedDB not initialized")
@@ -319,7 +314,6 @@ func (s *BadgerStore) UpdateImageStatus(normalizedImgURL string, entry *models.I
 	return nil
 }
 
-// GetVisitedCount implements the VisitedStore interface.
 func (s *BadgerStore) GetVisitedCount() (int, error) {
 	return int(s.keyCount.Load()), nil
 }
@@ -366,7 +360,6 @@ func (s *BadgerStore) RunGC(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// RequeueIncomplete implements the VisitedStore interface.
 func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- models.WorkItem) (int, int, error) {
 	s.log.Info("Resume Mode: Scanning database for incomplete tasks to requeue...")
 	requeuedCount := 0
@@ -452,7 +445,6 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 	return requeuedCount, scanErrors, scanErr
 }
 
-// Close implements the VisitedStore interface.
 func (s *BadgerStore) Close() error {
 	if s.db != nil && !s.db.IsClosed() {
 		s.log.Info("Closing visited DB...")

@@ -56,7 +56,6 @@ type ThreadSafePriorityQueue struct {
 	log    *slog.Logger
 }
 
-// NewThreadSafePriorityQueue creates a new thread-safe priority queue.
 func NewThreadSafePriorityQueue(logger *slog.Logger) *ThreadSafePriorityQueue {
 	tspq := &ThreadSafePriorityQueue{log: logger}
 	tspq.cond = sync.NewCond(&tspq.mu)

@@ -35,7 +35,6 @@ func (s *Scheduler) WithIndex(idx *index.Index) *Scheduler {
 	return s
 }
 
-// NewScheduler creates a new watch scheduler.
 func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Duration, log *slog.Logger) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
