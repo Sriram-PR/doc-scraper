@@ -472,7 +472,6 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 		return
 	}
 	defer store.Close()
-	go store.RunGC(jobCtx, 0)
 
 	appCfgCopy := *s.cfg.AppConfig
 	if job.Incremental {
@@ -481,6 +480,11 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 
 	crawlerCtx, cancelCrawl := context.WithCancel(jobCtx)
 	defer cancelCrawl()
+
+	// Run GC under crawlerCtx, not jobCtx: jobCtx is only cancelled on
+	// explicit CancelJob, so a normally-completed job would leak this
+	// goroutine. crawlerCtx is always cancelled by the deferred cancelCrawl.
+	go store.RunGC(crawlerCtx, 0)
 
 	jobID := job.ID
 	crawlerInstance, err := crawler.NewCrawlerWithOptions(
