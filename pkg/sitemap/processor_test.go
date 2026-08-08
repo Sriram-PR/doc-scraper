@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -42,6 +44,19 @@ func (m *mockFetcher) FetchWithRetry(_ *http.Request, _ context.Context) (*http.
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(bytes.NewReader(m.body)),
+	}, nil
+}
+
+// routeFetcher returns a different body per exact request URL, so a sitemap
+// index can point at many distinct nested sitemaps.
+type routeFetcher struct {
+	routes map[string]string
+}
+
+func (m *routeFetcher) FetchWithRetry(req *http.Request, _ context.Context) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(m.routes[req.URL.String()])),
 	}, nil
 }
 
@@ -375,5 +390,54 @@ func TestProcessURLSetDBError(t *testing.T) {
 	}
 	if store.visitedCount() != 0 {
 		t.Fatalf("expected 0 visited entries when DB errors, got %d", store.visitedCount())
+	}
+}
+
+func TestProcessSitemapIndexFanOut(t *testing.T) {
+	const n = 200
+	const ns = `xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"`
+
+	routes := map[string]string{}
+	var idx strings.Builder
+	fmt.Fprintf(&idx, `<?xml version="1.0" encoding="UTF-8"?><sitemapindex %s>`, ns)
+	for i := range n {
+		nested := fmt.Sprintf("https://example.com/docs/sitemap-%d.xml", i)
+		page := fmt.Sprintf("https://example.com/docs/page-%d", i)
+		fmt.Fprintf(&idx, `<sitemap><loc>%s</loc></sitemap>`, nested)
+		routes[nested] = fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?><urlset %s><url><loc>%s</loc></url></urlset>`, ns, page)
+	}
+	idx.WriteString(`</sitemapindex>`)
+	indexURL := "https://example.com/sitemap_index.xml"
+	routes[indexURL] = idx.String()
+
+	store := newMockPageStore()
+	log := discardLogger()
+	pq := queue.NewThreadSafePriorityQueue(log)
+	rl := fetch.NewRateLimiter(0, log)
+	sem := semaphore.NewWeighted(8)
+	sitemapQueue := make(chan string, 8)
+	var wg sync.WaitGroup
+	appCfg := defaultAppCfg()
+	appCfg.MaxRequests = 8 // exercise the bounded worker pool
+	sp := NewSitemapProcessor(sitemapQueue, pq, store, &routeFetcher{routes}, rl, sem, nil, defaultSiteCfg(), appCfg, log, &wg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- indexURL
+
+	// Every one of the n nested sitemaps must be fetched and its page queued;
+	// none may be dropped despite the large fan-out through the bounded pool.
+	waitForPQLen(t, pq, n, 10*time.Second)
+	items := drainPQAndBalance(pq, &wg)
+	wg.Wait()
+
+	if len(items) != n {
+		t.Fatalf("expected %d queued pages, got %d", n, len(items))
+	}
+	if store.visitedCount() != n {
+		t.Fatalf("expected %d visited entries, got %d", n, store.visitedCount())
 	}
 }

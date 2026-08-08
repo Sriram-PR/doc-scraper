@@ -13,7 +13,6 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
-	"time"
 
 	"golang.org/x/sync/semaphore"
 
@@ -88,44 +87,120 @@ func (sp *SitemapProcessor) MarkSitemapProcessed(sitemapURL string) bool {
 	return false
 }
 
-func (sp *SitemapProcessor) unmarkSitemap(sitemapURL string) {
-	sp.sitemapsProcessedMu.Lock()
-	delete(sp.sitemapsProcessed, sitemapURL)
-	sp.sitemapsProcessedMu.Unlock()
+// sitemapBacklog is an unbounded FIFO of pending sitemap URLs. It decouples
+// producers (the ingress pump and workers that discover nested sitemaps) from
+// the bounded worker pool: a push never blocks, so a huge sitemap index can
+// neither spawn unbounded goroutines nor deadlock workers that are trying to
+// enqueue nested sitemaps back through a full channel. pop keeps returning
+// buffered items after close so every WaitGroup token added on push is matched
+// by a Done.
+type sitemapBacklog struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	items  []string
+	head   int
+	closed bool
 }
 
-// run reads sitemap URLs off the queue and processes each in its own goroutine,
-// waiting for all in-flight processing to finish before it exits.
-func (sp *SitemapProcessor) run(ctx context.Context) {
-	var processingWg sync.WaitGroup
+func newSitemapBacklog() *sitemapBacklog {
+	b := &sitemapBacklog{}
+	b.cond = sync.NewCond(&b.mu)
+	return b
+}
 
-	defer func() {
-		sp.log.Info("Waiting for active sitemap processing tasks to finish before final exit...")
-		processingWg.Wait()
-		sp.log.Info("Sitemap processing goroutine finished waiting and exiting.")
+func (b *sitemapBacklog) push(url string) {
+	b.mu.Lock()
+	b.items = append(b.items, url)
+	b.mu.Unlock()
+	b.cond.Signal()
+}
+
+// pop blocks until an item is available, returning ok=false only once the
+// backlog is both closed and fully drained.
+func (b *sitemapBacklog) pop() (string, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for b.head == len(b.items) && !b.closed {
+		b.cond.Wait()
+	}
+	if b.head == len(b.items) {
+		return "", false
+	}
+	url := b.items[b.head]
+	b.items[b.head] = ""
+	b.head++
+	if b.head > 1024 && b.head*2 >= len(b.items) {
+		b.items = append(b.items[:0], b.items[b.head:]...)
+		b.head = 0
+	}
+	return url, true
+}
+
+func (b *sitemapBacklog) close() {
+	b.mu.Lock()
+	b.closed = true
+	b.mu.Unlock()
+	b.cond.Broadcast()
+}
+
+func (sp *SitemapProcessor) workerCount() int {
+	if sp.appCfg.MaxRequests < 1 {
+		return 1
+	}
+	return sp.appCfg.MaxRequests
+}
+
+// run drains the ingress queue into an unbounded backlog and processes it with
+// a bounded pool of workers, so the number of processing goroutines stays
+// bounded regardless of sitemap-index size. It returns once the ingress ends
+// (queue closed or context cancelled) and the backlog is fully drained.
+func (sp *SitemapProcessor) run(ctx context.Context) {
+	backlog := newSitemapBacklog()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				sp.log.Warn(fmt.Sprintf("Context cancelled, stopping sitemap ingress: %v", ctx.Err()))
+				backlog.close()
+				return
+			case sitemapURL, ok := <-sp.sitemapQueue:
+				if !ok {
+					sp.log.Info("Sitemap queue channel closed.")
+					backlog.close()
+					return
+				}
+				backlog.push(sitemapURL)
+			}
+		}
 	}()
 
-	for {
-		select {
-		case <-ctx.Done():
-			sp.log.Warn(fmt.Sprintf("Context cancelled, stopping sitemap processing: %v", ctx.Err()))
-			return
-
-		case sitemapURL, ok := <-sp.sitemapQueue:
-			if !ok {
-				sp.log.Info("Sitemap queue channel closed.")
-				return
+	var workers sync.WaitGroup
+	for range sp.workerCount() {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for {
+				smURL, ok := backlog.pop()
+				if !ok {
+					return
+				}
+				sp.processOne(ctx, smURL, backlog)
 			}
-
-			processingWg.Add(1)
-			go func(smURL string) {
-				defer sp.wg.Done()
-				defer processingWg.Done()
-				defer sp.recoverPanic(smURL)
-				sp.processSitemap(ctx, smURL)
-			}(sitemapURL)
-		}
+		}()
 	}
+
+	workers.Wait()
+	sp.log.Info("Sitemap processing finished; all workers exited.")
+}
+
+// processOne runs one sitemap task, always balancing the WaitGroup token added
+// when the sitemap was enqueued and recovering from panics so a single bad
+// sitemap cannot take down a worker.
+func (sp *SitemapProcessor) processOne(ctx context.Context, smURL string, backlog *sitemapBacklog) {
+	defer sp.wg.Done()
+	defer sp.recoverPanic(smURL)
+	sp.processSitemap(ctx, smURL, backlog)
 }
 
 func (sp *SitemapProcessor) recoverPanic(smURL string) {
@@ -140,7 +215,7 @@ func (sp *SitemapProcessor) recoverPanic(smURL string) {
 
 // processSitemap acquires a global request slot, fetches one sitemap, and
 // dispatches on whether it is a sitemap index or a URL set.
-func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string) {
+func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string, backlog *sitemapBacklog) {
 	sitemapLog := sp.log.With("sitemap_url", smURL)
 	sitemapLog.Info("Processing sitemap")
 
@@ -166,7 +241,7 @@ func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string) {
 	var index parse.XMLSitemapIndex
 	errIndex := xml.Unmarshal(sitemapBytes, &index)
 	if errIndex == nil && len(index.Sitemaps) > 0 {
-		sp.handleSitemapIndex(ctx, index, sitemapLog)
+		sp.handleSitemapIndex(index, backlog, sitemapLog)
 		return
 	}
 	sp.handleURLSet(sitemapBytes, errIndex, sitemapLog)
@@ -220,8 +295,9 @@ func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, site
 	return sitemapBytes, true
 }
 
-// handleSitemapIndex queues each valid, not-yet-seen nested sitemap.
-func (sp *SitemapProcessor) handleSitemapIndex(ctx context.Context, index parse.XMLSitemapIndex, sitemapLog *slog.Logger) {
+// handleSitemapIndex queues each valid, not-yet-seen nested sitemap onto the
+// backlog for the worker pool to process.
+func (sp *SitemapProcessor) handleSitemapIndex(index parse.XMLSitemapIndex, backlog *sitemapBacklog, sitemapLog *slog.Logger) {
 	sitemapLog.Info(fmt.Sprintf("Parsed as Sitemap Index, found %d references.", len(index.Sitemaps)))
 	queuedCount := 0
 	for _, sitemapEntry := range index.Sitemaps {
@@ -235,33 +311,12 @@ func (sp *SitemapProcessor) handleSitemapIndex(ctx context.Context, index parse.
 			nestedSmLog.Debug(fmt.Sprintf("Nested sitemap already processed/queued: %s", nestedSmURL))
 			continue
 		}
-		if sp.queueNestedSitemap(ctx, nestedSmURL, nestedSmLog) {
-			queuedCount++
-		}
+		sp.wg.Add(1)
+		backlog.push(nestedSmURL)
+		nestedSmLog.Debug("Queued nested sitemap.")
+		queuedCount++
 	}
 	sitemapLog.Info(fmt.Sprintf("Queued %d nested sitemaps.", queuedCount))
-}
-
-// queueNestedSitemap sends a nested sitemap onto the queue, adding a WaitGroup
-// token first. On cancellation or a send timeout it undoes both the token and
-// the processed mark so the sitemap can be retried. Returns whether it queued.
-func (sp *SitemapProcessor) queueNestedSitemap(ctx context.Context, nestedSmURL string, nestedSmLog *slog.Logger) bool {
-	sp.wg.Add(1)
-	select {
-	case sp.sitemapQueue <- nestedSmURL:
-		nestedSmLog.Debug("Successfully queued nested sitemap.")
-		return true
-	case <-ctx.Done():
-		nestedSmLog.Warn(fmt.Sprintf("Context cancelled while trying to queue nested sitemap '%s': %v", nestedSmURL, ctx.Err()))
-		sp.unmarkSitemap(nestedSmURL)
-		sp.wg.Done()
-		return false
-	case <-time.After(5 * time.Second):
-		nestedSmLog.Error("Timeout sending nested sitemap. Undoing WG and processed state.")
-		sp.unmarkSitemap(nestedSmURL)
-		sp.wg.Done()
-		return false
-	}
 }
 
 // handleURLSet parses a <urlset> and enqueues every in-scope, new page URL.
