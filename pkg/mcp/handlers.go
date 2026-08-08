@@ -28,11 +28,9 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 )
 
-// handleListSites handles the list_sites tool
 func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	sites := make([]map[string]interface{}, 0, len(s.cfg.AppConfig.Sites))
 
-	// Get sorted keys for consistent output
 	keys := make([]string, 0, len(s.cfg.AppConfig.Sites))
 	for k := range s.cfg.AppConfig.Sites {
 		keys = append(keys, k)
@@ -49,13 +47,11 @@ func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolReques
 			"max_depth":        siteCfg.MaxDepth,
 		}
 
-		// Check for last crawl info from metadata file
 		lastCrawled := s.getLastCrawledTime(key, siteCfg)
 		if !lastCrawled.IsZero() {
 			siteInfo["last_crawled"] = lastCrawled.Format(time.RFC3339)
 		}
 
-		// Check if currently running
 		if s.jobManager.IsRunning(key) {
 			siteInfo["status"] = "running"
 		}
@@ -191,14 +187,9 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 	if siteKey == "" {
 		return mcp.NewToolResultError("site_key parameter is required"), nil
 	}
-	siteCfg, exists := s.cfg.AppConfig.Sites[siteKey]
-	if !exists {
-		availableKeys := make([]string, 0, len(s.cfg.AppConfig.Sites))
-		for k := range s.cfg.AppConfig.Sites {
-			availableKeys = append(availableKeys, k)
-		}
-		sort.Strings(availableKeys)
-		return mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", siteKey, availableKeys)), nil
+	siteCfg, errResult := s.resolveSiteOrError(siteKey)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	maxResults := request.GetInt("max_results", 100)
@@ -362,7 +353,6 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	}
 	content = strings.TrimSpace(content)
 
-	// Calculate metrics
 	fetchTimeMs := time.Since(startTime).Milliseconds()
 
 	result := map[string]interface{}{
@@ -384,14 +374,9 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 
 	incremental := request.GetBool("incremental", false)
 
-	siteCfg, exists := s.cfg.AppConfig.Sites[siteKey]
-	if !exists {
-		availableKeys := make([]string, 0, len(s.cfg.AppConfig.Sites))
-		for k := range s.cfg.AppConfig.Sites {
-			availableKeys = append(availableKeys, k)
-		}
-		sort.Strings(availableKeys)
-		return mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", siteKey, availableKeys)), nil
+	siteCfg, errResult := s.resolveSiteOrError(siteKey)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	if s.jobManager.IsRunning(siteKey) {

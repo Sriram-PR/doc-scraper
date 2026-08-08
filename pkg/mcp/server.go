@@ -81,11 +81,17 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 
 // registerTools registers all available MCP tools
 func (s *Server) registerTools() {
+	toolCount := 0
+	addTool := func(tool mcp.Tool, handler server.ToolHandlerFunc) {
+		s.mcpServer.AddTool(tool, handler)
+		toolCount++
+	}
+
 	// list_sites - List all configured sites
 	listSitesTool := mcp.NewTool("list_sites",
 		mcp.WithDescription("List all configured sites available for crawling"),
 	)
-	s.mcpServer.AddTool(listSitesTool, s.handleListSites)
+	addTool(listSitesTool, s.handleListSites)
 
 	// get_page - Fetch a single URL as markdown
 	getPageTool := mcp.NewTool("get_page",
@@ -98,7 +104,7 @@ func (s *Server) registerTools() {
 			mcp.Description("CSS selector for main content (defaults to 'body')"),
 		),
 	)
-	s.mcpServer.AddTool(getPageTool, s.handleGetPage)
+	addTool(getPageTool, s.handleGetPage)
 
 	// crawl_site - Start a background crawl
 	crawlSiteTool := mcp.NewTool("crawl_site",
@@ -111,7 +117,7 @@ func (s *Server) registerTools() {
 			mcp.Description("Enable incremental mode (skip unchanged pages)"),
 		),
 	)
-	s.mcpServer.AddTool(crawlSiteTool, s.handleCrawlSite)
+	addTool(crawlSiteTool, s.handleCrawlSite)
 
 	// get_job_status - Check status of a crawl job
 	getJobStatusTool := mcp.NewTool("get_job_status",
@@ -121,7 +127,7 @@ func (s *Server) registerTools() {
 			mcp.Description("The job ID returned by crawl_site"),
 		),
 	)
-	s.mcpServer.AddTool(getJobStatusTool, s.handleGetJobStatus)
+	addTool(getJobStatusTool, s.handleGetJobStatus)
 
 	// cancel_crawl - Cancel a running crawl job
 	cancelCrawlTool := mcp.NewTool("cancel_crawl",
@@ -131,7 +137,7 @@ func (s *Server) registerTools() {
 			mcp.Description("The job ID returned by crawl_site"),
 		),
 	)
-	s.mcpServer.AddTool(cancelCrawlTool, s.handleCancelCrawl)
+	addTool(cancelCrawlTool, s.handleCancelCrawl)
 
 	// describe_server - Orientation manifest; intended to be called first
 	describeServerTool := mcp.NewTool("describe_server",
@@ -142,7 +148,7 @@ func (s *Server) registerTools() {
 				"already advertised by the protocol so it is not duplicated here.",
 		),
 	)
-	s.mcpServer.AddTool(describeServerTool, s.handleDescribeServer)
+	addTool(describeServerTool, s.handleDescribeServer)
 
 	// list_pages - Enumerate crawled pages for a site
 	listPagesTool := mcp.NewTool("list_pages",
@@ -158,7 +164,7 @@ func (s *Server) registerTools() {
 			mcp.Description("Pagination offset, 0-based (default: 0)"),
 		),
 	)
-	s.mcpServer.AddTool(listPagesTool, s.handleListPages)
+	addTool(listPagesTool, s.handleListPages)
 
 	// get_freshness - Is the local crawl recent enough?
 	getFreshnessTool := mcp.NewTool("get_freshness",
@@ -171,7 +177,7 @@ func (s *Server) registerTools() {
 			mcp.Description("Site key from config (use list_sites to discover available keys)"),
 		),
 	)
-	s.mcpServer.AddTool(getFreshnessTool, s.handleGetFreshness)
+	addTool(getFreshnessTool, s.handleGetFreshness)
 
 	// diff_crawl - What changed since a given timestamp?
 	diffCrawlTool := mcp.NewTool("diff_crawl",
@@ -194,9 +200,9 @@ func (s *Server) registerTools() {
 			mcp.Description("Pagination offset, 0-based"),
 		),
 	)
-	s.mcpServer.AddTool(diffCrawlTool, s.handleDiffCrawl)
+	addTool(diffCrawlTool, s.handleDiffCrawl)
 
-	s.log.Info(fmt.Sprintf("Registered %d MCP tools", 9))
+	s.log.Info(fmt.Sprintf("Registered %d MCP tools", toolCount))
 }
 
 // Run starts the MCP server over the stdio transport.
