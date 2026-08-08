@@ -95,11 +95,6 @@ func (tspq *ThreadSafePriorityQueue) Pop() (*models.WorkItem, bool) {
 		tspq.cond.Wait()
 	}
 
-	// Re-check in case Close() was called while we were waiting.
-	if len(tspq.pq) == 0 && tspq.closed {
-		return nil, false
-	}
-
 	pqItem := heap.Pop(&tspq.pq).(*PQItem)
 	return pqItem.workItem, true
 }

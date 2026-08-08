@@ -163,13 +163,3 @@ var frameworkSignatures = []FrameworkSignature{
 		},
 	},
 }
-
-// GetFrameworkSelector returns the recommended CSS selector for a known framework.
-func GetFrameworkSelector(fw Framework) string {
-	for _, sig := range frameworkSignatures {
-		if sig.Framework == fw {
-			return sig.Selector
-		}
-	}
-	return ""
-}

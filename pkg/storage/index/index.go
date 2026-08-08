@@ -145,14 +145,6 @@ func (i *Index) Close() error {
 	return i.db.Close()
 }
 
-// Path returns the on-disk file path of the database.
-func (i *Index) Path() string {
-	if i == nil {
-		return ""
-	}
-	return i.path
-}
-
 // OpenAt is the canonical constructor for callers that already know stateDir:
 // it places the database at <stateDir>/index.db. An empty stateDir is logged
 // and returns (nil, nil) so callers can degrade gracefully (no history capture,

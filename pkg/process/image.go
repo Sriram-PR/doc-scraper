@@ -120,7 +120,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 
 	taskLog.Info(fmt.Sprintf("Launching %d image download workers", numImageWorkers))
 	for i := 1; i <= numImageWorkers; i++ {
-		go ip.imageWorker(i, imageTaskChan, siteCfg, siteOutputDir, imageMap, &imageErrs, &imgErrMu, &imgWg)
+		go ip.imageWorker(i, imageTaskChan, siteOutputDir, imageMap, &imageErrs, &imgErrMu, &imgWg)
 	}
 
 	// Ensure base image directory exists
@@ -273,7 +273,6 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 func (ip *ImageProcessor) imageWorker(
 	id int,
 	taskChan <-chan ImageDownloadTask,
-	siteCfg *config.SiteConfig,
 	siteOutputDir string,
 	imageMap map[string]models.ImageData,
 	imageErrs *[]error,
@@ -284,7 +283,7 @@ func (ip *ImageProcessor) imageWorker(
 	workerLog.Debug("Image worker started")
 
 	for task := range taskChan {
-		ip.processSingleImageTask(task, siteCfg, siteOutputDir, imageMap, imageErrs, imgErrMu, imgWg)
+		ip.processSingleImageTask(task, siteOutputDir, imageMap, imageErrs, imgErrMu, imgWg)
 	}
 
 	workerLog.Debug("Image worker finished (task channel closed)")
@@ -293,7 +292,6 @@ func (ip *ImageProcessor) imageWorker(
 // processSingleImageTask handles the download, saving, and DB update for one image.
 func (ip *ImageProcessor) processSingleImageTask(
 	task ImageDownloadTask,
-	_ *config.SiteConfig,
 	siteOutputDir string,
 	imageMap map[string]models.ImageData,
 	imageErrs *[]error,
