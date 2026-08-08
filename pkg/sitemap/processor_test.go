@@ -20,7 +20,6 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/queue"
 )
 
-
 // mockFetcher implements fetch.HTTPFetcher.
 // It returns a fresh response body on each call (so the body can be read multiple times).
 type mockFetcher struct {
@@ -83,7 +82,6 @@ func (m *mockPageStore) visitedCount() int {
 	defer m.mu.Unlock()
 	return len(m.visited)
 }
-
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -162,7 +160,6 @@ func drainPQAndBalance(pq *queue.ThreadSafePriorityQueue, wg *sync.WaitGroup) []
 	}
 	return items
 }
-
 
 func TestMarkSitemapProcessed(t *testing.T) {
 	store := newMockPageStore()

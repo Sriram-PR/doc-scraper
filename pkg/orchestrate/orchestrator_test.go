@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"log/slog"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 )
@@ -40,7 +40,7 @@ func minimalAppConfig(t *testing.T) *config.AppConfig {
 
 func TestNewOrchestrator_SetsFields(t *testing.T) {
 	cfg := minimalAppConfig(t)
-	o := NewOrchestrator(context.Background(), cfg,[]string{"docs"}, false, silentLogger())
+	o := NewOrchestrator(context.Background(), cfg, []string{"docs"}, false, silentLogger())
 
 	require.NotNil(t, o)
 	assert.Equal(t, []string{"docs"}, o.siteKeys)
@@ -53,7 +53,7 @@ func TestNewOrchestrator_SetsFields(t *testing.T) {
 
 func TestRun_EmptySiteList(t *testing.T) {
 	cfg := minimalAppConfig(t)
-	o := NewOrchestrator(context.Background(), cfg,nil, false, silentLogger())
+	o := NewOrchestrator(context.Background(), cfg, nil, false, silentLogger())
 
 	results := o.Run()
 	assert.Empty(t, results)
@@ -61,7 +61,7 @@ func TestRun_EmptySiteList(t *testing.T) {
 
 func TestRun_UnknownSiteReturnsErrorResultWithoutNetwork(t *testing.T) {
 	cfg := minimalAppConfig(t)
-	o := NewOrchestrator(context.Background(), cfg,[]string{"does_not_exist"}, false, silentLogger())
+	o := NewOrchestrator(context.Background(), cfg, []string{"does_not_exist"}, false, silentLogger())
 
 	results := o.Run()
 
@@ -75,14 +75,14 @@ func TestRun_UnknownSiteReturnsErrorResultWithoutNetwork(t *testing.T) {
 
 func TestCancel_AfterRunIsSafe(t *testing.T) {
 	cfg := minimalAppConfig(t)
-	o := NewOrchestrator(context.Background(), cfg,[]string{"does_not_exist"}, false, silentLogger())
+	o := NewOrchestrator(context.Background(), cfg, []string{"does_not_exist"}, false, silentLogger())
 	_ = o.Run()
 	o.Cancel() // must not panic when called post-Run
 }
 
 func TestGetProgress_MatchesResults(t *testing.T) {
 	cfg := minimalAppConfig(t)
-	o := NewOrchestrator(context.Background(), cfg,[]string{"does_not_exist"}, false, silentLogger())
+	o := NewOrchestrator(context.Background(), cfg, []string{"does_not_exist"}, false, silentLogger())
 	_ = o.Run()
 
 	progress := o.GetProgress()

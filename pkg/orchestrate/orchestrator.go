@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"log/slog"
 	"golang.org/x/sync/semaphore"
+	"log/slog"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
@@ -220,4 +220,3 @@ func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 		len(o.results), successCount, failCount, totalPages))
 	o.log.Info("============================================")
 }
-

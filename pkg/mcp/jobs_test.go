@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"log/slog"
 )
 
 func newTestLogger() *slog.Logger {
@@ -513,4 +513,3 @@ func TestPersistence_LoadIgnoresGarbage(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &file))
 	assert.Len(t, file.Jobs, 1)
 }
-

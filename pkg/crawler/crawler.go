@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"log/slog"
 	"golang.org/x/sync/semaphore"
+	"log/slog"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
@@ -844,7 +844,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.
 }
-
 
 // handleSetupAndResumeCheck parses the URL, normalizes it, and checks its status in the DB.
 // It determines if the URL should be skipped (e.g., already successfully processed).

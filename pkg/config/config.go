@@ -15,13 +15,13 @@ type SiteConfig struct {
 	DelayPerHost            time.Duration `yaml:"delay_per_host,omitempty"`
 	// MaxDepth is the exclusive upper bound on crawl depth. Seed pages are
 	// depth 0, so MaxDepth=2 fetches depth 0 and 1. 0 means unlimited.
-	MaxDepth                int           `yaml:"max_depth"`
-	SkipImages              *bool         `yaml:"skip_images,omitempty"`
-	MaxImageSizeBytes       *int64        `yaml:"max_image_size_bytes,omitempty"`
-	AllowedImageDomains     []string      `yaml:"allowed_image_domains,omitempty"`
-	DisallowedImageDomains  []string      `yaml:"disallowed_image_domains,omitempty"`
-	EnableJSONLOutput       *bool         `yaml:"enable_jsonl_output,omitempty"`
-	JSONLOutputFilename     string        `yaml:"jsonl_output_filename,omitempty"`
+	MaxDepth               int      `yaml:"max_depth"`
+	SkipImages             *bool    `yaml:"skip_images,omitempty"`
+	MaxImageSizeBytes      *int64   `yaml:"max_image_size_bytes,omitempty"`
+	AllowedImageDomains    []string `yaml:"allowed_image_domains,omitempty"`
+	DisallowedImageDomains []string `yaml:"disallowed_image_domains,omitempty"`
+	EnableJSONLOutput      *bool    `yaml:"enable_jsonl_output,omitempty"`
+	JSONLOutputFilename    string   `yaml:"jsonl_output_filename,omitempty"`
 }
 
 // AppConfig holds the global application configuration.
@@ -38,10 +38,10 @@ type AppConfig struct {
 	InitialRetryDelay   time.Duration          `yaml:"initial_retry_delay,omitempty"`
 	MaxRetryDelay       time.Duration          `yaml:"max_retry_delay,omitempty"`
 	GlobalCrawlTimeout  time.Duration          `yaml:"global_crawl_timeout,omitempty"`
-	PerPageTimeout      time.Duration          `yaml:"per_page_timeout,omitempty"`       // 0 = no timeout
-	SkipImages          *bool                  `yaml:"skip_images,omitempty"`            // nil = skip (text-first default)
+	PerPageTimeout      time.Duration          `yaml:"per_page_timeout,omitempty"` // 0 = no timeout
+	SkipImages          *bool                  `yaml:"skip_images,omitempty"`      // nil = skip (text-first default)
 	MaxImageSizeBytes   int64                  `yaml:"max_image_size_bytes,omitempty"`
-	MaxPageSizeBytes    int64                  `yaml:"max_page_size_bytes,omitempty"`    // 0 = 50 MB default
+	MaxPageSizeBytes    int64                  `yaml:"max_page_size_bytes,omitempty"` // 0 = 50 MB default
 	HTTPClientSettings  HTTPClientConfig       `yaml:"http_client_settings,omitempty"`
 	Sites               map[string]*SiteConfig `yaml:"sites"`
 	EnableJSONLOutput   bool                   `yaml:"enable_jsonl_output,omitempty"`

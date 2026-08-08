@@ -157,11 +157,11 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 			"version":     serverVersion,
 			"config_path": s.cfg.ConfigPath,
 		},
-		"sites":         sites,
-		"recent_jobs":   jobs,
-		"total_sites":   len(sites),
-		"total_jobs":    len(jobs),
-		"jobs_capped":   len(s.jobManager.ListJobs()) > maxJobs,
+		"sites":       sites,
+		"recent_jobs": jobs,
+		"total_sites": len(sites),
+		"total_jobs":  len(jobs),
+		"jobs_capped": len(s.jobManager.ListJobs()) > maxJobs,
 		"next_actions": "Use list_sites for full site config, list_pages to enumerate crawled " +
 			"pages, crawl_site to start a crawl, get_job_status to check a job, get_page to " +
 			"fetch a single URL, get_freshness to check how stale a site's crawl is, diff_crawl " +

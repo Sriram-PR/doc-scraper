@@ -65,9 +65,9 @@ func NewSitemapProcessor(
 		compiledDisallowedPatterns: compiledDisallowedPatterns,
 		siteCfg:                    siteCfg,
 		appCfg:                     appCfg,
-		log:               log.With("component", "sitemap_processor"),
-		wg:                wg,
-		sitemapsProcessed: make(map[string]bool),
+		log:                        log.With("component", "sitemap_processor"),
+		wg:                         wg,
+		sitemapsProcessed:          make(map[string]bool),
 	}
 }
 

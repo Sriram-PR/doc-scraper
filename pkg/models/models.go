@@ -71,4 +71,3 @@ type CrawlMetaJSONL struct {
 	CrawlEndedAt   string `json:"crawl_ended_at"`
 	TotalPages     int    `json:"total_pages"`
 }
-

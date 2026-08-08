@@ -379,4 +379,3 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 	taskLog.Debug(fmt.Sprintf("Rewrote %d internal links.", rewriteCount))
 	return rewriteCount, firstError
 }
-

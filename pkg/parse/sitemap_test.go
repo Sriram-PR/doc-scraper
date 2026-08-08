@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-
 func TestXMLURL_Unmarshal(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -49,7 +48,6 @@ func TestXMLURL_Unmarshal(t *testing.T) {
 		})
 	}
 }
-
 
 func TestXMLURLSet_Unmarshal(t *testing.T) {
 	tests := []struct {
@@ -137,7 +135,6 @@ func TestXMLURLSet_UnmarshalWithLastMod(t *testing.T) {
 	}
 }
 
-
 func TestXMLSitemap_Unmarshal(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -175,7 +172,6 @@ func TestXMLSitemap_Unmarshal(t *testing.T) {
 		})
 	}
 }
-
 
 func TestXMLSitemapIndex_Unmarshal(t *testing.T) {
 	tests := []struct {

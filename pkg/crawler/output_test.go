@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"log/slog"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
@@ -161,4 +161,3 @@ func readJSONLURLs(t *testing.T, path string) []string {
 	require.NoError(t, scanner.Err())
 	return urls
 }
-

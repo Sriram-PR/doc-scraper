@@ -40,4 +40,3 @@ func TestImageStatus_String(t *testing.T) {
 		assert.Equal(t, tt.want, tt.status.String())
 	}
 }
-

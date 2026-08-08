@@ -403,4 +403,3 @@ func (m *JobManager) GetContext(jobID string) context.Context {
 	}
 	return context.Background()
 }
-
