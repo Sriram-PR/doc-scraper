@@ -22,12 +22,7 @@ func GetAllSiteKeys(appCfg *AppConfig) []string {
 func ValidateSiteKeys(appCfg *AppConfig, siteKeys []string) error {
 	for _, key := range siteKeys {
 		if _, exists := appCfg.Sites[key]; !exists {
-			available := make([]string, 0, len(appCfg.Sites))
-			for k := range appCfg.Sites {
-				available = append(available, k)
-			}
-			slices.Sort(available)
-			return fmt.Errorf("site '%s' not found. Available sites: %v", key, available)
+			return fmt.Errorf("site '%s' not found. Available sites: %v", key, GetAllSiteKeys(appCfg))
 		}
 	}
 	return nil
