@@ -35,7 +35,6 @@ func (s *Scheduler) WithIndex(idx *index.Index) *Scheduler {
 	return s
 }
 
-// NewScheduler creates a new watch scheduler.
 func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Duration, log *slog.Logger) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -93,7 +92,7 @@ func (s *Scheduler) runDueSites() {
 
 	// Watch is incremental by construction (see executeWatch); pass resume=true
 	// so scheduled re-crawls reuse the persisted visited DB instead of wiping it.
-	orch := orchestrate.NewOrchestrator(s.appCfg, dueSites, true, s.log).WithIndex(s.idx)
+	orch := orchestrate.NewOrchestrator(s.ctx, s.appCfg, dueSites, true, s.log).WithIndex(s.idx)
 
 	s.wg.Add(1)
 	go func() {

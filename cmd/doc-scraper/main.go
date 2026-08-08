@@ -126,6 +126,28 @@ func loadConfig(path string) (*config.AppConfig, error) {
 	return &cfg, nil
 }
 
+// resolveSiteKeys resolves the effective site keys from the -site/-sites/
+// --all-sites flags. ok is false when none of the three were supplied; the
+// caller is responsible for printing the usage error and exiting in that case.
+func resolveSiteKeys(siteKey, sites string, allSites bool) (siteKeys []string, ok bool) {
+	if allSites {
+		return nil, true // Signal to use all sites
+	}
+	if sites != "" {
+		for _, s := range strings.Split(sites, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				siteKeys = append(siteKeys, s)
+			}
+		}
+		return siteKeys, true
+	}
+	if siteKey != "" {
+		return []string{siteKey}, true
+	}
+	return nil, false
+}
+
 // runCrawl handles the crawl subcommand. A fresh crawl wipes prior state;
 // passing --resume continues an interrupted crawl from existing BadgerDB state.
 func runCrawl(args []string) {
@@ -164,23 +186,8 @@ func runCrawl(args []string) {
 	// state gets wiped first.
 	isResume := *resume || *incrementalMode
 
-	// Determine which sites to crawl
-	var siteKeys []string
-
-	if *allSites {
-		// Will be populated after loading config
-		siteKeys = nil // Signal to use all sites
-	} else if *sites != "" {
-		// Parse comma-separated site keys
-		for _, s := range strings.Split(*sites, ",") {
-			s = strings.TrimSpace(s)
-			if s != "" {
-				siteKeys = append(siteKeys, s)
-			}
-		}
-	} else if *siteKey != "" {
-		siteKeys = []string{*siteKey}
-	} else {
+	siteKeys, ok := resolveSiteKeys(*siteKey, *sites, *allSites)
+	if !ok {
 		fmt.Fprintln(os.Stderr, "Error: one of -site, -sites, or --all-sites is required")
 		fs.Usage()
 		os.Exit(1)
@@ -472,21 +479,8 @@ func runWatch(args []string) {
 		os.Exit(1)
 	}
 
-	// Determine which sites to watch
-	var siteKeys []string
-
-	if *allSites {
-		siteKeys = nil // Signal to use all sites
-	} else if *sites != "" {
-		for _, s := range strings.Split(*sites, ",") {
-			s = strings.TrimSpace(s)
-			if s != "" {
-				siteKeys = append(siteKeys, s)
-			}
-		}
-	} else if *siteKey != "" {
-		siteKeys = []string{*siteKey}
-	} else {
+	siteKeys, ok := resolveSiteKeys(*siteKey, *sites, *allSites)
+	if !ok {
 		fmt.Fprintln(os.Stderr, "Error: one of -site, -sites, or --all-sites is required")
 		fs.Usage()
 		os.Exit(1)
@@ -674,7 +668,6 @@ func validateSiteConfigs(appCfg *config.AppConfig, siteKeys []string, log *slog.
 	}
 }
 
-// executeCrawl contains the main crawl logic
 // executeParallelCrawl handles crawling multiple sites in parallel
 func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) {
 	runtime.SetBlockProfileRate(1000)
@@ -703,7 +696,7 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	}
 	defer func() { _ = idx.Close() }()
 
-	orch := orchestrate.NewOrchestrator(appCfg, siteKeys, isResume, logEntry).WithIndex(idx)
+	orch := orchestrate.NewOrchestrator(context.Background(), appCfg, siteKeys, isResume, logEntry).WithIndex(idx)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -757,7 +750,6 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 
 	startPprof(pprofAddr, log)
 
-	// == Setup Global Context & Signal Handling ==
 	var crawlCtx context.Context
 	var cancelCrawl context.CancelFunc
 
@@ -770,11 +762,9 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	}
 	defer cancelCrawl()
 
-	// Channel to listen for OS signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Goroutine to handle signals
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -796,7 +786,6 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	}()
 	defer signal.Stop(sigChan)
 
-	// == Initialize Components ==
 	log.Info("Initializing components...")
 	logEntry := log.With("component", "crawl")
 
@@ -835,10 +824,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 		fatal(log, "Failed to initialize crawler: %v", err)
 	}
 
-	// == Start Crawler Execution ==
 	err = crawlerInstance.Run(isResume)
-
-	// == Post-Crawl Actions ==
 
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

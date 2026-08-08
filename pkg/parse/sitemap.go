@@ -2,7 +2,6 @@ package parse
 
 import "encoding/xml"
 
-
 // XMLURL represents a <url> element in a sitemap
 type XMLURL struct {
 	Loc     string `xml:"loc"`

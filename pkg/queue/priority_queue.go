@@ -56,7 +56,6 @@ type ThreadSafePriorityQueue struct {
 	log    *slog.Logger
 }
 
-// NewThreadSafePriorityQueue creates a new thread-safe priority queue.
 func NewThreadSafePriorityQueue(logger *slog.Logger) *ThreadSafePriorityQueue {
 	tspq := &ThreadSafePriorityQueue{log: logger}
 	tspq.cond = sync.NewCond(&tspq.mu)
@@ -93,11 +92,6 @@ func (tspq *ThreadSafePriorityQueue) Pop() (*models.WorkItem, bool) {
 			return nil, false
 		}
 		tspq.cond.Wait()
-	}
-
-	// Re-check in case Close() was called while we were waiting.
-	if len(tspq.pq) == 0 && tspq.closed {
-		return nil, false
 	}
 
 	pqItem := heap.Pop(&tspq.pq).(*PQItem)

@@ -238,7 +238,6 @@ func TestNormalizeURL_DoesNotModifyInput(t *testing.T) {
 	}
 }
 
-
 func TestParseAndNormalize_ValidURLs(t *testing.T) {
 	tests := []struct {
 		name        string

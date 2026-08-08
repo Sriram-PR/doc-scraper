@@ -1,6 +1,12 @@
-.PHONY: lint test test-cover build clean check
+.PHONY: fmt fmt-check lint test test-cover build clean check
 
 BIN := doc-scraper
+
+fmt:
+	golangci-lint fmt ./...
+
+fmt-check:
+	golangci-lint fmt --diff ./...
 
 lint:
 	golangci-lint run ./...
@@ -19,4 +25,4 @@ build:
 clean:
 	rm -f $(BIN) coverage.out
 
-check: lint test
+check: fmt-check lint test

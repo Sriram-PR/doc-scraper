@@ -20,15 +20,6 @@ func (s PageStatus) String() string {
 	return string(s)
 }
 
-// IsValid returns true if the status is a known operational value
-func (s PageStatus) IsValid() bool {
-	switch s {
-	case PageStatusPending, PageStatusSuccess, PageStatusFailure:
-		return true
-	}
-	return false
-}
-
 // ImageStatus represents the processing status of an image in the database
 type ImageStatus string
 
@@ -48,13 +39,4 @@ func (s ImageStatus) String() string {
 		return "unset"
 	}
 	return string(s)
-}
-
-// IsValid returns true if the status is a known operational value
-func (s ImageStatus) IsValid() bool {
-	switch s {
-	case ImageStatusPending, ImageStatusSuccess, ImageStatusFailure, ImageStatusSkipped:
-		return true
-	}
-	return false
 }

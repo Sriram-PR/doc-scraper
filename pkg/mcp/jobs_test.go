@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"log/slog"
 )
 
 func newTestLogger() *slog.Logger {
@@ -30,6 +30,29 @@ func TestNewJobManager(t *testing.T) {
 	jm := NewJobManager("", nil)
 	require.NotNil(t, jm)
 	assert.Empty(t, jm.ListJobs())
+}
+
+func TestJobRetention_CapsTerminalJobs(t *testing.T) {
+	jm := NewJobManager("", newTestLogger())
+	for i := range maxTerminalJobs + 10 {
+		j := createTestJob(t, jm, "site-"+strconv.Itoa(i), false)
+		jm.UpdateStatus(j.ID, JobStatusCompleted, "")
+	}
+	assert.Len(t, jm.ListJobs(), maxTerminalJobs)
+}
+
+func TestJobRetention_NeverPrunesActive(t *testing.T) {
+	jm := NewJobManager("", newTestLogger())
+	running := createTestJob(t, jm, "running-site", false)
+	jm.UpdateStatus(running.ID, JobStatusRunning, "")
+
+	for i := range maxTerminalJobs + 20 {
+		j := createTestJob(t, jm, "done-"+strconv.Itoa(i), false)
+		jm.UpdateStatus(j.ID, JobStatusCompleted, "")
+	}
+
+	assert.NotNil(t, jm.GetJob(running.ID), "active job must never be pruned")
+	assert.Len(t, jm.ListJobs(), maxTerminalJobs+1)
 }
 
 func TestCreateJob(t *testing.T) {
@@ -455,7 +478,11 @@ func TestPersistence_ConcurrentWritesSafe(t *testing.T) {
 	}
 	wg.Wait()
 
-	assert.Len(t, jm.ListJobs(), workers*perWorker)
+	// 200 completed jobs exceed the terminal-job retention cap, so exactly
+	// maxTerminalJobs survive. The point of the test is that the concurrent
+	// writes neither race nor corrupt the persisted file.
+	require.Greater(t, workers*perWorker, maxTerminalJobs)
+	assert.Len(t, jm.ListJobs(), maxTerminalJobs)
 
 	// Force a flush and verify the file parses.
 	jm.Stop()
@@ -463,7 +490,7 @@ func TestPersistence_ConcurrentWritesSafe(t *testing.T) {
 	require.NoError(t, err)
 	var file jobsFile
 	require.NoError(t, json.Unmarshal(data, &file))
-	assert.Len(t, file.Jobs, workers*perWorker)
+	assert.Len(t, file.Jobs, maxTerminalJobs)
 }
 
 func TestPersistence_LoadIgnoresGarbage(t *testing.T) {
@@ -486,4 +513,3 @@ func TestPersistence_LoadIgnoresGarbage(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &file))
 	assert.Len(t, file.Jobs, 1)
 }
-

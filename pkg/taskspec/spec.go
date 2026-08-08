@@ -24,18 +24,18 @@ const (
 // TaskSpec mirrors the CLI flag surface of `crawl` and `watch` in a JSON form.
 // Field names are snake_case so an agent can build the JSON object naturally.
 type TaskSpec struct {
-	Command    Command  `json:"command"`
-	Config     string   `json:"config,omitempty"`
-	Site       string   `json:"site,omitempty"`
-	Sites      []string `json:"sites,omitempty"`
-	AllSites   bool     `json:"all_sites,omitempty"`
-	Resume     bool     `json:"resume,omitempty"`
-	Incremental bool    `json:"incremental,omitempty"`
-	Full       bool     `json:"full,omitempty"`
-	Interval   string   `json:"interval,omitempty"`
-	Loglevel   string   `json:"loglevel,omitempty"`
-	JSONLogs   bool     `json:"json_logs,omitempty"`
-	Pprof      string   `json:"pprof,omitempty"`
+	Command     Command  `json:"command"`
+	Config      string   `json:"config,omitempty"`
+	Site        string   `json:"site,omitempty"`
+	Sites       []string `json:"sites,omitempty"`
+	AllSites    bool     `json:"all_sites,omitempty"`
+	Resume      bool     `json:"resume,omitempty"`
+	Incremental bool     `json:"incremental,omitempty"`
+	Full        bool     `json:"full,omitempty"`
+	Interval    string   `json:"interval,omitempty"`
+	Loglevel    string   `json:"loglevel,omitempty"`
+	JSONLogs    bool     `json:"json_logs,omitempty"`
+	Pprof       string   `json:"pprof,omitempty"`
 }
 
 // Parse decodes a TaskSpec from r. Strict-mode: unknown JSON fields are

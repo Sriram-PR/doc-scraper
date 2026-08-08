@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"math"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -27,7 +26,6 @@ type Fetcher struct {
 	log    *slog.Logger
 }
 
-// NewFetcher creates a new Fetcher.
 func NewFetcher(client *http.Client, cfg *config.AppConfig, log *slog.Logger) *Fetcher {
 	return &Fetcher{
 		client: client,
@@ -66,15 +64,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 				delay = maxRetryDelay
 			}
 
-			// Add +/- 10% jitter to reduce thundering-herd on shared servers.
-			var jitter time.Duration
-			if delay > 0 {
-				jitter = time.Duration(rand.Int63n(int64(delay)/5)) - (delay / 10)
-			}
-			finalDelay := delay + jitter
-			if finalDelay < 0 {
-				finalDelay = 0
-			}
+			finalDelay := withJitter(delay)
 
 			reqLog.Warn("Retrying request...", "attempt", attempt, "max_retries", maxRetries, "delay", finalDelay)
 

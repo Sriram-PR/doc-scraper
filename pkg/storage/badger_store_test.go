@@ -8,9 +8,9 @@ import (
 	"time"
 
 	badger "github.com/dgraph-io/badger/v4"
-	"log/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"log/slog"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"

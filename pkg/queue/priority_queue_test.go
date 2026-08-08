@@ -15,7 +15,6 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-
 func TestNewThreadSafePriorityQueue(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
 	if pq == nil {
@@ -98,7 +97,6 @@ func TestThreadSafePriorityQueue_SamePriority(t *testing.T) {
 	}
 }
 
-
 func TestThreadSafePriorityQueue_Close(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
 	pq.Close()
@@ -160,7 +158,6 @@ func TestThreadSafePriorityQueue_DoubleClose(t *testing.T) {
 	pq.Close()
 	pq.Close() // Should be safe
 }
-
 
 func TestThreadSafePriorityQueue_PopBlocks(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
@@ -246,7 +243,6 @@ func TestThreadSafePriorityQueue_CloseUnblocksWaiters(t *testing.T) {
 		}
 	}
 }
-
 
 func TestThreadSafePriorityQueue_ConcurrentAdd(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
@@ -339,7 +335,6 @@ func TestThreadSafePriorityQueue_ConcurrentAddPop(t *testing.T) {
 	}
 	countMu.Unlock()
 }
-
 
 func TestThreadSafePriorityQueue_LenAccuracy(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())

@@ -42,7 +42,6 @@ type LinkProcessor struct {
 	log                        *slog.Logger
 }
 
-// NewLinkProcessor creates a LinkProcessor.
 func NewLinkProcessor(
 	store storage.PageStore,
 	pq *queue.ThreadSafePriorityQueue,

@@ -140,7 +140,6 @@ func CategorizeError(err error) string {
 		return "Content_NonHTML"
 	}
 
-
 	// Context errors
 	if errors.Is(err, context.Canceled) {
 		return "System_ContextCanceled"

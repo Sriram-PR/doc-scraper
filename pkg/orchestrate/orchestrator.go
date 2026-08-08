@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"log/slog"
 	"golang.org/x/sync/semaphore"
+	"log/slog"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
@@ -48,9 +48,11 @@ func (o *Orchestrator) WithIndex(idx *index.Index) *Orchestrator {
 	return o
 }
 
-// NewOrchestrator creates a new orchestrator for parallel site crawling.
-func NewOrchestrator(appCfg *config.AppConfig, siteKeys []string, resume bool, log *slog.Logger) *Orchestrator {
-	ctx, cancel := context.WithCancel(context.Background())
+// NewOrchestrator creates a new orchestrator for parallel site crawling. The
+// orchestrator's context derives from parent, so cancelling parent (e.g. the
+// watch scheduler's context on shutdown) aborts every in-flight crawl.
+func NewOrchestrator(parent context.Context, appCfg *config.AppConfig, siteKeys []string, resume bool, log *slog.Logger) *Orchestrator {
+	ctx, cancel := context.WithCancel(parent)
 
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, log)
 	fetcher := fetch.NewFetcher(httpClient, appCfg, log)
@@ -218,4 +220,3 @@ func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 		len(o.results), successCount, failCount, totalPages))
 	o.log.Info("============================================")
 }
-

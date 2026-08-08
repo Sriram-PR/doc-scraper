@@ -13,7 +13,6 @@ import (
 // ReadabilityExtractor extracts main content using Mozilla's Readability algorithm.
 type ReadabilityExtractor struct{}
 
-// NewReadabilityExtractor creates a new ReadabilityExtractor.
 func NewReadabilityExtractor() *ReadabilityExtractor {
 	return &ReadabilityExtractor{}
 }
@@ -58,20 +57,4 @@ func (r *ReadabilityExtractor) Extract(doc *goquery.Document, pageURL *url.URL) 
 	}
 
 	return content, title, nil
-}
-
-// ExtractText extracts just the text content (no HTML) using readability
-// Useful for search indexing or simple text output
-func (r *ReadabilityExtractor) ExtractText(doc *goquery.Document, pageURL *url.URL) (string, string, error) {
-	html, err := doc.Html()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get HTML from document: %w", err)
-	}
-
-	article, err := readability.FromReader(strings.NewReader(html), pageURL)
-	if err != nil {
-		return "", "", fmt.Errorf("readability extraction failed: %w", err)
-	}
-
-	return article.TextContent, article.Title, nil
 }
