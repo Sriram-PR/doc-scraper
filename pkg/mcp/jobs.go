@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,7 +30,15 @@ const (
 	jobsFileVersion  = 1
 	flushInterval    = 2 * time.Second
 	restartFailedMsg = "MCP server restarted during crawl"
+	// maxTerminalJobs bounds retained finished jobs so a long-lived server does
+	// not grow m.jobs (and the persisted file) without limit. Active jobs are
+	// never pruned.
+	maxTerminalJobs = 100
 )
+
+func isTerminalStatus(s JobStatus) bool {
+	return s == JobStatusCompleted || s == JobStatusFailed || s == JobStatusCancelled
+}
 
 type Job struct {
 	ID             string    `json:"id"`
@@ -124,6 +133,7 @@ func (m *JobManager) load() {
 		job.cancel = deadCancel
 		m.jobs[job.ID] = job
 	}
+	m.pruneTerminalLocked()
 	if m.log != nil {
 		m.log.Info("loaded MCP jobs", "count", len(m.jobs), "path", m.persistPath)
 	}
@@ -142,11 +152,38 @@ func (m *JobManager) snapshotLocked() []*Job {
 	return out
 }
 
-// flush atomically writes the current job state to disk. Serialized by flushMu.
+// pruneTerminalLocked keeps only the most recent maxTerminalJobs terminal jobs,
+// deleting the oldest by CompletedAt. Active (pending/running) jobs are always
+// retained. Caller must hold m.mu.
+func (m *JobManager) pruneTerminalLocked() {
+	var terminal []*Job
+	for _, job := range m.jobs {
+		if isTerminalStatus(job.Status) {
+			terminal = append(terminal, job)
+		}
+	}
+	if len(terminal) <= maxTerminalJobs {
+		return
+	}
+	sort.Slice(terminal, func(i, j int) bool {
+		return terminal[i].CompletedAt.Before(terminal[j].CompletedAt)
+	})
+	for _, job := range terminal[:len(terminal)-maxTerminalJobs] {
+		delete(m.jobs, job.ID)
+	}
+}
+
+// flush atomically writes the current job state to disk. flushMu is held across
+// the whole snapshot-and-write so that when flushes overlap the last writer
+// always captures the freshest state; otherwise a stale snapshot could win the
+// write race and persist while dirty is cleared.
 func (m *JobManager) flush() {
 	if m.persistPath == "" {
 		return
 	}
+	m.flushMu.Lock()
+	defer m.flushMu.Unlock()
+
 	m.mu.RLock()
 	file := jobsFile{Version: jobsFileVersion, Jobs: m.snapshotLocked()}
 	m.mu.RUnlock()
@@ -158,9 +195,6 @@ func (m *JobManager) flush() {
 		}
 		return
 	}
-
-	m.flushMu.Lock()
-	defer m.flushMu.Unlock()
 
 	if err := os.MkdirAll(filepath.Dir(m.persistPath), 0o755); err != nil {
 		if m.log != nil {
@@ -286,6 +320,9 @@ func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg strin
 		if errorMsg != "" {
 			job.ErrorMessage = errorMsg
 		}
+		if isTerminalStatus(status) {
+			m.pruneTerminalLocked()
+		}
 		changed = true
 	}
 	m.mu.Unlock()
@@ -319,6 +356,9 @@ func (m *JobManager) CancelJob(jobID string) bool {
 			cancelled = true
 		}
 	}
+	if cancelled {
+		m.pruneTerminalLocked()
+	}
 	m.mu.Unlock()
 
 	if cancelled {
@@ -337,6 +377,7 @@ func (m *JobManager) CancelAll() {
 		}
 	}
 	m.bysite = make(map[string]string)
+	m.pruneTerminalLocked()
 	m.mu.Unlock()
 
 	m.flush()
