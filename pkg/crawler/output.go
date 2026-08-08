@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,6 +25,19 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
+
+const (
+	jsonlScannerInitBuf = 64 * 1024
+	jsonlScannerMaxLine = 10 * 1024 * 1024 // page records are single lines and can be large
+)
+
+// newJSONLScanner returns a scanner sized for the long single-line JSON records
+// the crawler writes, so a big page does not trip bufio's default line cap.
+func newJSONLScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, jsonlScannerInitBuf), jsonlScannerMaxLine)
+	return scanner
+}
 
 // OutputManager owns the JSONL output file and the crawl_meta summary.
 type OutputManager struct {
@@ -131,8 +145,7 @@ func stripLeftoverCrawlMeta(path string) (int64, error) {
 
 	var kept bytes.Buffer
 	var pages int64
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	scanner := newJSONLScanner(in)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if bytes.Contains(line, []byte(`"record_type":"crawl_meta"`)) {
@@ -204,8 +217,7 @@ func readJSONLPagesForIndex(path string) ([]index.PageRecord, error) {
 	}
 	defer f.Close()
 	out := make([]index.PageRecord, 0, 256)
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	scanner := newJSONLScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if !bytes.Contains(line, []byte(`"record_type":"page"`)) {

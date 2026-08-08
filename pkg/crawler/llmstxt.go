@@ -1,7 +1,6 @@
 package crawler
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -47,8 +46,7 @@ func (om *OutputManager) writeLLMsTxtFiles() {
 	type pageRef struct{ title, url string }
 	var pages []pageRef
 
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	scanner := newJSONLScanner(in)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
