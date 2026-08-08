@@ -56,7 +56,7 @@ The main objective of this tool is to automate the often tedious process of gath
 
 ### Prerequisites
 
-- **Go:** Version 1.25 or later
+- **Go:** Version 1.26 or later
 - **Git:** For cloning the repository
 - **Disk Space:** Sufficient for storing crawled content and state database
 
@@ -579,6 +579,8 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 | `get_job_status` | Check the status of a background crawl job |
 | `cancel_crawl` | Cancel a running or pending crawl job by job ID |
 | `list_pages` | Enumerate crawled pages for a site (paginated, metadata only) |
+| `get_freshness` | Report how stale a site's latest crawl is, from the crawl-history index |
+| `diff_crawl` | Report pages added, removed, or changed since a given timestamp |
 
 ### Usage
 
@@ -675,6 +677,5 @@ This project is licensed under the [Apache-2.0 License](https://github.com/Srira
 - [GoQuery](https://github.com/PuerkitoBio/goquery) for HTML parsing
 - [html-to-markdown](https://github.com/JohannesKaufmann/html-to-markdown) for conversion
 - [BadgerDB](https://github.com/dgraph-io/badger) for state persistence
-- [Logrus](https://github.com/sirupsen/logrus) for structured logging
 - [mcp-go](https://github.com/mark3labs/mcp-go) for MCP server implementation
 - [go-readability](https://github.com/go-shiori/go-readability) for content extraction fallback
