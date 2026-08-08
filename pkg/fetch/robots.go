@@ -158,7 +158,6 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	req.Header.Set("User-Agent", rh.cfg.DefaultUserAgent)
 
 	resp, fetchErr := rh.fetcher.FetchWithRetry(req, ctx)
-	rh.rateLimiter.UpdateLastRequestTime(host)
 
 	if fetchErr != nil {
 		robotsLog.Error(fmt.Sprintf("Fetching robots.txt failed: %v", fetchErr))

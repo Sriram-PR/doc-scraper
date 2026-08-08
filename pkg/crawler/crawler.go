@@ -981,8 +981,6 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 
 	// Fetch using the configured Fetcher component (handles retries, HTTP errors)
 	resp, fetchErr := c.fetcher.FetchWithRetry(req, c.crawlCtx)
-	// Update rate limiter's last request time for the host *after* the attempt (success or failure)
-	c.rateLimiter.UpdateLastRequestTime(originalParsedURL.Hostname())
 
 	if fetchErr != nil {
 		// Fetcher component already logged details of fetch/retry failures.

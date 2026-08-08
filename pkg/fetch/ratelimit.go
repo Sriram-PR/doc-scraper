@@ -8,79 +8,70 @@ import (
 	"time"
 )
 
-// RateLimiter manages request timing per host for politeness
+// RateLimiter enforces a minimum spacing between successive requests to the
+// same host.
 type RateLimiter struct {
-	hostLastRequest   map[string]time.Time // hostname -> last request attempt time
-	hostLastRequestMu sync.Mutex           // Protects hostLastRequest map
-	defaultDelay      time.Duration        // Fallback delay if specific delay is invalid
-	log               *slog.Logger
+	mu           sync.Mutex
+	hostNextFree map[string]time.Time // host -> earliest time the next request may fire
+	defaultDelay time.Duration        // fallback spacing when the caller passes an invalid one
+	log          *slog.Logger
 }
 
-// NewRateLimiter creates a RateLimiter
+// NewRateLimiter creates a RateLimiter whose per-host spacing defaults to
+// defaultDelay when a caller does not supply a positive one.
 func NewRateLimiter(defaultDelay time.Duration, log *slog.Logger) *RateLimiter {
 	return &RateLimiter{
-		hostLastRequest: make(map[string]time.Time),
-		defaultDelay:    defaultDelay,
-		log:             log,
+		hostNextFree: make(map[string]time.Time),
+		defaultDelay: defaultDelay,
+		log:          log,
 	}
 }
 
-// ApplyDelay sleeps if the time since the last request to the host is less than minDelay
-// Includes jitter (+/- 10%) to desynchronize requests
+// ApplyDelay reserves the next politeness slot for host under the lock, then
+// blocks until it is due (or ctx is cancelled). Reserving before sleeping is
+// what makes spacing hold under concurrency: without it, several goroutines
+// racing in for the same host would all read one stale timestamp and fire
+// together. The reservation advances the clock immediately, so there is no
+// separate post-request update to remember.
 func (rl *RateLimiter) ApplyDelay(ctx context.Context, host string, minDelay time.Duration) {
-	// Use default delay if minDelay is invalid
 	if minDelay <= 0 {
 		minDelay = rl.defaultDelay
 	}
-	// No delay needed if effective delay is zero or negative
 	if minDelay <= 0 {
 		return
 	}
 
-	// Read last request time safely
-	rl.hostLastRequestMu.Lock()
-	lastReqTime, exists := rl.hostLastRequest[host]
-	rl.hostLastRequestMu.Unlock() // Unlock before potentially sleeping
-
-	if exists {
-		elapsed := time.Since(lastReqTime)
-		if elapsed < minDelay {
-			sleepDuration := minDelay - elapsed
-
-			// Add jitter: +/- 10% of sleepDuration
-			var jitter time.Duration
-			if sleepDuration > 0 {
-				jitterRange := int64(sleepDuration) / 5 // 20% range width for +/-10%
-				if jitterRange > 0 {                    // Avoid Int63n(0)
-					jitter = time.Duration(rand.Int63n(jitterRange)) - (sleepDuration / 10)
-				}
-			}
-
-			finalSleep := sleepDuration + jitter
-			if finalSleep < 0 {
-				finalSleep = 0 // Ensure non-negative sleep
-			}
-
-			if finalSleep > 0 {
-				rl.log.Debug("Rate limit applying sleep", "host", host, "sleep", finalSleep, "required_delay", minDelay, "elapsed", elapsed)
-				timer := time.NewTimer(finalSleep)
-				select {
-				case <-timer.C:
-					// normal delay elapsed
-				case <-ctx.Done():
-					timer.Stop()
-					rl.log.Debug("Rate limit sleep interrupted by context cancellation", "host", host)
-				}
-			}
-		}
+	rl.mu.Lock()
+	now := time.Now()
+	target := now
+	if next, ok := rl.hostNextFree[host]; ok && next.After(now) {
+		target = next
 	}
-	// Note: Timestamp update via UpdateLastRequestTime happens *after* the request attempt in calling code
+	rl.hostNextFree[host] = target.Add(withJitter(minDelay))
+	rl.mu.Unlock()
+
+	wait := time.Until(target)
+	if wait <= 0 {
+		return
+	}
+
+	rl.log.Debug("Rate limit applying sleep", "host", host, "sleep", wait, "required_delay", minDelay)
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		rl.log.Debug("Rate limit sleep interrupted by context cancellation", "host", host)
+	}
 }
 
-// UpdateLastRequestTime records the current time as the last request attempt time for the host
-// Call this *after* an HTTP request attempt to the host
-func (rl *RateLimiter) UpdateLastRequestTime(host string) {
-	rl.hostLastRequestMu.Lock()
-	rl.hostLastRequest[host] = time.Now()
-	rl.hostLastRequestMu.Unlock()
+// withJitter returns d adjusted by a random +/-10% to desynchronize timers and
+// avoid thundering-herd bursts. It returns d unchanged for durations too small
+// to jitter, which also avoids a rand.Int63n(0) panic.
+func withJitter(d time.Duration) time.Duration {
+	span := int64(d) / 5 // full width = 20% of d, i.e. +/-10%
+	if span <= 0 {
+		return d
+	}
+	return d + time.Duration(rand.Int63n(span)) - d/10
 }

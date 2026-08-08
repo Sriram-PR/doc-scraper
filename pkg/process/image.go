@@ -434,17 +434,14 @@ func (ip *ImageProcessor) processSingleImageTask(
 func (ip *ImageProcessor) fetchImageData(task ImageDownloadTask, userAgent string, effectiveMaxBytes int64) (*http.Response, error) {
 	ctx := task.Ctx
 	imgLogEntry := task.ImgLogEntry
-	imgHost := task.ImgHost
 
 	imgReq, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, task.AbsImgURL, nil)
 	if reqErr != nil {
-		ip.rateLimiter.UpdateLastRequestTime(imgHost)
 		return nil, fmt.Errorf("%w: creating request for img '%s': %w", utils.ErrRequestCreation, task.AbsImgURL, reqErr)
 	}
 	imgReq.Header.Set("User-Agent", userAgent)
 
 	imgResp, imgFetchErr := ip.fetcher.FetchWithRetry(imgReq, ctx)
-	ip.rateLimiter.UpdateLastRequestTime(imgHost)
 
 	if imgFetchErr != nil {
 		if imgResp != nil {

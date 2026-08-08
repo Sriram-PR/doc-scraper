@@ -168,7 +168,6 @@ func (sp *SitemapProcessor) run(ctx context.Context) { //nolint:gocyclo,funlen /
 				req.Header.Set("User-Agent", userAgent)
 
 				resp, fetchErr := sp.fetcher.FetchWithRetry(req, ctx)
-				sp.rateLimiter.UpdateLastRequestTime(sitemapHost)
 
 				if fetchErr != nil {
 					sitemapLog.Error(fmt.Sprintf("Fetch failed: %v", fetchErr))
