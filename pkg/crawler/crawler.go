@@ -57,7 +57,7 @@ type Crawler struct {
 	rateLimiter      *fetch.RateLimiter
 	sitemapProcessor *sitemap.SitemapProcessor
 	contentProcessor *process.ContentProcessor
-	imageProcessor   *process.ImageProcessor // Initialized, used by ContentProcessor
+	imageProcessor   *process.ImageProcessor
 	linkProcessor    *process.LinkProcessor
 
 	// Concurrency control
@@ -760,8 +760,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		return true // Indicate that an error was handled
 	}
 
-
-	// 1. Setup & Resume Check: Parse URL, normalize, check DB if resuming.
 	var parsedOriginalURL *url.URL // Parsed version of currentURL
 	var host string                // Hostname from currentURL
 	var setupErr error             // Error from this stage
@@ -777,19 +775,16 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	} // If skipped, set flag and exit
 	taskLog = taskLog.With("host", host) // Add host to subsequent logs for this task
 
-	// 2. Policy Checks: Depth, robots.txt.
 	if handleTaskError(c.runPolicyChecks(parsedOriginalURL, currentDepth, taskLog)) {
 		return
 	}
 
-	// 3. Acquire Resources: Semaphores (global, per-host), apply rate limit.
 	cleanupResources, acquireErr := c.acquireResources(host, taskLog)
 	defer cleanupResources() // Ensure semaphores are released when task finishes
 	if handleTaskError(acquireErr) {
 		return
 	}
 
-	// 4. Fetch & Validate Page: HTTP GET with retries, validate response and final URL.
 	finalURL, resp, fetchErr := c.fetchAndValidatePage(currentURL, parsedOriginalURL, taskLog)
 	// fetchAndValidatePage closes resp.Body on error if resp is not nil.
 	if handleTaskError(fetchErr) {
@@ -797,7 +792,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	}
 	// If successful, resp.Body is open and passed to the next stage.
 
-	// 5. Read & Parse Body: Read response body into goquery.Document.
 	var parseBodyErr error
 	var originalDoc *goquery.Document
 	originalDoc, rawHTMLHash, parseBodyErr = c.readAndParseBody(resp, finalURL, taskLog) // Closes resp.Body
@@ -805,7 +799,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		return
 	}
 
-	// 5.5. Incremental Crawling Check: Compare hash with stored hash
 	if c.appCfg.EnableIncremental {
 		existingHash, exists, hashErr := c.store.GetPageContentHash(normalizedURLString)
 		if hashErr != nil {
@@ -828,13 +821,11 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// paths above this point.
 	cleanupResources()
 
-	// 6. Extract & Queue Links: Find new links on the page and add to priority queue.
 	// Non-critical errors (e.g., DB error during link check) are logged within linkProcessor.
 	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
 		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
 	}
 
-	// 7. Process & Save Content: Extract content, process images/links, convert to MD, save.
 	var tempPageTitle, tempSavedPath string // Use temp vars for return values from contentProcessor
 	var tempMarkdownBytes []byte
 	var contentErr error
@@ -933,7 +924,6 @@ func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFu
 
 	semTimeout := config.DefaultSemaphoreAcquireTimeout
 
-	// 1. Acquire Host-Specific Semaphore
 	ctxHost, cancelHost := context.WithTimeout(c.crawlCtx, semTimeout) // Context for acquiring host semaphore
 	defer cancelHost()                                                 // Ensure timer is cleaned up
 	taskLog.Debug(fmt.Sprintf("Attempting to acquire host semaphore for: %s (timeout: %v)", host, semTimeout))
@@ -944,7 +934,6 @@ func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFu
 	acquiredHostSem = true
 	taskLog.Debug(fmt.Sprintf("Acquired host semaphore for: %s", host))
 
-	// 2. Acquire Global Semaphore
 	ctxGlobal, cancelGlobal := context.WithTimeout(c.crawlCtx, semTimeout) // Context for acquiring global semaphore
 	defer cancelGlobal()                                                   // Ensure timer is cleaned up
 	taskLog.Debug(fmt.Sprintf("Attempting to acquire global semaphore (timeout: %v)", semTimeout))
@@ -955,13 +944,20 @@ func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFu
 	acquiredGlobalSem = true
 	taskLog.Debug("Acquired global semaphore.")
 
-	// 3. Apply Rate Limit Delay (after acquiring semaphores to avoid delaying semaphore acquisition)
+	// Rate-limit only after acquiring the semaphores, so the delay does not hold slots while waiting.
 	if c.resolved.DelayPerHost > 0 {
 		c.rateLimiter.ApplyDelay(c.crawlCtx, host, c.resolved.DelayPerHost)
 	}
 
 	taskLog.Debug("Resource acquisition successful.")
 	return cleanupFunc, nil // Success
+}
+
+// drainClose drains and closes an HTTP response body so the keep-alive
+// connection can be reused before the caller returns a nil response.
+func drainClose(resp *http.Response) {
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 }
 
 // fetchAndValidatePage performs the HTTP GET request with retries and validates the response.
@@ -1006,9 +1002,8 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	if finalHost != c.siteCfg.AllowedDomain || !strings.HasPrefix(finalPath, c.siteCfg.AllowedPathPrefix) {
 		err = fmt.Errorf("%w: redirected URL '%s' out of scope (Expected Domain: '%s', Path Prefix: '%s')",
 			utils.ErrScopeViolation, finalURL.String(), c.siteCfg.AllowedDomain, c.siteCfg.AllowedPathPrefix)
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()         // Must close body before returning
-		return finalURL, nil, err // Return nil for resp as its body is now closed
+		drainClose(resp)
+		return finalURL, nil, err // resp body is now closed; return a nil response
 	}
 
 	// Scope Check: Disallowed Path Patterns for the final URL
@@ -1016,8 +1011,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		if pattern.MatchString(finalURL.Path) { // Match against the path part of the final URL
 			err = fmt.Errorf("%w: redirected URL '%s' matches disallowed pattern '%s'",
 				utils.ErrScopeViolation, finalURL.String(), pattern.String())
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			drainClose(resp)
 			return finalURL, nil, err
 		}
 	}
@@ -1029,8 +1023,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		if !c.robotsHandler.TestAgent(finalURL, c.resolved.UserAgent, c.crawlCtx) {
 			err = fmt.Errorf("%w: redirected URL '%s' disallowed by robots.txt on new host",
 				utils.ErrRobotsDisallowed, finalURL.String())
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			drainClose(resp)
 			return finalURL, nil, err
 		}
 	}
@@ -1047,8 +1040,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 			strings.HasPrefix(ctLower, "application/gzip") ||
 			strings.HasPrefix(ctLower, "application/pdf") ||
 			strings.HasPrefix(ctLower, "application/octet-stream") {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			drainClose(resp)
 			return finalURL, nil, fmt.Errorf("%w: '%s' for '%s'", utils.ErrNonHTMLContent, contentType, finalURL.String())
 		}
 		// Ambiguous types (text/plain, etc.) -- warn but proceed
