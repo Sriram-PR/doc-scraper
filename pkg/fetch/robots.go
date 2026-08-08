@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/temoto/robotstxt"
 	"golang.org/x/sync/semaphore"
@@ -15,16 +16,29 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 )
 
+// robotsNegativeTTL bounds how long a failed robots.txt fetch stays cached.
+// Without it a single transient error would fail-open (allow everything) for
+// the whole process; after the TTL the next request re-attempts the fetch.
+const robotsNegativeTTL = 10 * time.Minute
+
 // SitemapDiscoverer is the callback interface for handling sitemap URLs found in robots.txt.
 type SitemapDiscoverer interface {
 	FoundSitemap(sitemapURL string)
+}
+
+// robotsCacheEntry is a cached robots.txt lookup. A successful fetch has a nil
+// expires (kept for the process life); a failed fetch stores nil data with a
+// non-zero expires so it is re-attempted once the negative TTL elapses.
+type robotsCacheEntry struct {
+	data    *robotstxt.RobotsData
+	expires time.Time
 }
 
 // RobotsHandler manages fetching, caching, and querying robots.txt data.
 type RobotsHandler struct {
 	fetcher         HTTPFetcher
 	rateLimiter     *RateLimiter
-	robotsCache     map[string]*robotstxt.RobotsData // hostname -> parsed data (nil = fetch failed)
+	robotsCache     map[string]robotsCacheEntry
 	robotsCacheMu   sync.Mutex
 	globalSemaphore *semaphore.Weighted
 	sitemapNotifier SitemapDiscoverer
@@ -44,12 +58,40 @@ func NewRobotsHandler(
 	return &RobotsHandler{
 		fetcher:         fetcher,
 		rateLimiter:     rateLimiter,
-		robotsCache:     make(map[string]*robotstxt.RobotsData),
+		robotsCache:     make(map[string]robotsCacheEntry),
 		globalSemaphore: globalSemaphore,
 		sitemapNotifier: sitemapNotifier,
 		cfg:             cfg,
 		log:             log,
 	}
+}
+
+// lookupCache returns cached robots data for host and whether a live entry
+// exists. A negative entry past its TTL is reported as absent so the caller
+// re-fetches.
+func (rh *RobotsHandler) lookupCache(host string) (*robotstxt.RobotsData, bool) {
+	rh.robotsCacheMu.Lock()
+	defer rh.robotsCacheMu.Unlock()
+	entry, found := rh.robotsCache[host]
+	if !found {
+		return nil, false
+	}
+	if !entry.expires.IsZero() && !time.Now().Before(entry.expires) {
+		return nil, false
+	}
+	return entry.data, true
+}
+
+func (rh *RobotsHandler) cacheSuccess(host string, data *robotstxt.RobotsData) {
+	rh.robotsCacheMu.Lock()
+	rh.robotsCache[host] = robotsCacheEntry{data: data}
+	rh.robotsCacheMu.Unlock()
+}
+
+func (rh *RobotsHandler) cacheFailure(host string) {
+	rh.robotsCacheMu.Lock()
+	rh.robotsCache[host] = robotsCacheEntry{expires: time.Now().Add(robotsNegativeTTL)}
+	rh.robotsCacheMu.Unlock()
 }
 
 // GetRobotsData returns parsed robots.txt for the host, fetching and caching on first call.
@@ -72,11 +114,8 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	host := targetURL.Hostname()
 	hostLog := rh.log.With("host", host)
 
-	rh.robotsCacheMu.Lock()
-	robotsData, found := rh.robotsCache[host]
-	rh.robotsCacheMu.Unlock()
-	if found {
-		return robotsData
+	if data, found := rh.lookupCache(host); found {
+		return data
 	}
 
 	robotsURL := &url.URL{Scheme: targetURL.Scheme, Host: host, Path: "/robots.txt"}
@@ -96,9 +135,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	cancelAcquire()
 	if err != nil {
 		robotsLog.Error(fmt.Sprintf("Error acquiring global semaphore: %v", err))
-		rh.robotsCacheMu.Lock()
-		rh.robotsCache[host] = nil
-		rh.robotsCacheMu.Unlock() // Cache failure
+		rh.cacheFailure(host)
 		return nil
 	}
 	acquiredSemaphore = true
@@ -115,9 +152,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, robotsURLStr, nil)
 	if err != nil {
 		robotsLog.Error(fmt.Sprintf("Error creating request: %v", err))
-		rh.robotsCacheMu.Lock()
-		rh.robotsCache[host] = nil
-		rh.robotsCacheMu.Unlock()
+		rh.cacheFailure(host)
 		return nil
 	}
 	req.Header.Set("User-Agent", rh.cfg.DefaultUserAgent)
@@ -127,9 +162,7 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 
 	if fetchErr != nil {
 		robotsLog.Error(fmt.Sprintf("Fetching robots.txt failed: %v", fetchErr))
-		rh.robotsCacheMu.Lock()
-		rh.robotsCache[host] = nil
-		rh.robotsCacheMu.Unlock()
+		rh.cacheFailure(host)
 		return nil
 	}
 	defer resp.Body.Close()
@@ -138,25 +171,19 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxRobotsSize))
 	if err != nil {
 		robotsLog.Error(fmt.Sprintf("Error reading body: %v", err))
-		rh.robotsCacheMu.Lock()
-		rh.robotsCache[host] = nil
-		rh.robotsCacheMu.Unlock()
+		rh.cacheFailure(host)
 		return nil
 	}
 
 	data, err := robotstxt.FromBytes(bodyBytes)
 	if err != nil {
 		robotsLog.Error(fmt.Sprintf("Error parsing content: %v", err))
-		rh.robotsCacheMu.Lock()
-		rh.robotsCache[host] = nil
-		rh.robotsCacheMu.Unlock()
+		rh.cacheFailure(host)
 		return nil
 	}
 
 	robotsLog.Info("Successfully fetched and parsed robots.txt")
-	rh.robotsCacheMu.Lock()
-	rh.robotsCache[host] = data
-	rh.robotsCacheMu.Unlock()
+	rh.cacheSuccess(host, data)
 
 	if rh.sitemapNotifier != nil && len(data.Sitemaps) > 0 {
 		robotsLog.Info(fmt.Sprintf("Found %d sitemap directive(s)", len(data.Sitemaps)))
