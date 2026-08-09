@@ -34,7 +34,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **Configurable Crawling** | Uses YAML for global and site-specific settings |
 | **Scope Control** | Limits crawling by domain, path prefix, and disallowed path patterns (regex) |
 | **Content Extraction** | Extracts main content using CSS selectors |
-| **HTML-to-Markdown** | Converts extracted HTML to clean Markdown |
+| **HTML-to-Markdown** | Converts extracted HTML to clean GitHub-Flavored Markdown (tables, task lists, strikethrough) |
 | **Image Handling** | Opt-in downloading and local rewriting of image links with domain and size filtering (disabled by default; doc-scraper is text-first) |
 | **Link Rewriting** | Rewrites internal links to relative paths for local structure |
 | **JSONL Output** | Optional one-record-per-page JSONL with a trailing crawl-summary record, for RAG ingestion |
@@ -44,7 +44,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **State Persistence** | Uses BadgerDB for state; supports resuming crawls via `crawl --resume` |
 | **Graceful Shutdown** | Handles `SIGINT`/`SIGTERM` with proper cleanup |
 | **HTTP Retries** | Exponential backoff with jitter for transient errors |
-| **Observability** | Structured logging (`logrus`); optional `pprof` endpoint (build with `-tags pprof`) |
+| **Observability** | Structured logging (`log/slog`); optional `pprof` endpoint (build with `-tags pprof`) |
 | **Modular Code** | Organized into packages for clarity and maintainability |
 | **CLI Utilities** | Built-in `config validate` and `config list` commands for configuration management |
 | **MCP Server Mode** | Expose as Model Context Protocol server for Claude Code/Cursor integration |
@@ -384,13 +384,28 @@ When JSONL output is enabled, the crawler also emits `llms.txt` and `llms-full.t
 
 ### Output Format
 
-Each generated Markdown file contains:
+Each generated Markdown file begins with a YAML frontmatter block carrying page metadata, followed by the converted content:
 
-- Original page title as level-1 heading
-- Clean content converted from HTML to Markdown
+- **YAML frontmatter** (delimited by `---`) with `title`, `url` (source URL), `crawled_at` (RFC3339 timestamp), `content_hash` (SHA-256 of the content, matching the JSONL record), and `depth`
+- Clean content converted from HTML to GitHub-Flavored Markdown, preserving tables
 - Relative links to other pages (when within the allowed domain)
 - Local image references (if images are enabled)
-- A footer with metadata including source URL and crawl timestamp
+
+Example:
+
+```markdown
+---
+title: 'Authentication'
+url: https://docs.example.com/api/auth
+crawled_at: "2026-08-09T12:00:00Z"
+content_hash: 9f2b...c1a4
+depth: 2
+---
+
+# Authentication
+
+...page content as Markdown...
+```
 
 ## JSONL Output
 

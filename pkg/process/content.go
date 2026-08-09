@@ -9,9 +9,12 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
+	"github.com/JohannesKaufmann/html-to-markdown/plugin"
 	"github.com/PuerkitoBio/goquery"
+	"gopkg.in/yaml.v3"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/detect"
@@ -25,16 +28,50 @@ type ContentProcessor struct {
 	appCfg               *config.AppConfig
 	detector             *detect.ContentDetector
 	readabilityExtractor *detect.ReadabilityExtractor
+	markdownConverter    *md.Converter
 }
 
 func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig, log *slog.Logger) *ContentProcessor {
+	converter := md.NewConverter("", true, nil)
+	converter.Use(plugin.GitHubFlavored())
+
 	return &ContentProcessor{
 		imgProcessor:         imgProcessor,
 		appCfg:               appCfg,
 		log:                  log,
 		detector:             detect.NewContentDetector(log),
 		readabilityExtractor: detect.NewReadabilityExtractor(),
+		markdownConverter:    converter,
 	}
+}
+
+type pageFrontmatter struct {
+	Title       string `yaml:"title"`
+	URL         string `yaml:"url"`
+	CrawledAt   string `yaml:"crawled_at"`
+	ContentHash string `yaml:"content_hash"`
+	Depth       int    `yaml:"depth"`
+}
+
+// buildPageFrontmatter returns a YAML frontmatter block (--- delimited) carrying page
+// metadata for downstream RAG/LLM consumers. The content hash matches the JSONL
+// content_hash since both hash the same markdown body. Returns "" if marshaling fails.
+func buildPageFrontmatter(title, pageURL, body string, depth int) string {
+	fm := pageFrontmatter{
+		Title:     title,
+		URL:       pageURL,
+		CrawledAt: time.Now().Format(time.RFC3339),
+		Depth:     depth,
+	}
+	if len(body) > 0 {
+		fm.ContentHash = utils.CalculateStringSHA256(body)
+	}
+
+	out, err := yaml.Marshal(fm)
+	if err != nil {
+		return ""
+	}
+	return "---\n" + string(out) + "---\n\n"
 }
 
 // ExtractProcessAndSaveContent extracts content using the configured selector, processes images
@@ -44,6 +81,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	finalURL *url.URL,
 	siteCfg *config.SiteConfig,
 	siteOutputDir string,
+	currentDepth int,
 	taskLog *slog.Logger,
 	ctx context.Context,
 ) (pageTitle string, savedFilePath string, markdownBytes []byte, imageCount int, err error) {
@@ -190,20 +228,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 
 	cp.cleanupHTML(mainContent)
 
-	modifiedHTML, outerHtmlErr := goquery.OuterHtml(mainContent)
-	if outerHtmlErr != nil {
-		err = fmt.Errorf("failed getting modified HTML: %w", outerHtmlErr)
-		taskLog.Error(err.Error())
-		return pageTitle, "", nil, 0, err
-	}
-
-	converter := md.NewConverter("", true, nil)
-	markdownContent, convertErr := converter.ConvertString(modifiedHTML)
-	if convertErr != nil {
-		err = fmt.Errorf("%w: %w", utils.ErrMarkdownConversion, convertErr)
-		taskLog.Error(err.Error())
-		return pageTitle, "", nil, 0, err
-	}
+	markdownContent := cp.markdownConverter.Convert(mainContent)
 
 	outputDirForFile := filepath.Dir(currentPageFullOutputPath)
 	if mkdirErr := os.MkdirAll(outputDirForFile, 0755); mkdirErr != nil {
@@ -212,14 +237,15 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 		return pageTitle, "", nil, 0, err
 	}
 
-	writeErr := os.WriteFile(currentPageFullOutputPath, []byte(markdownContent), 0644)
+	fileContent := buildPageFrontmatter(pageTitle, finalURL.String(), markdownContent, currentDepth) + markdownContent
+	writeErr := os.WriteFile(currentPageFullOutputPath, []byte(fileContent), 0644)
 	if writeErr != nil {
 		err = fmt.Errorf("%w: saving markdown '%s': %w", utils.ErrFilesystem, currentPageFullOutputPath, writeErr)
 		taskLog.Error(err.Error())
 		return pageTitle, "", nil, 0, err
 	}
 
-	taskLog.Info(fmt.Sprintf("Saved Markdown (%d bytes): %s", len(markdownContent), currentPageFullOutputPath))
+	taskLog.Info(fmt.Sprintf("Saved Markdown (%d bytes): %s", len(fileContent), currentPageFullOutputPath))
 	taskLog.Debug("Content extraction, processing, and saving complete.")
 	return pageTitle, currentPageFullOutputPath, []byte(markdownContent), imgRewriteCount, nil
 }
