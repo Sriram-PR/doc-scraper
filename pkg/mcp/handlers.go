@@ -17,6 +17,7 @@ import (
 	"time"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
+	"github.com/JohannesKaufmann/html-to-markdown/plugin"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -342,16 +343,9 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(fmt.Sprintf("content selector '%s' not found on page", contentSelector)), nil
 	}
 
-	contentHTML, err := contentSelection.First().Html()
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to extract HTML content: %v", err)), nil
-	}
 	converter := md.NewConverter("", true, nil)
-	content, err := converter.ConvertString(contentHTML)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to convert to markdown: %v", err)), nil
-	}
-	content = strings.TrimSpace(content)
+	converter.Use(plugin.GitHubFlavored())
+	content := strings.TrimSpace(converter.Convert(contentSelection.First()))
 
 	fetchTimeMs := time.Since(startTime).Milliseconds()
 

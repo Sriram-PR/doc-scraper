@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/Sriram-PR/doc-scraper/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
@@ -351,4 +352,75 @@ func TestCrawlerRun_DisallowedPathPatterns(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(outDir, "secret.md"))
 
 	assert.False(t, rec.wasRequested("/docs/secret.html"), "disallowed-pattern link must not be fetched")
+}
+
+// TestCrawlerRun_FrontmatterAndTables verifies that every saved .md file carries
+// a YAML frontmatter block with page metadata, that its content_hash matches the
+// JSONL record for the same page, and that HTML tables survive as GFM pipe tables
+// (the GitHubFlavored converter plugin is wired up).
+func TestCrawlerRun_FrontmatterAndTables(t *testing.T) {
+	pages := map[string]string{
+		"/docs/index.html": `<html><head><title>Tables Doc</title></head><body>
+			<p>Reference page.</p>
+			<table>
+				<thead><tr><th>Name</th><th>Type</th></tr></thead>
+				<tbody><tr><td>alpha</td><td>string</td></tr></tbody>
+			</table>
+		</body></html>`,
+	}
+	server, _ := newDocServer(t, pages)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	err := runCrawl(t, appCfg, siteCfg)
+	require.NoError(t, err, "Run should succeed")
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	raw, err := os.ReadFile(filepath.Join(outDir, "index.md"))
+	require.NoError(t, err, "read index.md")
+	fileStr := string(raw)
+
+	require.True(t, strings.HasPrefix(fileStr, "---\n"), "file must start with a frontmatter block")
+	rest := fileStr[len("---\n"):]
+	closeIdx := strings.Index(rest, "\n---\n")
+	require.GreaterOrEqual(t, closeIdx, 0, "frontmatter block must be closed with ---")
+
+	var fm struct {
+		Title       string `yaml:"title"`
+		URL         string `yaml:"url"`
+		CrawledAt   string `yaml:"crawled_at"`
+		ContentHash string `yaml:"content_hash"`
+		Depth       int    `yaml:"depth"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(rest[:closeIdx]), &fm), "parse frontmatter YAML")
+
+	assert.Equal(t, "Tables Doc", fm.Title)
+	assert.Contains(t, fm.URL, "/docs/index.html")
+	assert.Equal(t, 0, fm.Depth, "start URL is depth 0")
+	assert.Len(t, fm.ContentHash, 64, "content_hash should be a hex SHA-256")
+	_, tErr := time.Parse(time.RFC3339, fm.CrawledAt)
+	require.NoError(t, tErr, "crawled_at should be RFC3339")
+
+	body := rest[closeIdx+len("\n---\n"):]
+	assert.Contains(t, body, "|", "GFM pipe tables must be present (tables plugin enabled)")
+	assert.Contains(t, body, "Name")
+	assert.Contains(t, body, "alpha")
+
+	// The frontmatter hash must match the JSONL record's content_hash for the page.
+	jsonlBytes, err := os.ReadFile(filepath.Join(outDir, "pages.jsonl"))
+	require.NoError(t, err, "read pages.jsonl")
+	var jsonlHash string
+	for _, line := range strings.Split(strings.TrimSpace(string(jsonlBytes)), "\n") {
+		if line == "" {
+			continue
+		}
+		var p models.PageJSONL
+		require.NoError(t, json.Unmarshal([]byte(line), &p))
+		if p.RecordType == models.RecordTypePage && strings.Contains(p.URL, "/docs/index.html") {
+			jsonlHash = p.ContentHash
+		}
+	}
+	if jsonlHash != fm.ContentHash {
+		t.Errorf("frontmatter content_hash %q must match JSONL content_hash %q", fm.ContentHash, jsonlHash)
+	}
 }
