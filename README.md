@@ -357,6 +357,17 @@ Execute the compiled binary from the project root directory:
 ./doc-scraper mcp-server -config config.yaml
 ```
 
+### Incremental Crawling
+
+`crawl -incremental` (which implies `--resume`, and is also what `watch` mode uses) re-fetches every previously-crawled page and re-checks it for changes:
+
+- Change detection is **content-scoped**: it hashes the extracted content-selector region, not the raw page. Churn in the page shell (navigation, analytics, build timestamps, CSRF tokens) outside the content selector does **not** count as a change.
+- Pages whose content region is **unchanged** are skipped without re-converting, re-downloading images, or rewriting output.
+- Pages whose content region **changed** are fully reprocessed and their output is rewritten.
+- A page that now returns an error (e.g. 404) on re-crawl leaves its previously-crawled output **as-is**; nothing is pruned.
+
+Because there is no conditional-request support yet, incremental mode still performs the HTTP fetch for each known page; the savings come from skipping the downstream processing of unchanged pages.
+
 ## Output Structure
 
 Crawled content is saved under the `output_base_dir` defined in the config, organized by domain and preserving the site structure:

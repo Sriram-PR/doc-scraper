@@ -360,7 +360,7 @@ func (s *BadgerStore) RunGC(ctx context.Context, interval time.Duration) {
 	}
 }
 
-func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- models.WorkItem) (int, int, error) {
+func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- models.WorkItem, includeSuccess bool) (int, int, error) {
 	s.log.Info("Resume Mode: Scanning database for incomplete tasks to requeue...")
 	requeuedCount := 0
 	scanErrors := 0
@@ -405,7 +405,8 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 						scanErrors++
 						return nil
 					}
-					if entry.Status == models.PageStatusFailure || entry.Status == models.PageStatusPending {
+					if entry.Status == models.PageStatusFailure || entry.Status == models.PageStatusPending ||
+						(includeSuccess && entry.Status == models.PageStatusSuccess) {
 						s.log.Debug("Resume scan: requeueing", "url", urlToRequeue, "status", entry.Status, "depth", entry.Depth)
 						shouldRequeue = true
 						requeueDepth = entry.Depth

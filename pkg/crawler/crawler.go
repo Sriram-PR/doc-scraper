@@ -393,7 +393,9 @@ func (c *Crawler) requeueIncomplete(resume bool, runLog *slog.Logger) (int, erro
 		}
 	}()
 
-	_, _, scanErr := c.store.RequeueIncomplete(c.crawlCtx, requeueChan)
+	// In incremental mode also requeue previously-successful pages so they are
+	// re-fetched and re-checked for content changes.
+	_, _, scanErr := c.store.RequeueIncomplete(c.crawlCtx, requeueChan, c.appCfg.EnableIncremental)
 	close(requeueChan)
 	requeueWg.Wait()
 
@@ -685,7 +687,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	var pageTitle string              // Populated on successful content extraction.
 	var savedContentPath string       // Absolute path to the saved .md file.
 	var normalizedURLString string    // Populated from handleSetupAndResumeCheck.
-	var rawHTMLHash string            // Hash of raw HTML for incremental crawling.
+	var contentHash string            // Hash of the extracted content region for incremental crawling.
 
 	// Deferred function for panic recovery, final status logging, DB update, and WaitGroup decrement.
 	defer func() {
@@ -739,7 +741,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			}
 			if finalStatus == models.PageStatusSuccess { // Mark ProcessedAt only on success
 				pageEntry.ProcessedAt = pageEntry.LastAttempt
-				pageEntry.ContentHash = rawHTMLHash // Store hash for incremental crawling
+				pageEntry.ContentHash = contentHash // Store content-region hash for incremental crawling
 			}
 			// Update page status in the persistent store
 			if dbUpdateErr := c.store.UpdatePageStatus(normalizedURLString, pageEntry); dbUpdateErr != nil {
@@ -801,18 +803,33 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 
 	var parseBodyErr error
 	var originalDoc *goquery.Document
-	originalDoc, rawHTMLHash, parseBodyErr = c.readAndParseBody(resp, finalURL, taskLog) // Closes resp.Body
+	originalDoc, parseBodyErr = c.readAndParseBody(resp, finalURL, taskLog) // Closes resp.Body
 	if handleTaskError(parseBodyErr) {
 		return
 	}
+
+	mainContent, extractedTitle, selectErr := c.contentProcessor.SelectMainContent(originalDoc, finalURL, c.siteCfg, taskLog)
+	if handleTaskError(selectErr) {
+		return
+	}
+	pageTitle = extractedTitle
+
+	// Hash the extracted content region rather than the raw page body so that
+	// page-shell churn (nav, analytics, build timestamps, CSRF tokens) outside the
+	// content selector does not defeat the incremental skip.
+	contentRegionHTML, outerErr := goquery.OuterHtml(mainContent)
+	if handleTaskError(outerErr) {
+		return
+	}
+	contentHash = utils.CalculateStringSHA256(contentRegionHTML)
 
 	if c.appCfg.EnableIncremental {
 		existingHash, exists, hashErr := c.store.GetPageContentHash(normalizedURLString)
 		if hashErr != nil {
 			taskLog.Warn(fmt.Sprintf("Failed to check content hash for incremental crawl: %v", hashErr))
 			// Continue processing despite hash check error
-		} else if exists && existingHash == rawHTMLHash {
-			taskLog.Info("Page unchanged (hash match) - skipping processing")
+		} else if exists && existingHash == contentHash {
+			taskLog.Info("Page content unchanged (hash match) - skipping processing")
 			skipped = true
 			return
 		} else if exists {
@@ -833,16 +850,14 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
 	}
 
-	var tempPageTitle, tempSavedPath string // Use temp vars for return values from contentProcessor
+	var tempSavedPath string // Temp var for the returned save path from contentProcessor
 	var tempMarkdownBytes []byte
 	var contentErr error
-	// pageTitle and savedContentPath (function-scoped) will be set from these if successful.
-	tempPageTitle, tempSavedPath, tempMarkdownBytes, _, contentErr = c.contentProcessor.ExtractProcessAndSaveContent(originalDoc, finalURL, c.siteCfg, c.siteOutputDir, currentDepth, taskLog, taskCtx)
+	// pageTitle is already set from SelectMainContent above; savedContentPath is set on success.
+	tempSavedPath, tempMarkdownBytes, _, contentErr = c.contentProcessor.ProcessAndSaveContent(mainContent, pageTitle, finalURL, c.siteCfg, c.siteOutputDir, currentDepth, taskLog, taskCtx)
 	if handleTaskError(contentErr) { // If content processing/saving fails, set taskErr and exit.
 		return
 	}
-	// If successful, assign to function-scoped variables for use in defer logging and metadata collection.
-	pageTitle = tempPageTitle
 	savedContentPath = tempSavedPath // This is the ABSOLUTE path to the saved .md file.
 
 	if savedContentPath != "" {
@@ -877,9 +892,12 @@ func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *slog.Log
 		// Do not return 'err' here; let the crawl attempt proceed if DB check fails.
 		// The error is logged, and status will default to PageStatusNotFound effectively.
 	} else if pageStatus == models.PageStatusSuccess {
-		taskLog.Info("Skipping already successfully processed page (from DB).")
-		shouldSkip = true
-		return parsedURL, normalizedURLStr, host, shouldSkip, nil // Return to skip
+		if !c.appCfg.EnableIncremental {
+			taskLog.Info("Skipping already successfully processed page (from DB).")
+			shouldSkip = true
+			return parsedURL, normalizedURLStr, host, shouldSkip, nil // Return to skip
+		}
+		taskLog.Debug("Re-checking previously processed page for content changes (incremental mode).")
 	} else if pageStatus == models.PageStatusFailure {
 		taskLog.Warn("Retrying previously failed page (from DB).")
 	} else if pageStatus == models.PageStatusPending {
@@ -1059,8 +1077,8 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 
 // readAndParseBody reads the HTTP response body and parses it into a goquery.Document.
 // It ensures resp.Body is closed after reading.
-// Returns the goquery document and the raw HTML hash for incremental crawling.
-func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskLog *slog.Logger) (doc *goquery.Document, rawHTMLHash string, err error) {
+// Returns the parsed goquery document. Closes resp.Body.
+func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskLog *slog.Logger) (doc *goquery.Document, err error) {
 	taskLog.Debug(fmt.Sprintf("Reading response body from: %s", finalURL.String()))
 	defer resp.Body.Close() // Ensure response body is closed when this function returns
 
@@ -1069,24 +1087,21 @@ func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskL
 	limitedReader := io.LimitReader(resp.Body, maxPageSize+1) // +1 to detect exceeding the limit
 	bodyBytes, readErr := io.ReadAll(limitedReader)
 	if readErr != nil {
-		return nil, "", fmt.Errorf("%w: reading body from '%s': %w", utils.ErrResponseBodyRead, finalURL.String(), readErr)
+		return nil, fmt.Errorf("%w: reading body from '%s': %w", utils.ErrResponseBodyRead, finalURL.String(), readErr)
 	}
 	if int64(len(bodyBytes)) > maxPageSize {
-		return nil, "", fmt.Errorf("%w: page '%s' exceeds max size (%d > %d bytes)", utils.ErrResponseBodyRead, finalURL.String(), len(bodyBytes), maxPageSize)
+		return nil, fmt.Errorf("%w: page '%s' exceeds max size (%d > %d bytes)", utils.ErrResponseBodyRead, finalURL.String(), len(bodyBytes), maxPageSize)
 	}
 	taskLog.Debug(fmt.Sprintf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String()))
-
-	// Calculate hash of raw HTML for incremental crawling
-	rawHTMLHash = utils.CalculateStringSHA256(string(bodyBytes))
 
 	// Parse the HTML content using goquery
 	doc, parseErr := goquery.NewDocumentFromReader(bytes.NewReader(bodyBytes))
 	if parseErr != nil {
-		return nil, rawHTMLHash, fmt.Errorf("%w: parsing HTML from '%s': %w", utils.ErrParsing, finalURL.String(), parseErr)
+		return nil, fmt.Errorf("%w: parsing HTML from '%s': %w", utils.ErrParsing, finalURL.String(), parseErr)
 	}
 
 	taskLog.Debug("Successfully parsed HTML into goquery document.")
-	return doc, rawHTMLHash, nil
+	return doc, nil
 }
 
 // extractLinksAndImages extracts markdown links and image references from markdown content.

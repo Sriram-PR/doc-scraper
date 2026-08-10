@@ -74,26 +74,22 @@ func buildPageFrontmatter(title, pageURL, body string, depth int) string {
 	return "---\n" + string(out) + "---\n\n"
 }
 
-// ExtractProcessAndSaveContent extracts content using the configured selector, processes images
-// and internal links, converts to Markdown, and saves to a path derived from finalURL and siteOutputDir.
-func (cp *ContentProcessor) ExtractProcessAndSaveContent(
+// SelectMainContent resolves the page title and extracts the main content selection
+// using the configured selector, framework auto-detection, or the readability
+// fallback. It performs no image processing, conversion, or writing, so callers can
+// hash the returned selection before deciding whether to process the page.
+func (cp *ContentProcessor) SelectMainContent(
 	doc *goquery.Document,
 	finalURL *url.URL,
 	siteCfg *config.SiteConfig,
-	siteOutputDir string,
-	currentDepth int,
 	taskLog *slog.Logger,
-	ctx context.Context,
-) (pageTitle string, savedFilePath string, markdownBytes []byte, imageCount int, err error) {
-	taskLog.Debug("Extracting, processing, and saving content.")
-
+) (mainContent *goquery.Selection, pageTitle string, err error) {
 	pageTitle = strings.TrimSpace(doc.Find("title").First().Text())
 	if pageTitle == "" {
 		pageTitle = "Untitled Page"
 	}
 	taskLog = taskLog.With("page_title", pageTitle)
 
-	var mainContent *goquery.Selection
 	var actualSelector string
 
 	if detect.IsAutoSelector(siteCfg.ContentSelector) {
@@ -105,7 +101,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 			if extractErr != nil {
 				err = fmt.Errorf("%w: readability failed for '%s': %v", utils.ErrContentSelector, finalURL.String(), extractErr) //nolint:errorlint // extractErr is supplemental
 				taskLog.Warn(err.Error())
-				return pageTitle, "", nil, 0, err
+				return nil, pageTitle, err
 			}
 			mainContent = extractedContent
 			if extractedTitle != "" {
@@ -128,12 +124,11 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 						utils.ErrContentSelector, actualSelector, finalURL.String(), extractErr, //nolint:errorlint // extractErr is supplemental
 					)
 					taskLog.Warn(err.Error())
-					return pageTitle, "", nil, 0, err
+					return nil, pageTitle, err
 				}
 				mainContent = extractedContent
 				if extractedTitle != "" {
 					pageTitle = extractedTitle
-					taskLog = taskLog.With("page_title", pageTitle)
 				}
 			} else {
 				mainContent = mainContentSelection.First().Clone()
@@ -144,17 +139,35 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 		if mainContentSelection.Length() == 0 {
 			err = fmt.Errorf("%w: selector '%s' not found on page '%s'", utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String())
 			taskLog.Warn(err.Error())
-			return pageTitle, "", nil, 0, err
+			return nil, pageTitle, err
 		}
 		mainContent = mainContentSelection.First().Clone()
 		taskLog.Debug(fmt.Sprintf("Found main content using selector '%s'", siteCfg.ContentSelector))
 	}
 
+	return mainContent, pageTitle, nil
+}
+
+// ProcessAndSaveContent processes images and internal links on the already-selected
+// main content, converts it to Markdown, prepends YAML frontmatter, and writes the
+// file to a path derived from finalURL and siteOutputDir.
+func (cp *ContentProcessor) ProcessAndSaveContent(
+	mainContent *goquery.Selection,
+	pageTitle string,
+	finalURL *url.URL,
+	siteCfg *config.SiteConfig,
+	siteOutputDir string,
+	currentDepth int,
+	taskLog *slog.Logger,
+	ctx context.Context,
+) (savedFilePath string, markdownBytes []byte, imageCount int, err error) {
+	taskLog = taskLog.With("page_title", pageTitle)
+
 	currentPageFullOutputPath, pageInScope := cp.getOutputPathForURL(finalURL, siteCfg, siteOutputDir)
 	if !pageInScope {
 		err = fmt.Errorf("%w: output path calculation failed unexpectedly for in-scope URL '%s'", utils.ErrScopeViolation, finalURL.String())
 		taskLog.Error(err.Error())
-		return pageTitle, "", nil, 0, err
+		return "", nil, 0, err
 	}
 
 	currentPageOutputDir := filepath.Dir(currentPageFullOutputPath)
@@ -234,7 +247,7 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	if mkdirErr := os.MkdirAll(outputDirForFile, 0755); mkdirErr != nil {
 		err = fmt.Errorf("%w: creating output directory '%s': %w", utils.ErrFilesystem, outputDirForFile, mkdirErr)
 		taskLog.Error(err.Error())
-		return pageTitle, "", nil, 0, err
+		return "", nil, 0, err
 	}
 
 	fileContent := buildPageFrontmatter(pageTitle, finalURL.String(), markdownContent, currentDepth) + markdownContent
@@ -242,12 +255,12 @@ func (cp *ContentProcessor) ExtractProcessAndSaveContent(
 	if writeErr != nil {
 		err = fmt.Errorf("%w: saving markdown '%s': %w", utils.ErrFilesystem, currentPageFullOutputPath, writeErr)
 		taskLog.Error(err.Error())
-		return pageTitle, "", nil, 0, err
+		return "", nil, 0, err
 	}
 
 	taskLog.Info(fmt.Sprintf("Saved Markdown (%d bytes): %s", len(fileContent), currentPageFullOutputPath))
 	taskLog.Debug("Content extraction, processing, and saving complete.")
-	return pageTitle, currentPageFullOutputPath, []byte(markdownContent), imgRewriteCount, nil
+	return currentPageFullOutputPath, []byte(markdownContent), imgRewriteCount, nil
 }
 
 // getOutputPathForURL maps a crawled URL to a sanitized local filesystem path, performing scope
