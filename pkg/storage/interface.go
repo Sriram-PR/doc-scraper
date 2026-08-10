@@ -42,9 +42,10 @@ type StoreAdmin interface {
 	// GetVisitedCount returns an approximate count of all keys in the store
 	GetVisitedCount() (int, error)
 
-	// RequeueIncomplete scans the DB and sends incomplete items (failed, pending, empty) to the provided channel
-	// Should be called only during resume
-	RequeueIncomplete(ctx context.Context, workChan chan<- models.WorkItem) (requeuedCount int, scanErrors int, err error)
+	// RequeueIncomplete scans the DB and sends incomplete items (failed, pending, empty) to the provided channel.
+	// When includeSuccess is true (incremental crawls), successfully-processed pages are also requeued so they can
+	// be re-fetched and re-checked for content changes. Should be called only during resume.
+	RequeueIncomplete(ctx context.Context, workChan chan<- models.WorkItem, includeSuccess bool) (requeuedCount int, scanErrors int, err error)
 
 	// RunGC runs periodic garbage collection. Should be run in a goroutine
 	RunGC(ctx context.Context, interval time.Duration)

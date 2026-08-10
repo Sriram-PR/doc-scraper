@@ -424,3 +424,159 @@ func TestCrawlerRun_FrontmatterAndTables(t *testing.T) {
 		t.Errorf("frontmatter content_hash %q must match JSONL content_hash %q", fm.ContentHash, jsonlHash)
 	}
 }
+
+// mutableDocServer serves per-path HTML that tests can change between crawls, and
+// counts hits per path so incremental re-fetch behavior can be asserted.
+type mutableDocServer struct {
+	mu   sync.Mutex
+	body map[string]string
+	hits map[string]int
+}
+
+func newMutableDocServer(t *testing.T) (*httptest.Server, *mutableDocServer) {
+	t.Helper()
+	ms := &mutableDocServer{body: map[string]string{}, hits: map[string]int{}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ms.mu.Lock()
+		ms.hits[r.URL.Path]++
+		body, ok := ms.body[r.URL.Path]
+		ms.mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, ms
+}
+
+func (m *mutableDocServer) set(path, body string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.body[path] = body
+}
+
+func (m *mutableDocServer) remove(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.body, path)
+}
+
+func (m *mutableDocServer) hitCount(path string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.hits[path]
+}
+
+// runResumableCrawl drives Crawler.Run with an explicit resume flag, reusing the
+// same StateDir/OutputBaseDir across calls so incremental re-crawls see prior state.
+func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) {
+	t.Helper()
+	logger := silentLogger()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, siteCfg.AllowedDomain, resume, logger)
+	require.NoError(t, err)
+	defer store.Close()
+	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, logger)
+	fetcher := fetch.NewFetcher(httpClient, appCfg, logger)
+	rl := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logger)
+	c, err := NewCrawler(appCfg, siteCfg, "testsite", logger, store, fetcher, rl, ctx, cancel, resume)
+	require.NoError(t, err)
+	require.NoError(t, c.Run(resume))
+}
+
+func mdFileIn(t *testing.T, dir string) string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".md") {
+			return filepath.Join(dir, e.Name())
+		}
+	}
+	t.Fatalf("no .md file found in %s", dir)
+	return ""
+}
+
+// TestCrawlerRun_IncrementalContentScoped is the regression test for content-scoped
+// incremental crawling: an incremental re-crawl re-fetches known pages, skips
+// reprocessing when only the page shell changed, and reprocesses when the content
+// selector region actually changed.
+func TestCrawlerRun_IncrementalContentScoped(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	page := func(content, shell string) string {
+		return `<html><head><title>Doc</title></head><body>` +
+			`<main id="c">` + content + `</main>` +
+			`<footer>` + shell + `</footer></body></html>`
+	}
+	ms.set("/docs/index.html", page("<p>ORIGINAL</p>", "built at T0"))
+
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	appCfg.StateDir = t.TempDir()
+	appCfg.OutputBaseDir = t.TempDir()
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	// Crawl 1 (fresh).
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	md := mdFileIn(t, siteOutputDir(appCfg, siteCfg))
+	info1, err := os.Stat(md)
+	require.NoError(t, err)
+	body1, err := os.ReadFile(md)
+	require.NoError(t, err)
+	require.Contains(t, string(body1), "ORIGINAL")
+	require.Equal(t, 1, ms.hitCount("/docs/index.html"))
+
+	// Crawl 2: change ONLY the shell (outside #c). Content unchanged -> must re-fetch but NOT rewrite.
+	ms.set("/docs/index.html", page("<p>ORIGINAL</p>", "built at T1-completely-different-shell"))
+	runResumableCrawl(t, appCfg, siteCfg, true)
+	info2, err := os.Stat(md)
+	require.NoError(t, err)
+	assert.Equal(t, 2, ms.hitCount("/docs/index.html"), "incremental must re-fetch the known page")
+	assert.Equal(t, info1.ModTime().UnixNano(), info2.ModTime().UnixNano(),
+		"shell-only change must NOT rewrite the .md (content-scoped hash unchanged)")
+
+	// Crawl 3: change the CONTENT inside #c -> must reprocess and rewrite.
+	ms.set("/docs/index.html", page("<p>UPDATED CONTENT</p>", "built at T2"))
+	runResumableCrawl(t, appCfg, siteCfg, true)
+	info3, err := os.Stat(md)
+	require.NoError(t, err)
+	body3, err := os.ReadFile(md)
+	require.NoError(t, err)
+	assert.Equal(t, 3, ms.hitCount("/docs/index.html"))
+	assert.Contains(t, string(body3), "UPDATED CONTENT", "changed content must be rewritten")
+	assert.NotContains(t, string(body3), "ORIGINAL")
+	assert.NotEqual(t, info1.ModTime().UnixNano(), info3.ModTime().UnixNano(),
+		"changed content must rewrite the .md")
+}
+
+// TestCrawlerRun_Incremental404LeavesOutput verifies that when a previously-crawled
+// page returns 404 on an incremental re-crawl, its existing output is left as-is.
+func TestCrawlerRun_Incremental404LeavesOutput(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body><main id="c"><p>KEEP ME</p></main></body></html>`)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	appCfg.StateDir = t.TempDir()
+	appCfg.OutputBaseDir = t.TempDir()
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	md := mdFileIn(t, siteOutputDir(appCfg, siteCfg))
+	require.FileExists(t, md)
+
+	// Page now 404s on the incremental re-crawl.
+	ms.remove("/docs/index.html")
+	runResumableCrawl(t, appCfg, siteCfg, true) // must not fail the crawl
+
+	assert.FileExists(t, md, "existing output must be left as-is when a page now 404s")
+	body, err := os.ReadFile(md)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "KEEP ME", "previously-crawled content must be preserved")
+}

@@ -443,7 +443,7 @@ func TestRequeueIncomplete(t *testing.T) {
 	t.Run("empty store", func(t *testing.T) {
 		store := newTestStore(t)
 		ch := make(chan models.WorkItem, 10)
-		requeued, scanErrors, err := store.RequeueIncomplete(context.Background(), ch)
+		requeued, scanErrors, err := store.RequeueIncomplete(context.Background(), ch, false)
 		require.NoError(t, err)
 		assert.Equal(t, 0, requeued)
 		assert.Equal(t, 0, scanErrors)
@@ -457,7 +457,7 @@ func TestRequeueIncomplete(t *testing.T) {
 			LastAttempt: time.Now(),
 		})
 		ch := make(chan models.WorkItem, 10)
-		requeued, _, err := store.RequeueIncomplete(context.Background(), ch)
+		requeued, _, err := store.RequeueIncomplete(context.Background(), ch, false)
 		require.NoError(t, err)
 		assert.Equal(t, 0, requeued)
 		assert.Empty(t, ch)
@@ -468,7 +468,7 @@ func TestRequeueIncomplete(t *testing.T) {
 		// Mark page (creates empty value = pending)
 		store.MarkPageVisited("https://example.com/pending1")
 		ch := make(chan models.WorkItem, 10)
-		requeued, _, err := store.RequeueIncomplete(context.Background(), ch)
+		requeued, _, err := store.RequeueIncomplete(context.Background(), ch, false)
 		require.NoError(t, err)
 		assert.Equal(t, 1, requeued)
 		item := <-ch
@@ -484,7 +484,7 @@ func TestRequeueIncomplete(t *testing.T) {
 			LastAttempt: time.Now(),
 		})
 		ch := make(chan models.WorkItem, 10)
-		requeued, _, err := store.RequeueIncomplete(context.Background(), ch)
+		requeued, _, err := store.RequeueIncomplete(context.Background(), ch, false)
 		require.NoError(t, err)
 		assert.Equal(t, 1, requeued)
 		item := <-ch
@@ -499,7 +499,7 @@ func TestRequeueIncomplete(t *testing.T) {
 			ErrorType: "network",
 		})
 		ch := make(chan models.WorkItem, 10)
-		requeued, _, err := store.RequeueIncomplete(context.Background(), ch)
+		requeued, _, err := store.RequeueIncomplete(context.Background(), ch, false)
 		require.NoError(t, err)
 		assert.Equal(t, 0, requeued)
 		assert.Empty(t, ch)
@@ -514,8 +514,24 @@ func TestRequeueIncomplete(t *testing.T) {
 		cancel() // cancel immediately
 
 		ch := make(chan models.WorkItem, 10)
-		_, _, err := store.RequeueIncomplete(ctx, ch)
+		_, _, err := store.RequeueIncomplete(ctx, ch, false)
 		assert.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("success requeued when includeSuccess is true", func(t *testing.T) {
+		store := newTestStore(t)
+		store.UpdatePageStatus("https://example.com/done", &models.PageDBEntry{
+			Status:      models.PageStatusSuccess,
+			Depth:       2,
+			LastAttempt: time.Now(),
+		})
+		ch := make(chan models.WorkItem, 10)
+		requeued, _, err := store.RequeueIncomplete(context.Background(), ch, true)
+		require.NoError(t, err)
+		assert.Equal(t, 1, requeued)
+		item := <-ch
+		assert.Equal(t, "https://example.com/done", item.URL)
+		assert.Equal(t, 2, item.Depth)
 	})
 }
 
