@@ -2,7 +2,6 @@
 
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Sriram-PR/doc-scraper)](https://golang.org/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Sriram-PR/doc-scraper.svg)](https://pkg.go.dev/github.com/Sriram-PR/doc-scraper)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Sriram-PR/doc-scraper)](https://goreportcard.com/report/github.com/Sriram-PR/doc-scraper)
 [![License](https://img.shields.io/github/license/Sriram-PR/doc-scraper)](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE)
 
 > A configurable, concurrent, and resumable web crawler written in Go. Specifically designed to scrape technical documentation websites, extract core content, convert it cleanly to Markdown format suitable for ingestion by Large Language Models (LLMs), and save the results locally.
@@ -199,6 +198,7 @@ sites:
 | `enable_jsonl_output` | Boolean | Enable JSONL page output (one record per page plus a trailing crawl_meta record) for RAG pipelines | `false` |
 | `jsonl_output_filename` | String | Filename for JSONL output | `"pages.jsonl"` |
 | `enable_incremental` | Boolean | Enable incremental crawling globally | `false` |
+| `crawl_history_retention` | Integer | Number of past crawls per site kept in the SQLite history index (powers `get_freshness`/`diff_crawl`) | `10` |
 | `http_client_settings` | Object | HTTP client configuration | *(see below)* |
 | `sites` | Map | Site-specific configurations | *(required)* |
 
@@ -246,6 +246,7 @@ Execute the compiled binary from the project root directory:
 | `mcp-server` | Start MCP server for AI tool integration |
 | `watch` | Watch sites and re-crawl on schedule |
 | `version` | Show version information |
+| `run` | Read a JSON task spec from stdin and dispatch a crawl or watch (for orchestration/automation) |
 
 ### Command Options
 
@@ -258,7 +259,8 @@ Execute the compiled binary from the project root directory:
 | `-sites <keys>` | Comma-separated site keys for parallel crawling | - |
 | `--all-sites` | Crawl all configured sites in parallel | `false` |
 | `--resume` | Resume an interrupted crawl from existing state | `false` |
-| `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`, `fatal`) | `info` |
+| `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
+| `-json` | Emit logs as JSON (one record per line) instead of text | `false` |
 | `-pprof <addr>` | pprof server address. Only effective in builds with `-tags pprof`; default builds log a warning and ignore the flag | `""` (disabled) |
 | `-incremental` | Enable incremental crawling (skip unchanged pages) | `false` |
 | `-full` | Force full crawl (ignore incremental settings) | `false` |
@@ -297,6 +299,7 @@ Execute the compiled binary from the project root directory:
 | `--all-sites` | Watch all configured sites | `false` |
 | `-interval <duration>` | Crawl interval (e.g., `1h`, `24h`, `7d`) | `24h` |
 | `-loglevel <level>` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
+| `-json` | Emit logs as JSON (one record per line) instead of text | `false` |
 
 **Note:** One of `-site`, `-sites`, or `--all-sites` is required.
 
@@ -379,7 +382,6 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
     │   ├── image1.png
     │   └── image2.jpg
     ├── index.md                      # Markdown for the root path
-    ├── images/                       # Only present if skip_images: false
     ├── <jsonl_output_filename>       # If enable_jsonl_output: true
     ├── llms.txt                      # Manifest of pages (auto-generated, when JSONL is enabled)
     ├── llms-full.txt                 # Full content concatenated (auto-generated, when JSONL is enabled)
@@ -432,7 +434,7 @@ jsonl_output_filename: "pages.jsonl"  # default
 The file mixes two record kinds, distinguished by the `record_type` field:
 
 - **`page`** records, one per crawled page.
-- A single **`crawl_meta`** record appended as the final line, holding the crawl-level summary. A resumed crawl appends a fresh `crawl_meta` record rather than rewriting the original, so a consumer should treat the **last** `crawl_meta` record in the file as authoritative.
+- A single **`crawl_meta`** record as the final line, holding the crawl-level summary. Resuming rewrites the file to drop any leftover `crawl_meta` record before appending a fresh one at close, so a closed file always contains exactly one `crawl_meta` record.
 
 **`page` record fields** (from `PageJSONL`):
 
@@ -705,3 +707,4 @@ This project is licensed under the [Apache-2.0 License](https://github.com/Srira
 - [BadgerDB](https://github.com/dgraph-io/badger) for state persistence
 - [mcp-go](https://github.com/mark3labs/mcp-go) for MCP server implementation
 - [go-readability](https://github.com/go-shiori/go-readability) for content extraction fallback
+- [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) for the pure-Go crawl-history index
