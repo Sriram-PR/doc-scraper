@@ -63,6 +63,17 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Error loading config: %v\n", err)
 		return 1
 	}
+	// Validate applies the same defaults (e.g. max_requests) the crawl/watch
+	// commands rely on. Skipping it leaves the global request semaphore at
+	// capacity 0, which hangs every crawl_site fetch.
+	appWarnings, err := appCfg.Validate()
+	if err != nil {
+		fmt.Fprintf(stderr, "Error validating config: %v\n", err)
+		return 1
+	}
+	for _, w := range appWarnings {
+		log.Warn(w)
+	}
 
 	// Create and run MCP server
 	serverCfg := &mcp.ServerConfig{
