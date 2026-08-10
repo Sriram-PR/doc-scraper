@@ -290,7 +290,11 @@ func (c *Crawler) Run(resume bool) error {
 	initialURLsAddedFromSeed := c.seedStartURLs(validStartURLs, runLog)
 	c.wg.Done() // seeding complete; release the guard token
 	if initialURLsAddedFromSeed == 0 && initialTasksFromDB == 0 && len(c.foundSitemaps) == 0 {
-		runLog.Error("CRITICAL: No tasks seeded (no valid start URLs, no resume tasks, no initial sitemaps). Crawl will likely terminate.")
+		if resume {
+			runLog.Info("Resume: no incomplete tasks and no new seeds; prior crawl appears complete, nothing to do.")
+		} else {
+			runLog.Error("CRITICAL: No tasks seeded (no valid start URLs, no resume tasks, no initial sitemaps). Crawl will likely terminate.")
+		}
 	} else {
 		runLog.Info(fmt.Sprintf("Finished seeding %d start URLs. Total initial WG count from seeding & resume: %d.",
 			initialURLsAddedFromSeed, initialTasksFromDB+initialURLsAddedFromSeed))

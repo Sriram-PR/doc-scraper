@@ -110,7 +110,10 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 		}()
 	}
 
-	host := targetURL.Hostname()
+	// Host (with port), not Hostname: robots.txt is per-origin, so a site on a
+	// non-default port must fetch its own host:port/robots.txt and cache under
+	// that same key. Hostname() drops the port and silently fails such sites.
+	host := targetURL.Host
 	hostLog := rh.log.With("host", host)
 
 	if data, found := rh.lookupCache(host); found {

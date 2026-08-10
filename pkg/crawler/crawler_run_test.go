@@ -580,3 +580,61 @@ func TestCrawlerRun_Incremental404LeavesOutput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "KEEP ME", "previously-crawled content must be preserved")
 }
+
+// TestCrawlerRun_IncrementalDedupesJSONL is the regression test for the resume/
+// incremental JSONL corruption: reprocessing a changed page must not leave its
+// stale record behind. The finalized pages.jsonl (and the llms-full.txt and
+// crawl_meta derived from it) must hold exactly one record per URL, carrying the
+// fresh content and an accurate page count.
+func TestCrawlerRun_IncrementalDedupesJSONL(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A-ORIGINAL</p></main></body></html>`)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	appCfg.StateDir = t.TempDir()
+	appCfg.OutputBaseDir = t.TempDir()
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	// Crawl 1 (fresh): two pages.
+	runResumableCrawl(t, appCfg, siteCfg, false)
+
+	// Crawl 2 (incremental): only a.html's content region changes, so it is reprocessed.
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A-UPDATED</p></main></body></html>`)
+	runResumableCrawl(t, appCfg, siteCfg, true)
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	lines := readJSONLLines(t, filepath.Join(outDir, "pages.jsonl"))
+	require.GreaterOrEqual(t, len(lines), 3, "expected two page records plus a crawl_meta line")
+
+	counts := map[string]int{}
+	var aRecord models.PageJSONL
+	for _, line := range lines[:len(lines)-1] {
+		var p models.PageJSONL
+		require.NoError(t, json.Unmarshal([]byte(line), &p))
+		require.Equal(t, models.RecordTypePage, p.RecordType)
+		counts[p.URL]++
+		if p.URL == server.URL+"/docs/a.html" {
+			aRecord = p
+		}
+	}
+	require.Len(t, counts, 2, "exactly two distinct page URLs")
+	for u, n := range counts {
+		assert.Equalf(t, 1, n, "URL %s must appear exactly once in JSONL (no stale duplicate)", u)
+	}
+	assert.Contains(t, aRecord.Content, "A-UPDATED", "the surviving record must carry the fresh content")
+	assert.NotContains(t, aRecord.Content, "A-ORIGINAL", "the stale record must be dropped")
+
+	var meta models.CrawlMetaJSONL
+	require.NoError(t, json.Unmarshal([]byte(lines[len(lines)-1]), &meta))
+	assert.Equal(t, models.RecordTypeCrawlMeta, meta.RecordType)
+	assert.Equal(t, 2, meta.TotalPages, "crawl_meta must count unique pages, not duplicated records")
+
+	full, err := os.ReadFile(filepath.Join(outDir, "llms-full.txt"))
+	require.NoError(t, err)
+	assert.Contains(t, string(full), "A-UPDATED")
+	assert.NotContains(t, string(full), "A-ORIGINAL", "llms-full.txt must not carry stale content")
+}

@@ -215,7 +215,7 @@ sites:
 - `allowed_domain`: Restrict crawling to this domain (Required)
 - `allowed_path_prefix`: Further restrict crawling to URLs with this prefix (Required)
 - `content_selector`: CSS selector for main content extraction, or `"auto"` for automatic detection (Required)
-- `max_depth`: Maximum crawl depth from start URLs (0 = unlimited)
+- `max_depth`: Exclusive upper bound on crawl depth from start URLs. Start pages are depth 0, so `1` crawls only the start pages, `2` adds their directly-linked pages, and so on. `0` = unlimited
 - `delay_per_host`: Override global delay setting for this site
 - `disallowed_path_patterns`: Array of regex patterns for URLs to skip
 - `link_extraction_selectors`: Array of CSS selectors for additional link extraction areas
@@ -378,7 +378,7 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
 ```
 <output_base_dir>/
 └── <sanitized_allowed_domain>/       # e.g., docs.example.com
-    ├── images/                       # Only present if skip_images: false
+    ├── images/                       # Always created; only populated when skip_images: false
     │   ├── image1.png
     │   └── image2.jpg
     ├── index.md                      # Markdown for the root path
@@ -533,12 +533,20 @@ Parallel crawl completed in 2m30s
 Site Results:
   pytorch_docs: SUCCESS - 1500 pages in 1m20s
   tensorflow_docs: SUCCESS - 2000 pages in 2m15s
-  langchain_docs: FAILED - 0 pages in 10s
-    Error: site 'langchain_docs' not found in configuration
+  langchain_docs: FAILED - 0 pages in 3s
+    Error: initial fetch failed for start URL (see logs)
 -------------------------------------------
 Total: 3 sites (2 success, 1 failed), 3500 pages processed
 ===========================================
 ```
+
+Unknown or misspelled site keys are rejected **before** the crawl starts, so they never appear as a `FAILED` row in this summary. For example, `crawl -sites pytorch_docs,typo_key` exits immediately (non-zero) with:
+
+```
+Invalid site keys: site 'typo_key' not found. Available sites: [pytorch_docs tensorflow_docs langchain_docs]
+```
+
+The `FAILED` rows in the summary are for sites that exist in the config but errored during the crawl itself.
 
 ## Watch Mode
 
@@ -590,7 +598,7 @@ INFO Next crawl: pytorch_docs in 23h45m (at 10:30:00)
 
 ### Graceful Shutdown
 
-Watch mode handles SIGINT/SIGTERM gracefully, completing any in-progress crawls before exiting.
+Watch mode handles SIGINT/SIGTERM gracefully: it stops the scheduler and cancels any in-progress crawl, letting the crawler flush its BadgerDB state and partial output first, so the interrupted crawl resumes cleanly on the next run.
 
 ## MCP Server Mode
 

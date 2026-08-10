@@ -170,9 +170,19 @@ func stripLeftoverCrawlMeta(path string) (int64, error) {
 // llms.txt/llms-full.txt from the resulting JSONL, and finally records this
 // crawl into the history index (if attached).
 func (om *OutputManager) Close() error {
-	om.flushBufferedJSONL()
-	om.writeCrawlMetaRecord()
-	om.closeJSONLFile()
+	if om.bufferOutput {
+		om.flushBufferedJSONL()
+		om.writeCrawlMetaRecord()
+		om.closeJSONLFile()
+	} else {
+		// Streamed (resume/incremental) mode appends records live during the
+		// crawl, so a reprocessed page leaves both its stale and fresh record in
+		// the file. Close the append handle, then rewrite the JSONL with one
+		// record per URL so it stays the authoritative, de-duplicated source of
+		// truth for llms.txt and the history index.
+		om.closeJSONLFile()
+		om.finalizeStreamedJSONL()
+	}
 	om.writeLLMsTxtFiles()
 	om.writeToIndex()
 	return nil
@@ -341,7 +351,16 @@ func (om *OutputManager) writeCrawlMetaRecord() {
 	if om.jsonlFile == nil {
 		return
 	}
-	meta := models.CrawlMetaJSONL{
+	meta := om.buildCrawlMeta()
+	if err := writeJSONLLine(om.jsonlFile, meta); err != nil {
+		om.log.Error("Failed to write crawl_meta record", "path", om.jsonlFilePath, "err", err)
+		return
+	}
+	om.log.Info("Wrote crawl_meta record", "total_pages", meta.TotalPages, "path", om.jsonlFilePath)
+}
+
+func (om *OutputManager) buildCrawlMeta() models.CrawlMetaJSONL {
+	return models.CrawlMetaJSONL{
 		RecordType:     models.RecordTypeCrawlMeta,
 		SiteKey:        om.siteKey,
 		AllowedDomain:  om.siteCfg.AllowedDomain,
@@ -349,8 +368,102 @@ func (om *OutputManager) writeCrawlMetaRecord() {
 		CrawlEndedAt:   time.Now().Format(time.RFC3339),
 		TotalPages:     int(om.pagesRecorded.Load()),
 	}
-	if err := writeJSONLLine(om.jsonlFile, meta); err != nil {
-		om.log.Error("Failed to write crawl_meta record", "path", om.jsonlFilePath, "err", err)
+}
+
+// finalizeStreamedJSONL rewrites the streamed (resume/incremental) JSONL so it
+// holds one page record per URL (the freshest, since a reprocessed page's new
+// record is appended after its stale one) plus a single crawl_meta, sorted by
+// URL to match fresh-crawl output. This collapses the stale+fresh duplicate,
+// keeps llms.txt/llms-full.txt free of stale content, corrects the page count,
+// and lets the history-index insert (unique on crawl_id+url) succeed. Must run
+// after the append handle is closed. Errors are logged, never fatal.
+func (om *OutputManager) finalizeStreamedJSONL() {
+	if om.jsonlFilePath == "" {
+		return
+	}
+	pages, err := dedupePageRecords(om.jsonlFilePath)
+	if err != nil {
+		om.log.Warn("Resume: failed to dedupe JSONL page records; appending crawl_meta over the existing file", "path", om.jsonlFilePath, "err", err)
+		om.appendCrawlMeta()
+		return
+	}
+	om.pagesRecorded.Store(int64(len(pages)))
+
+	var buf bytes.Buffer
+	for _, page := range pages {
+		line, mErr := json.Marshal(page)
+		if mErr != nil {
+			om.log.Error("Failed to marshal JSONL page during dedupe", "url", page.URL, "err", mErr)
+			continue
+		}
+		buf.Write(line)
+		buf.WriteByte('\n')
+	}
+	if meta, mErr := json.Marshal(om.buildCrawlMeta()); mErr != nil {
+		om.log.Error("Failed to marshal crawl_meta during dedupe", "err", mErr)
+	} else {
+		buf.Write(meta)
+		buf.WriteByte('\n')
+	}
+	if err := os.WriteFile(om.jsonlFilePath, buf.Bytes(), 0644); err != nil {
+		om.log.Error("Failed to write finalized JSONL", "path", om.jsonlFilePath, "err", err)
+		return
+	}
+	om.log.Info("Wrote crawl_meta record", "total_pages", len(pages), "path", om.jsonlFilePath)
+}
+
+// dedupePageRecords reads a JSONL file and returns its page records with one
+// entry per URL (the last occurrence wins), sorted by URL. crawl_meta and
+// unparseable lines are skipped. A non-existent file yields no records.
+func dedupePageRecords(path string) ([]models.PageJSONL, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	latest := make(map[string]models.PageJSONL)
+	scanner := newJSONLScanner(f)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if !bytes.Contains(line, []byte(`"record_type":"page"`)) {
+			continue
+		}
+		var p models.PageJSONL
+		if err := json.Unmarshal(line, &p); err != nil {
+			continue
+		}
+		if p.RecordType != models.RecordTypePage {
+			continue
+		}
+		latest[p.URL] = p
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	pages := make([]models.PageJSONL, 0, len(latest))
+	for _, p := range latest {
+		pages = append(pages, p)
+	}
+	sort.Slice(pages, func(i, j int) bool { return pages[i].URL < pages[j].URL })
+	return pages, nil
+}
+
+// appendCrawlMeta appends a single crawl_meta record, used as a fallback when
+// the dedupe rewrite cannot read the file. Best-effort.
+func (om *OutputManager) appendCrawlMeta() {
+	f, err := os.OpenFile(om.jsonlFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		om.log.Error("Failed to open JSONL to append crawl_meta", "path", om.jsonlFilePath, "err", err)
+		return
+	}
+	defer f.Close()
+	meta := om.buildCrawlMeta()
+	if err := writeJSONLLine(f, meta); err != nil {
+		om.log.Error("Failed to append crawl_meta record", "path", om.jsonlFilePath, "err", err)
 		return
 	}
 	om.log.Info("Wrote crawl_meta record", "total_pages", meta.TotalPages, "path", om.jsonlFilePath)
