@@ -357,8 +357,7 @@ func (sp *SitemapProcessor) handleURLSet(sitemapBytes []byte, errIndex error, si
 		}
 		if added {
 			sp.wg.Add(1)
-			// Enqueue the normalized URL so WorkItem.URL and the DB key agree;
-			// see process/links.go for the rationale.
+			// Enqueue the normalized URL so WorkItem.URL and the DB key agree.
 			sp.pq.Add(&models.WorkItem{URL: normalizedPageURL, Depth: 0})
 			queuedCount++
 		}

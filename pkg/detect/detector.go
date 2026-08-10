@@ -27,7 +27,6 @@ type DetectionResult struct {
 	Fallback  bool      // True if using readability fallback
 }
 
-// ContentDetector detects the appropriate content selector for a page.
 type ContentDetector struct {
 	cache *SelectorCache
 	log   *slog.Logger
@@ -61,7 +60,7 @@ func (d *ContentDetector) Detect(doc *goquery.Document, pageURL *url.URL) Detect
 	// No framework matched; readability extraction will be used (no CSS selector needed).
 	result = DetectionResult{
 		Framework: FrameworkUnknown,
-		Selector:  "", // Empty selector signals readability fallback
+		Selector:  "",
 		Fallback:  true,
 	}
 	d.log.Info(fmt.Sprintf("No framework detected for domain %s, will use readability extraction", domain))

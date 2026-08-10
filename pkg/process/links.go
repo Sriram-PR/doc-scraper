@@ -141,11 +141,10 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 				return
 			}
 
-			// Normalize the valid, in-scope URL
 			normalizedLink, _, errNorm := parse.ParseAndNormalize(absoluteLinkURL)
 			if errNorm != nil {
 				taskLog.Warn(fmt.Sprintf("Cannot normalize extracted link '%s': %v", absoluteLinkURL, errNorm))
-				return // Skip if normalization fails
+				return
 			}
 
 			foundLinks[normalizedLink] = struct{}{}

@@ -15,8 +15,6 @@ func CompileRegexPatterns(patterns []string) ([]*regexp.Regexp, error) {
 		}
 		re, err := regexp.Compile(pattern)
 		if err != nil {
-			// Return a specific error including the pattern index and content
-			// Use the config validation sentinel error?
 			return nil, fmt.Errorf("%w: invalid regex pattern #%d ('%s'): %w", ErrConfigValidation, i+1, pattern, err)
 		}
 		compiled = append(compiled, re)

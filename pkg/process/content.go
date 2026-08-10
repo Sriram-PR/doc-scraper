@@ -115,7 +115,6 @@ func (cp *ContentProcessor) SelectMainContent(
 
 			mainContentSelection := doc.Find(actualSelector)
 			if mainContentSelection.Length() == 0 {
-				// Fallback to readability if detected selector fails
 				taskLog.Warn(fmt.Sprintf("Detected selector '%s' not found, falling back to readability", actualSelector))
 				extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
 				if extractErr != nil {
@@ -215,7 +214,6 @@ func (cp *ContentProcessor) ProcessAndSaveContent(
 				}
 				imgRewriteCount++
 			} else {
-				// Download/lookup failed
 				element.Remove()
 				imgRemoveCount++
 				taskLog.Debug(fmt.Sprintf("Removing image tag for failed download/lookup: src='%s' (Status: %s)", originalSrc, status))

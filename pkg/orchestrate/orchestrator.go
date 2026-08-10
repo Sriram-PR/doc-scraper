@@ -168,7 +168,6 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	return result
 }
 
-// Cancel cancels all running crawls.
 func (o *Orchestrator) Cancel() {
 	o.log.Info("Cancelling all crawls...")
 	o.cancel()

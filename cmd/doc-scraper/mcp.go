@@ -10,7 +10,6 @@ import (
 	"github.com/Sriram-PR/doc-scraper/pkg/mcp"
 )
 
-// runMcpServer handles the mcp-server subcommand
 func runMcpServer(args []string) {
 	fs := flag.NewFlagSet("mcp-server", flag.ExitOnError)
 	configFile := fs.String("config", "config.yaml", "Path to config file")
@@ -57,7 +56,6 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 		log.Warn(fmt.Sprintf("Invalid log level '%s', using default 'info'. Error: %v", logLevel, parseErr))
 	}
 
-	// Load config
 	appCfg, err := loadConfig(configPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error loading config: %v\n", err)
@@ -75,7 +73,6 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 		log.Warn(w)
 	}
 
-	// Create and run MCP server
 	serverCfg := &mcp.ServerConfig{
 		AppConfig:  appCfg,
 		ConfigPath: configPath,

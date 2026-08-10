@@ -20,19 +20,16 @@ func NewReadabilityExtractor() *ReadabilityExtractor {
 // Extract extracts the main content from an HTML document using readability
 // Returns the extracted content as a goquery Selection that can be processed like regular content
 func (r *ReadabilityExtractor) Extract(doc *goquery.Document, pageURL *url.URL) (*goquery.Selection, string, error) {
-	// Get the HTML from the document
 	html, err := doc.Html()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get HTML from document: %w", err)
 	}
 
-	// Parse with readability
 	article, err := readability.FromReader(strings.NewReader(html), pageURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("readability extraction failed: %w", err)
 	}
 
-	// Check if we got meaningful content
 	if article.Content == "" {
 		return nil, "", fmt.Errorf("readability extracted empty content")
 	}

@@ -93,7 +93,6 @@ func printUsage() {
 	printUsageTo(os.Stdout)
 }
 
-// printUsageTo writes usage information to the provided writer.
 func printUsageTo(w io.Writer) {
 	fmt.Fprintln(w, `doc-scraper - Documentation site crawler
 
@@ -111,7 +110,6 @@ Commands:
 Run 'doc-scraper <command> -h' for command-specific help.`)
 }
 
-// loadConfig loads and parses the config file
 func loadConfig(path string) (*config.AppConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -194,7 +192,6 @@ func runCrawl(args []string) {
 	}
 
 	logFormat := logFormatFor(*jsonLogs)
-	// Check for parallel mode (multiple sites or all sites)
 	if *allSites || len(siteKeys) > 1 {
 		executeParallelCrawl(*configFile, siteKeys, *allSites, *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode)
 	} else {
@@ -260,7 +257,6 @@ func doValidate(configPath, siteKey string, jsonOut bool, stdout, stderr io.Writ
 
 	globalWarnings, _ := appCfg.Validate()
 
-	// Per-site results.
 	type siteResult struct {
 		Key      string   `json:"key"`
 		Valid    bool     `json:"valid"`
@@ -455,7 +451,6 @@ Unknown JSON fields are rejected to surface typos. Logs are written to stderr;
 the process exit code matches the equivalent flag-driven subcommand.`)
 }
 
-// runWatch handles the watch subcommand
 func runWatch(args []string) {
 	fs := flag.NewFlagSet("watch", flag.ExitOnError)
 	configFile := fs.String("config", "config.yaml", "Path to config file")
@@ -489,7 +484,6 @@ func runWatch(args []string) {
 	executeWatch(*configFile, siteKeys, *allSites, *interval, *logLevel, logFormatFor(*jsonLogs))
 }
 
-// executeWatch runs the watch scheduler
 func executeWatch(configFile string, siteKeys []string, allSites bool, intervalStr, logLevelStr, logFormat string) {
 	log := setupLogger(logLevelStr, logFormat)
 
@@ -510,7 +504,6 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 		log.Warn(w)
 	}
 
-	// Enable incremental mode for watch
 	appCfg.EnableIncremental = true
 	log.Info("Incremental mode enabled for watch")
 
@@ -642,7 +635,8 @@ func loadAndValidateConfig(configFile string, log *slog.Logger) *config.AppConfi
 	return appCfg
 }
 
-// applyIncrementalOverride applies CLI flag overrides for incremental/full crawl mode.
+// applyIncrementalOverride applies CLI flag overrides for incremental mode.
+// -full takes precedence, forcing EnableIncremental=false even over -incremental.
 func applyIncrementalOverride(appCfg *config.AppConfig, incremental, full bool, log *slog.Logger) {
 	if incremental {
 		appCfg.EnableIncremental = true
@@ -668,7 +662,6 @@ func validateSiteConfigs(appCfg *config.AppConfig, siteKeys []string, log *slog.
 	}
 }
 
-// executeParallelCrawl handles crawling multiple sites in parallel
 func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) {
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
@@ -741,7 +734,6 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 
 	applyIncrementalOverride(appCfg, incrementalMode, fullMode, log)
 
-	// Log the effective incremental mode
 	if appCfg.EnableIncremental {
 		log.Info("Incremental crawling: ENABLED - will skip unchanged pages")
 	} else {

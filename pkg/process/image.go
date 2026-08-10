@@ -87,12 +87,12 @@ func NewImageProcessor(
 // pool, and returns a map of successfully processed images. Modifies the 'data-crawl-status'
 // attribute on img tags in the selection.
 func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pipeline with many edge cases
-	mainContent *goquery.Selection, // Operate on the selection
-	finalURL *url.URL, // Base URL of the page containing the images
-	siteCfg *config.SiteConfig, // Need site-specific image settings
-	siteOutputDir string, // Need for calculating local paths
+	mainContent *goquery.Selection,
+	finalURL *url.URL,
+	siteCfg *config.SiteConfig,
+	siteOutputDir string,
 	taskLog *slog.Logger, // Logger for the parent page task
-	ctx context.Context, // Parent context
+	ctx context.Context,
 ) (imageMap map[string]models.ImageData, imageErrs []error) {
 	taskLog.Debug("Processing images...")
 	imageMap = make(map[string]models.ImageData)
@@ -122,7 +122,6 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 		go ip.imageWorker(i, imageTaskChan, siteOutputDir, imageMap, &imageErrs, &imgErrMu, &imgWg)
 	}
 
-	// Ensure base image directory exists
 	localImageDir := filepath.Join(siteOutputDir, ImageDir)
 	if mkDirErr := os.MkdirAll(localImageDir, 0755); mkDirErr != nil {
 		wrappedErr := fmt.Errorf("%w: creating base image directory '%s': %w", utils.ErrFilesystem, localImageDir, mkDirErr)
@@ -316,9 +315,8 @@ func (ip *ImageProcessor) processSingleImageTask(
 			imgTaskErr = fmt.Errorf("panic processing img '%s': %v", task.AbsImgURL, r)
 			stackTrace := string(debug.Stack())
 			imgLogEntry.Error("PANIC Recovered in processSingleImageTask", "panic_info", r, "stack_trace", stackTrace)
-			// Collect error (needs mutex)
 			imgErrMu.Lock()
-			*imageErrs = append(*imageErrs, imgTaskErr) // Use the error created above
+			*imageErrs = append(*imageErrs, imgTaskErr)
 			imgErrMu.Unlock()
 		}
 

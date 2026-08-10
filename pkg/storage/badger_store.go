@@ -32,7 +32,8 @@ type BadgerStore struct {
 	keyCount atomic.Int64 // O(1) GetVisitedCount; maintained by atomic increments on writes
 }
 
-// NewBadgerStore initializes and returns a new BadgerStore.
+// NewBadgerStore opens the visited-DB directory for siteDomain.
+// resume=false wipes any existing directory first; resume=true reuses it and seeds the key count from existing data.
 func NewBadgerStore(ctx context.Context, stateDir, siteDomain string, resume bool, logger *slog.Logger) (*BadgerStore, error) {
 	store := &BadgerStore{
 		log: logger,
@@ -375,11 +376,10 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 		keyPrefixBytes := []byte(pageKeyPrefix)
 
 		for it.Seek(keyPrefixBytes); it.ValidForPrefix(keyPrefixBytes); it.Next() {
-			// Check context cancellation within the loop
 			select {
 			case <-ctx.Done():
 				s.log.Warn("Resume scan interrupted by context cancellation", "err", ctx.Err())
-				return ctx.Err() // Stop iteration
+				return ctx.Err()
 			default:
 			}
 
@@ -414,13 +414,12 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 				}
 
 				if shouldRequeue {
-					// Send to channel, respecting context cancellation
 					select {
 					case workChan <- models.WorkItem{URL: urlToRequeue, Depth: requeueDepth}:
 						requeuedCount++
 					case <-ctx.Done():
 						s.log.Warn("Resume scan interrupted while sending to queue", "url", urlToRequeue, "err", ctx.Err())
-						return ctx.Err() // Stop iteration
+						return ctx.Err()
 					}
 				}
 				return nil

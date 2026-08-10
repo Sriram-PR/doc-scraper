@@ -46,7 +46,6 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		cfg.Logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
 
-	// Create the MCP server
 	mcpServer := server.NewMCPServer(
 		serverName,
 		serverVersion,
@@ -72,13 +71,11 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		idx:        idx,
 	}
 
-	// Register all tools
 	s.registerTools()
 
 	return s, nil
 }
 
-// registerTools registers all available MCP tools
 func (s *Server) registerTools() {
 	toolCount := 0
 	addTool := func(tool mcp.Tool, handler server.ToolHandlerFunc) {
@@ -86,13 +83,11 @@ func (s *Server) registerTools() {
 		toolCount++
 	}
 
-	// list_sites - List all configured sites
 	listSitesTool := mcp.NewTool("list_sites",
 		mcp.WithDescription("List all configured sites available for crawling"),
 	)
 	addTool(listSitesTool, s.handleListSites)
 
-	// get_page - Fetch a single URL as markdown
 	getPageTool := mcp.NewTool("get_page",
 		mcp.WithDescription("Fetch a single URL and return its content as markdown"),
 		mcp.WithString("url",
@@ -105,7 +100,6 @@ func (s *Server) registerTools() {
 	)
 	addTool(getPageTool, s.handleGetPage)
 
-	// crawl_site - Start a background crawl
 	crawlSiteTool := mcp.NewTool("crawl_site",
 		mcp.WithDescription("Start a background crawl for a configured site. Returns immediately with a job ID."),
 		mcp.WithString("site_key",
@@ -118,7 +112,6 @@ func (s *Server) registerTools() {
 	)
 	addTool(crawlSiteTool, s.handleCrawlSite)
 
-	// get_job_status - Check status of a crawl job
 	getJobStatusTool := mcp.NewTool("get_job_status",
 		mcp.WithDescription("Get the status of a crawl job"),
 		mcp.WithString("job_id",
@@ -128,7 +121,6 @@ func (s *Server) registerTools() {
 	)
 	addTool(getJobStatusTool, s.handleGetJobStatus)
 
-	// cancel_crawl - Cancel a running crawl job
 	cancelCrawlTool := mcp.NewTool("cancel_crawl",
 		mcp.WithDescription("Cancel a running or pending crawl job by job ID. Has no effect on jobs already in a terminal state."),
 		mcp.WithString("job_id",
@@ -138,7 +130,6 @@ func (s *Server) registerTools() {
 	)
 	addTool(cancelCrawlTool, s.handleCancelCrawl)
 
-	// describe_server - Orientation manifest; intended to be called first
 	describeServerTool := mcp.NewTool("describe_server",
 		mcp.WithDescription(
 			"Returns server identity, configured sites, and recent crawl jobs in one call. "+
@@ -149,7 +140,6 @@ func (s *Server) registerTools() {
 	)
 	addTool(describeServerTool, s.handleDescribeServer)
 
-	// list_pages - Enumerate crawled pages for a site
 	listPagesTool := mcp.NewTool("list_pages",
 		mcp.WithDescription("List crawled pages for a site, paginated and sorted by URL. Returns metadata only (URL, title, depth, crawled_at, content_length); use get_page to fetch a specific page's full content."),
 		mcp.WithString("site_key",
@@ -165,7 +155,6 @@ func (s *Server) registerTools() {
 	)
 	addTool(listPagesTool, s.handleListPages)
 
-	// get_freshness - Is the local crawl recent enough?
 	getFreshnessTool := mcp.NewTool("get_freshness",
 		mcp.WithDescription("Return the most recent crawl summary for a site "+
 			"(last_crawl_started_at/ended_at, total_pages, mode, age_seconds) plus output/state "+
@@ -178,7 +167,6 @@ func (s *Server) registerTools() {
 	)
 	addTool(getFreshnessTool, s.handleGetFreshness)
 
-	// diff_crawl - What changed since a given timestamp?
 	diffCrawlTool := mcp.NewTool("diff_crawl",
 		mcp.WithDescription("Return added/removed/changed pages between the latest crawl and "+
 			"the most recent crawl whose crawl_ended_at <= since. Hash-based verdicts from the "+
@@ -210,12 +198,9 @@ func (s *Server) Run() error {
 	return server.ServeStdio(s.mcpServer)
 }
 
-// Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.log.Info("Shutting down MCP server...")
-	// Cancel any running jobs
 	s.jobManager.CancelAll()
-	// Flush and stop the persistence flusher
 	s.jobManager.Stop()
 	if s.idx != nil {
 		if err := s.idx.Close(); err != nil {

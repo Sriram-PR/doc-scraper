@@ -45,11 +45,10 @@ type Crawler struct {
 	appCfg                     *config.AppConfig
 	siteCfg                    *config.SiteConfig
 	resolved                   *config.ResolvedSiteConfig
-	siteKey                    string // Site identifier from config
+	siteKey                    string
 	siteOutputDir              string // Base output directory for *this specific site's* files
 	compiledDisallowedPatterns []*regexp.Regexp
 
-	// Core components
 	store            storage.VisitedStore
 	pq               *queue.ThreadSafePriorityQueue
 	fetcher          fetch.HTTPFetcher
@@ -60,20 +59,17 @@ type Crawler struct {
 	imageProcessor   *process.ImageProcessor
 	linkProcessor    *process.LinkProcessor
 
-	// Concurrency control
 	globalSemaphore *semaphore.Weighted
 	hostSemPool     *fetch.HostSemaphorePool
 
-	// Tracking and coordination
-	wg               sync.WaitGroup     // Main WaitGroup for all active tasks (pages, sitemaps)
-	processedCounter atomic.Int64       // Counter for tasks processed by workers
-	crawlCtx         context.Context    // Master context for the entire crawl of this site
-	cancelCrawl      context.CancelFunc // Function to cancel the crawlCtx
+	wg               sync.WaitGroup // Main WaitGroup for all active tasks (pages, sitemaps)
+	processedCounter atomic.Int64
+	crawlCtx         context.Context
+	cancelCrawl      context.CancelFunc
 
-	// Sitemap handling
-	sitemapQueue    chan string     // Channel for sitemap URLs to be processed
+	sitemapQueue    chan string
 	foundSitemaps   map[string]bool // Tracks sitemaps discovered by robots.txt
-	foundSitemapsMu sync.Mutex      // Protects foundSitemaps
+	foundSitemapsMu sync.Mutex
 
 	// Output file management (Markdown files + JSONL + llms.txt)
 	output *OutputManager
@@ -103,23 +99,22 @@ type CrawlerOptions struct {
 	Index *index.Index
 }
 
-// NewCrawler creates and initializes a new Crawler instance and its components
 func NewCrawler(
 	appCfg *config.AppConfig,
 	siteCfg *config.SiteConfig,
-	siteKey string, // The key for this site from the config map
-	baseLogger *slog.Logger, // Base logger from main
+	siteKey string,
+	baseLogger *slog.Logger,
 	store storage.VisitedStore,
 	fetcher fetch.HTTPFetcher,
 	rateLimiter *fetch.RateLimiter,
 	crawlCtx context.Context,
 	cancelCrawl context.CancelFunc,
-	resume bool, // Flag indicating if this is a resumed crawl
+	resume bool,
 ) (*Crawler, error) {
 	return NewCrawlerWithOptions(appCfg, siteCfg, siteKey, baseLogger, store, fetcher, rateLimiter, crawlCtx, cancelCrawl, resume, nil)
 }
 
-// NewCrawlerWithOptions creates a new Crawler with optional configuration
+// NewCrawlerWithOptions wires a Crawler and its components; opts may be nil to use defaults.
 func NewCrawlerWithOptions(
 	appCfg *config.AppConfig,
 	siteCfg *config.SiteConfig,
@@ -134,7 +129,6 @@ func NewCrawlerWithOptions(
 	opts *CrawlerOptions,
 ) (*Crawler, error) {
 
-	// Contextualize logger for this specific crawler instance
 	logger := baseLogger.With("site_key", siteKey)
 
 	compiledDisallowedPatterns, err := utils.CompileRegexPatterns(siteCfg.DisallowedPathPatterns)
@@ -147,7 +141,6 @@ func NewCrawlerWithOptions(
 
 	siteOutputDir := filepath.Join(appCfg.OutputBaseDir, utils.SanitizeFilename(siteCfg.AllowedDomain))
 
-	// Use shared semaphore if provided, otherwise create a new one
 	var globalSem *semaphore.Weighted
 	if opts != nil && opts.SharedSemaphore != nil {
 		globalSem = opts.SharedSemaphore
@@ -170,14 +163,14 @@ func NewCrawlerWithOptions(
 		siteOutputDir:              siteOutputDir,
 		compiledDisallowedPatterns: compiledDisallowedPatterns,
 		store:                      store,
-		pq:                         queue.NewThreadSafePriorityQueue(logger), // Pass contextualized logger
+		pq:                         queue.NewThreadSafePriorityQueue(logger),
 		fetcher:                    fetcher,
 		rateLimiter:                rateLimiter,
 		globalSemaphore:            globalSem,
 		hostSemPool:                hostSemPool,
 		crawlCtx:                   crawlCtx,
 		cancelCrawl:                cancelCrawl,
-		sitemapQueue:               make(chan string, 100), // Buffer size can be configured if needed
+		sitemapQueue:               make(chan string, 100),
 		foundSitemaps:              make(map[string]bool),
 	}
 	if opts != nil {
@@ -187,8 +180,6 @@ func NewCrawlerWithOptions(
 
 	c.output = NewOutputManager(logger, resolved, siteCfg, siteKey, siteOutputDir)
 
-	// Initialize components that depend on the crawler or other components
-	// Pass the crawler's contextualized logger to these components
 	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c, appCfg, logger)
 	c.sitemapProcessor = sitemap.NewSitemapProcessor(c.sitemapQueue, c.pq, c.store, c.fetcher, c.rateLimiter, c.globalSemaphore, c.compiledDisallowedPatterns, c.siteCfg, c.appCfg, logger, &c.wg)
 	c.imageProcessor = process.NewImageProcessor(c.store, c.fetcher, c.robotsHandler, c.rateLimiter, c.globalSemaphore, c.hostSemPool, c.resolved, c.appCfg, logger)
@@ -199,7 +190,7 @@ func NewCrawlerWithOptions(
 }
 
 // deriveMode picks the index.Mode label for a crawl run. EnableIncremental
-// implies resume per the v2.2.2 wiring, so the incremental check wins.
+// implies resume, so the incremental check wins.
 func deriveMode(resume, incremental bool) index.Mode {
 	switch {
 	case incremental:
@@ -223,12 +214,10 @@ func (c *Crawler) FoundSitemap(sitemapURL string) {
 	c.foundSitemapsMu.Unlock()
 
 	if isNew {
-		// Use crawler's logger which includes site_key
 		c.log.Debug(fmt.Sprintf("Crawler notified of newly found sitemap: %s", sitemapURL))
 	}
 }
 
-// CrawlerProgress contains progress information for a crawler
 type CrawlerProgress struct {
 	SiteKey        string
 	PagesProcessed int64
@@ -236,7 +225,6 @@ type CrawlerProgress struct {
 	IsRunning      bool
 }
 
-// GetProgress returns the current progress of the crawler
 func (c *Crawler) GetProgress() CrawlerProgress {
 	return CrawlerProgress{
 		SiteKey:        c.siteKey,
@@ -609,13 +597,12 @@ func (c *Crawler) worker(workerLog *slog.Logger) { // workerLog already has site
 			workerLog.Warn(fmt.Sprintf("Worker shutting down due to context cancellation: %v", c.crawlCtx.Err()))
 			return
 		default:
-			// Context is active, proceed to Pop
 		}
 
 		// Pop blocks until an item is available or the queue is closed and empty
 		workItemPtr, ok := c.pq.Pop()
-		if !ok { // Queue closed and empty, means no more work
-			if c.crawlCtx.Err() != nil { // Check if closed due to context cancellation
+		if !ok {
+			if c.crawlCtx.Err() != nil {
 				workerLog.Warn(fmt.Sprintf("Worker shutting down (queue closed & context cancelled): %v", c.crawlCtx.Err()))
 			} else {
 				workerLog.Info("Worker shutting down (queue closed & empty, all tasks processed).")
@@ -623,15 +610,13 @@ func (c *Crawler) worker(workerLog *slog.Logger) { // workerLog already has site
 			return
 		}
 
-		// Process the retrieved task
-		c.processSinglePageTask(*workItemPtr, workerLog) // Pass the worker's contextualized logger
+		c.processSinglePageTask(*workItemPtr, workerLog)
 	}
 }
 
 // cleanSiteOutputDir removes the site-specific output directory safely.
 // This is typically called when not in resume mode.
 func (c *Crawler) cleanSiteOutputDir() error {
-	// Use crawler's logger which includes site_key
 	c.log.Warn(fmt.Sprintf("Attempting to remove existing site output directory: %s", c.siteOutputDir))
 
 	// Safety Check: Resolve absolute paths to prevent accidental deletion outside base_dir
@@ -669,11 +654,9 @@ func (c *Crawler) cleanSiteOutputDir() error {
 func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slog.Logger) { //nolint:gocyclo // multi-stage page processing pipeline
 	currentURL := workItem.URL
 	currentDepth := workItem.Depth
-	// workerLog already has site_key and worker_id. Add URL-specific context for this task.
 	taskLog := workerLog.With("url", currentURL, "depth", currentDepth)
 	startTime := time.Now()
 
-	// Create per-page timeout context if configured
 	taskCtx := c.crawlCtx
 	if c.appCfg.PerPageTimeout > 0 {
 		var cancel context.CancelFunc
@@ -681,9 +664,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		defer cancel()
 	}
 
-	// Variables to be populated during the task.
-	// pageTitle and savedContentPath are used in defer logging.
-	// normalizedURLString is used for DB updates and YAML metadata.
+	// pageTitle and savedContentPath feed the deferred logging; normalizedURLString feeds DB updates and YAML metadata.
 	var taskErr error                 // Stores the first critical error encountered in the pipeline.
 	var finalStatus models.PageStatus // PageStatusSuccess or PageStatusFailure (only set for non-skipped tasks)
 	var finalErrorType = "None"       // Categorized error type on failure.
@@ -696,12 +677,11 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// Deferred function for panic recovery, final status logging, DB update, and WaitGroup decrement.
 	defer func() {
 		panicked := false
-		if r := recover(); r != nil { // Panic recovery
+		if r := recover(); r != nil {
 			panicked = true
-			skipped = false                      // Panic overrides any prior skip status
-			taskErr = fmt.Errorf("panic: %v", r) // Capture panic as the task error
+			skipped = false // Panic overrides any prior skip status
+			taskErr = fmt.Errorf("panic: %v", r)
 			stackTrace := string(debug.Stack())
-			// Log panic with full context
 			taskLog.Error("PANIC recovered in processSinglePageTask",
 				"panic_info", r,
 				"duration", time.Since(startTime).String(),
@@ -710,23 +690,22 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			)
 		}
 
-		// Determine final status and log task outcome
 		logAttrs := []any{"duration", time.Since(startTime).String()}
 		if pageTitle != "" {
 			logAttrs = append(logAttrs, "page_title", pageTitle)
 		}
 
-		if taskErr != nil { // Task failed
+		if taskErr != nil {
 			finalStatus = models.PageStatusFailure
-			finalErrorType = utils.CategorizeError(taskErr) // Categorize the error
+			finalErrorType = utils.CategorizeError(taskErr)
 			logAttrs = append(logAttrs, "category", finalErrorType)
 			if !panicked { // Log non-panic errors (panic already logged above)
 				taskLog.With(logAttrs...).Warn(fmt.Sprintf("Task failed: %v", taskErr))
 			}
-		} else if skipped { // Task was skipped
+		} else if skipped {
 			// finalStatus not set for skipped tasks (DB not updated)
 			taskLog.With(logAttrs...).Info("Task skipped")
-		} else { // Task succeeded
+		} else {
 			finalStatus = models.PageStatusSuccess
 			finalErrorType = "None"
 			if savedContentPath != "" {
@@ -735,7 +714,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			taskLog.With(logAttrs...).Info("Task completed successfully")
 		}
 
-		// Update DB status if the task was not skipped and URL was successfully normalized
 		if !skipped && normalizedURLString != "" {
 			pageEntry := &models.PageDBEntry{
 				Status:      finalStatus,
@@ -743,11 +721,10 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 				LastAttempt: time.Now(),
 				Depth:       currentDepth,
 			}
-			if finalStatus == models.PageStatusSuccess { // Mark ProcessedAt only on success
+			if finalStatus == models.PageStatusSuccess {
 				pageEntry.ProcessedAt = pageEntry.LastAttempt
-				pageEntry.ContentHash = contentHash // Store content-region hash for incremental crawling
+				pageEntry.ContentHash = contentHash
 			}
-			// Update page status in the persistent store
 			if dbUpdateErr := c.store.UpdatePageStatus(normalizedURLString, pageEntry); dbUpdateErr != nil {
 				taskLog.Error(fmt.Sprintf("Failed update final DB status for '%s' to '%s': %v", normalizedURLString, finalStatus, dbUpdateErr))
 			}
@@ -756,37 +733,37 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		}
 
 		if !skipped {
-			c.processedCounter.Add(1) // Increment global counter for actually processed tasks
+			c.processedCounter.Add(1)
 		}
-		c.wg.Done() // Decrement main WaitGroup, signaling this task is finished
-	}() // End defer.
+		c.wg.Done()
+	}()
 
 	// Helper function to store the first critical error encountered in the pipeline.
 	// Returns true if an error was handled (i.e., err was not nil).
 	handleTaskError := func(err error) bool {
 		if err == nil {
-			return false // No error to handle
+			return false
 		}
-		if taskErr == nil { // If no critical error has been recorded yet for this task
-			taskErr = err // Store this error as the task's primary error
+		if taskErr == nil {
+			taskErr = err
 		}
-		return true // Indicate that an error was handled
+		return true
 	}
 
-	var parsedOriginalURL *url.URL // Parsed version of currentURL
-	var host string                // Hostname from currentURL
-	var setupErr error             // Error from this stage
+	var parsedOriginalURL *url.URL
+	var host string
+	var setupErr error
 	var setupShouldSkip bool
 	// normalizedURLString is populated here for use in defer and metadata
 	parsedOriginalURL, normalizedURLString, host, setupShouldSkip, setupErr = c.handleSetupAndResumeCheck(currentURL, taskLog)
 	if handleTaskError(setupErr) {
 		return
-	} // If error, set taskErr and exit
+	}
 	if setupShouldSkip {
 		skipped = true
 		return
-	} // If skipped, set flag and exit
-	taskLog = taskLog.With("host", host) // Add host to subsequent logs for this task
+	}
+	taskLog = taskLog.With("host", host)
 
 	if handleTaskError(c.runPolicyChecks(parsedOriginalURL, currentDepth, taskLog)) {
 		return
@@ -854,15 +831,15 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
 	}
 
-	var tempSavedPath string // Temp var for the returned save path from contentProcessor
+	var tempSavedPath string
 	var tempMarkdownBytes []byte
 	var contentErr error
 	// pageTitle is already set from SelectMainContent above; savedContentPath is set on success.
 	tempSavedPath, tempMarkdownBytes, _, contentErr = c.contentProcessor.ProcessAndSaveContent(mainContent, pageTitle, finalURL, c.siteCfg, c.siteOutputDir, currentDepth, taskLog, taskCtx)
-	if handleTaskError(contentErr) { // If content processing/saving fails, set taskErr and exit.
+	if handleTaskError(contentErr) {
 		return
 	}
-	savedContentPath = tempSavedPath // This is the ABSOLUTE path to the saved .md file.
+	savedContentPath = tempSavedPath
 
 	if savedContentPath != "" {
 		c.output.RecordPageOutput(finalURL.String(), tempMarkdownBytes, pageTitle, currentDepth, taskLog)
@@ -875,21 +852,20 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 // It determines if the URL should be skipped (e.g., already successfully processed).
 func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *slog.Logger) (parsedURL *url.URL, normalizedURLStr string, host string, shouldSkip bool, err error) {
 	taskLog.Debug("Performing setup and resume check...")
-	parsedTargetURL, parseErr := url.Parse(currentURL) // Use a distinct variable name for initial parsing
+	parsedTargetURL, parseErr := url.Parse(currentURL)
 	if parseErr != nil {
 		err = fmt.Errorf("%w: parsing URL '%s': %w", utils.ErrParsing, currentURL, parseErr)
 		return nil, "", "", false, err
 	}
-	parsedURL = parsedTargetURL // Assign to the return variable
+	parsedURL = parsedTargetURL
 
-	normalizedURLStr = parse.NormalizeURL(parsedURL) // Get the normalized string representation
+	normalizedURLStr = parse.NormalizeURL(parsedURL)
 	host = parsedURL.Hostname()
 	if host == "" && parsedURL.Scheme != "file" { // Check scheme for file URLs which don't have a host
 		err = fmt.Errorf("URL '%s' missing host (and not a file:// URL)", currentURL)
 		return parsedURL, normalizedURLStr, "", false, err
 	}
 
-	// Check status in the persistent store
 	pageStatus, _, checkErr := c.store.CheckPageStatus(normalizedURLStr)
 	if checkErr != nil {
 		taskLog.Error(fmt.Sprintf("DB error checking status for '%s', proceeding as if not found: %v", normalizedURLStr, checkErr))
@@ -899,7 +875,7 @@ func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *slog.Log
 		if !c.appCfg.EnableIncremental {
 			taskLog.Info("Skipping already successfully processed page (from DB).")
 			shouldSkip = true
-			return parsedURL, normalizedURLStr, host, shouldSkip, nil // Return to skip
+			return parsedURL, normalizedURLStr, host, shouldSkip, nil
 		}
 		taskLog.Debug("Re-checking previously processed page for content changes (incremental mode).")
 	} else if pageStatus == models.PageStatusFailure {
@@ -908,24 +884,22 @@ func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *slog.Log
 		taskLog.Debug("Processing page previously marked pending (from DB).")
 	} // If PageStatusNotFound or any other unexpected status, proceed to crawl normally.
 
-	return parsedURL, normalizedURLStr, host, false, nil // Proceed with crawling
+	return parsedURL, normalizedURLStr, host, false, nil
 }
 
 // runPolicyChecks verifies if the URL adheres to defined crawl policies (depth, robots.txt).
 func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *slog.Logger) error {
 	taskLog.Debug("Running policy checks...")
-	// Depth Check
 	if c.siteCfg.MaxDepth > 0 && depth >= c.siteCfg.MaxDepth {
 		err := utils.ErrMaxDepthExceeded
 		taskLog.Info(fmt.Sprintf("%s (Current Depth: %d, Max Depth: %d)", err.Error(), depth, c.siteCfg.MaxDepth))
-		return err // Return error to stop processing this URL
+		return err
 	}
 
-	// Robots.txt Check
 	if !c.robotsHandler.TestAgent(parsedURL, c.resolved.UserAgent, c.crawlCtx) { // TestAgent handles fetching/caching robots.txt
 		err := fmt.Errorf("%w: URL '%s' disallowed for agent '%s'", utils.ErrRobotsDisallowed, parsedURL.RequestURI(), c.resolved.UserAgent)
-		taskLog.Warn(err.Error()) // Log warning
-		return err                // Return error to stop processing
+		taskLog.Warn(err.Error())
+		return err
 	}
 	taskLog.Debug("Policy checks passed.")
 	return nil
@@ -936,7 +910,6 @@ func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *slog.L
 func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFunc func(), err error) {
 	taskLog.Debug("Acquiring resources (semaphores, rate limit)...")
 	acquiredHostSem, acquiredGlobalSem := false, false
-	// Cleanup function will release acquired semaphores.
 	cleanupFunc = func() {
 		if acquiredHostSem {
 			c.hostSemPool.Release(host)
@@ -952,8 +925,8 @@ func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFu
 
 	semTimeout := config.DefaultSemaphoreAcquireTimeout
 
-	ctxHost, cancelHost := context.WithTimeout(c.crawlCtx, semTimeout) // Context for acquiring host semaphore
-	defer cancelHost()                                                 // Ensure timer is cleaned up
+	ctxHost, cancelHost := context.WithTimeout(c.crawlCtx, semTimeout)
+	defer cancelHost()
 	taskLog.Debug(fmt.Sprintf("Attempting to acquire host semaphore for: %s (timeout: %v)", host, semTimeout))
 	if semErr := c.hostSemPool.Acquire(ctxHost, host); semErr != nil {
 		// Wrap error for better context (e.g., distinguish timeout from other errors)
@@ -962,8 +935,8 @@ func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFu
 	acquiredHostSem = true
 	taskLog.Debug(fmt.Sprintf("Acquired host semaphore for: %s", host))
 
-	ctxGlobal, cancelGlobal := context.WithTimeout(c.crawlCtx, semTimeout) // Context for acquiring global semaphore
-	defer cancelGlobal()                                                   // Ensure timer is cleaned up
+	ctxGlobal, cancelGlobal := context.WithTimeout(c.crawlCtx, semTimeout)
+	defer cancelGlobal()
 	taskLog.Debug(fmt.Sprintf("Attempting to acquire global semaphore (timeout: %v)", semTimeout))
 	if semErr := c.globalSemaphore.Acquire(ctxGlobal, 1); semErr != nil {
 		// If global semaphore fails, host semaphore (if acquired) will be released by defer cleanupFunc.
@@ -978,7 +951,7 @@ func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFu
 	}
 
 	taskLog.Debug("Resource acquisition successful.")
-	return cleanupFunc, nil // Success
+	return cleanupFunc, nil
 }
 
 // drainClose drains and closes an HTTP response body so the keep-alive
@@ -995,15 +968,12 @@ func drainClose(resp *http.Response) {
 func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *url.URL, taskLog *slog.Logger) (finalURL *url.URL, resp *http.Response, err error) {
 	taskLog.Debug(fmt.Sprintf("Fetching page: %s", reqURLString))
 
-	// Create HTTP request with context for cancellation
 	req, reqErr := http.NewRequestWithContext(c.crawlCtx, http.MethodGet, reqURLString, nil)
 	if reqErr != nil {
-		// Wrap error for clarity
 		return nil, nil, fmt.Errorf("%w: creating request for '%s': %w", utils.ErrRequestCreation, reqURLString, reqErr)
 	}
-	req.Header.Set("User-Agent", c.resolved.UserAgent) // Set User-Agent header
+	req.Header.Set("User-Agent", c.resolved.UserAgent)
 
-	// Fetch using the configured Fetcher component (handles retries, HTTP errors)
 	resp, fetchErr := c.fetcher.FetchWithRetry(req, c.crawlCtx)
 
 	if fetchErr != nil {
@@ -1013,8 +983,8 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	}
 	// If fetchErr is nil, we have a successful 2xx response, and resp.Body is open.
 
-	finalURL = resp.Request.URL            // URL after any redirects handled by the HTTP client
-	if finalURL.String() != reqURLString { // Log if URL changed due to redirect
+	finalURL = resp.Request.URL // URL after any redirects handled by the HTTP client
+	if finalURL.String() != reqURLString {
 		taskLog = taskLog.With("final_url", finalURL.String())
 		taskLog.Info("URL redirected.")
 	}
@@ -1022,11 +992,10 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 
 	finalHost := finalURL.Hostname()
 	finalPath := finalURL.Path
-	if finalPath == "" { // Normalize empty path to root
+	if finalPath == "" {
 		finalPath = "/"
 	}
 
-	// Scope Check: Domain and Path Prefix for the final URL
 	if finalHost != c.siteCfg.AllowedDomain || !strings.HasPrefix(finalPath, c.siteCfg.AllowedPathPrefix) {
 		err = fmt.Errorf("%w: redirected URL '%s' out of scope (Expected Domain: '%s', Path Prefix: '%s')",
 			utils.ErrScopeViolation, finalURL.String(), c.siteCfg.AllowedDomain, c.siteCfg.AllowedPathPrefix)
@@ -1034,9 +1003,8 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		return finalURL, nil, err // resp body is now closed; return a nil response
 	}
 
-	// Scope Check: Disallowed Path Patterns for the final URL
 	for _, pattern := range c.compiledDisallowedPatterns {
-		if pattern.MatchString(finalURL.Path) { // Match against the path part of the final URL
+		if pattern.MatchString(finalURL.Path) {
 			err = fmt.Errorf("%w: redirected URL '%s' matches disallowed pattern '%s'",
 				utils.ErrScopeViolation, finalURL.String(), pattern.String())
 			drainClose(resp)
@@ -1044,8 +1012,8 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		}
 	}
 
-	// Robots.txt Check for the final URL, especially if the host changed due to redirect
-	if finalHost != originalParsedURL.Hostname() { // If redirected to a different host (within allowed_domain)
+	// Re-check robots.txt since the redirect crossed hosts.
+	if finalHost != originalParsedURL.Hostname() {
 		taskLog.Debug(fmt.Sprintf("Host changed due to redirect (%s -> %s), re-checking robots.txt for final URL.",
 			originalParsedURL.Hostname(), finalHost))
 		if !c.robotsHandler.TestAgent(finalURL, c.resolved.UserAgent, c.crawlCtx) {
@@ -1076,15 +1044,13 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	}
 
 	taskLog.Debug("Fetch and validation successful.")
-	return finalURL, resp, nil // Success: return final URL and open response
+	return finalURL, resp, nil
 }
 
-// readAndParseBody reads the HTTP response body and parses it into a goquery.Document.
-// It ensures resp.Body is closed after reading.
-// Returns the parsed goquery document. Closes resp.Body.
+// readAndParseBody reads resp.Body into a goquery.Document, closing the body when done.
 func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskLog *slog.Logger) (doc *goquery.Document, err error) {
 	taskLog.Debug(fmt.Sprintf("Reading response body from: %s", finalURL.String()))
-	defer resp.Body.Close() // Ensure response body is closed when this function returns
+	defer resp.Body.Close()
 
 	// Read response body with size limit to prevent OOM on oversized pages
 	maxPageSize := c.resolved.MaxPageSizeBytes
@@ -1098,7 +1064,6 @@ func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskL
 	}
 	taskLog.Debug(fmt.Sprintf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String()))
 
-	// Parse the HTML content using goquery
 	doc, parseErr := goquery.NewDocumentFromReader(bytes.NewReader(bodyBytes))
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: parsing HTML from '%s': %w", utils.ErrParsing, finalURL.String(), parseErr)

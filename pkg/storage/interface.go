@@ -18,7 +18,6 @@ type PageStore interface {
 	// the PageDBEntry if found and parsed, and any error
 	CheckPageStatus(normalizedPageURL string) (status models.PageStatus, entry *models.PageDBEntry, err error)
 
-	// UpdatePageStatus updates the status and details for a page URL
 	UpdatePageStatus(normalizedPageURL string, entry *models.PageDBEntry) error
 
 	// GetPageContentHash retrieves the content hash for a previously crawled page
@@ -33,7 +32,6 @@ type ImageStore interface {
 	// the ImageDBEntry if found and parsed, and any error
 	CheckImageStatus(normalizedImgURL string) (status models.ImageStatus, entry *models.ImageDBEntry, err error)
 
-	// UpdateImageStatus updates the status and details for an image URL
 	UpdateImageStatus(normalizedImgURL string, entry *models.ImageDBEntry) error
 }
 

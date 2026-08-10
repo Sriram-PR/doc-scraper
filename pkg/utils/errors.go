@@ -81,7 +81,7 @@ func CategorizeError(err error) string {
 		if strings.Contains(errMsg, " 429 ") {
 			return "HTTP_429"
 		}
-		return "HTTP_4xx" // Generic 4xx
+		return "HTTP_4xx"
 	case errors.Is(err, ErrServerHTTPError):
 		// Should only see this wrapped by ErrRetryFailed usually, but handle directly too
 		return "HTTP_5xx"
@@ -158,7 +158,6 @@ func CategorizeError(err error) string {
 		if netErr.Timeout() {
 			return "Network_Timeout"
 		}
-		// Other net.Error checks
 	}
 	errMsg := err.Error()
 	// Use lowercase for reliable substring checks

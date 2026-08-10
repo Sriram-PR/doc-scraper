@@ -11,11 +11,10 @@ const maxFilenameLength = 100                                          // Max le
 
 // SanitizeFilename cleans a string to be safe for use as a filename component
 func SanitizeFilename(name string) string {
-	sanitized := invalidFilenameChars.ReplaceAllString(name, "_")       // Replace invalid chars with underscore
-	sanitized = consecutiveUnderscores.ReplaceAllString(sanitized, "_") // Collapse multiple underscores
-	sanitized = strings.Trim(sanitized, "_ ")                           // Remove leading/trailing underscores or spaces
+	sanitized := invalidFilenameChars.ReplaceAllString(name, "_")
+	sanitized = consecutiveUnderscores.ReplaceAllString(sanitized, "_")
+	sanitized = strings.Trim(sanitized, "_ ")
 
-	// Limit filename length (considering multi-byte characters)
 	if len(sanitized) > maxFilenameLength {
 		// Simple truncation by byte length is usually sufficient for sanitization purposes
 		sanitized = sanitized[:maxFilenameLength]
@@ -27,7 +26,7 @@ func SanitizeFilename(name string) string {
 	// would resolve to parent/current directory references when used in
 	// filesystem paths and could escape the intended output directory.
 	if sanitized == "" || strings.Trim(sanitized, ".") == "" {
-		sanitized = "untitled" // Provide a default name
+		sanitized = "untitled"
 	}
 	return sanitized
 }

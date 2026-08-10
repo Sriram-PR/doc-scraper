@@ -75,7 +75,6 @@ func (s *Scheduler) Run() error {
 	}
 }
 
-// Stop stops the watch scheduler.
 func (s *Scheduler) Stop() {
 	s.log.Info("Stopping watch scheduler...")
 	s.cancel()
@@ -90,8 +89,8 @@ func (s *Scheduler) runDueSites() {
 
 	s.log.Info(fmt.Sprintf("Running crawl for %d due sites: %v", len(dueSites), dueSites))
 
-	// Watch is incremental by construction (see executeWatch); pass resume=true
-	// so scheduled re-crawls reuse the persisted visited DB instead of wiping it.
+	// Watch is incremental by construction; pass resume=true so scheduled re-crawls
+	// reuse the persisted visited DB instead of wiping it.
 	orch := orchestrate.NewOrchestrator(s.ctx, s.appCfg, dueSites, true, s.log).WithIndex(s.idx)
 
 	s.wg.Add(1)
