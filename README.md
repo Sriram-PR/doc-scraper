@@ -187,7 +187,7 @@ sites:
 | `max_requests_per_host` | Integer | Maximum concurrent requests per host | `2` |
 | `output_base_dir` | String | Base directory for crawled content | `"./crawled_docs"` |
 | `state_dir` | String | Directory for BadgerDB state data | `"./crawler_state"` |
-| `max_retries` | Integer | Maximum retry attempts for HTTP requests | `3` |
+| `max_retries` | Integer | Maximum retry attempts for HTTP requests. To disable retries, set this to `0` together with a non-zero `initial_retry_delay`; `max_retries: 0` on its own is treated as unset and falls back to the default | `3` |
 | `initial_retry_delay` | Duration | Initial delay for retry backoff | `1s` |
 | `max_retry_delay` | Duration | Maximum delay for retry backoff | `30s` |
 | `global_crawl_timeout` | Duration | Overall timeout for the entire crawl | `0s` (no timeout) |
@@ -213,7 +213,7 @@ sites:
 
 - `start_urls`: Array of starting URLs for crawling (Required)
 - `allowed_domain`: Restrict crawling to this domain (Required)
-- `allowed_path_prefix`: Further restrict crawling to URLs with this prefix (Required)
+- `allowed_path_prefix`: Restrict crawling to URLs under this path prefix (Optional; defaults to `/`, the whole domain). Setting it is strongly recommended to bound scope
 - `content_selector`: CSS selector for main content extraction, or `"auto"` for automatic detection (Required)
 - `max_depth`: Exclusive upper bound on crawl depth from start URLs. Start pages are depth 0, so `1` crawls only the start pages, `2` adds their directly-linked pages, and so on. `0` = unlimited. URLs discovered from a `sitemap.xml` are seeded at depth 1 (one hop from the site root), so they are still bounded by `max_depth`: `max_depth: 1` stays start-only and skips sitemap expansion
 - `delay_per_host`: Override global delay setting for this site
@@ -599,6 +599,35 @@ INFO Next crawl: pytorch_docs in 23h45m (at 10:30:00)
 ### Graceful Shutdown
 
 Watch mode handles SIGINT/SIGTERM gracefully: it stops the scheduler and cancels any in-progress crawl, letting the crawler flush its BadgerDB state and partial output first, so the interrupted crawl resumes cleanly on the next run.
+
+## Run (JSON Task Spec)
+
+The `run` command reads a single JSON object from stdin and dispatches the equivalent `crawl` or `watch`. It is meant for orchestration agents that would rather build a JSON payload than assemble shell flags. Unknown fields are rejected so typos surface immediately; logs go to stderr and the exit code matches the equivalent flag-driven subcommand.
+
+```json
+{
+  "command":     "crawl" | "watch",   // required
+  "config":      "config.yaml",        // optional, defaults to config.yaml
+  "site":        "site_key",           // exactly one of site | sites | all_sites
+  "sites":       ["a", "b"],
+  "all_sites":   true,
+  "resume":      false,                // crawl only
+  "incremental": false,                // crawl only (implies resume)
+  "full":        false,                // crawl only (mutually exclusive with incremental)
+  "interval":    "24h",                // watch only, defaults to 24h
+  "loglevel":    "info",               // defaults to info
+  "json_logs":   false,                // emit slog records as JSON on stderr
+  "pprof":       ""                    // crawl only, e.g. localhost:6060
+}
+```
+
+Examples:
+
+```bash
+echo '{"command":"crawl","site":"pytorch_docs"}' | doc-scraper run
+echo '{"command":"crawl","all_sites":true,"incremental":true,"json_logs":true}' | doc-scraper run
+echo '{"command":"watch","sites":["pytorch_docs","tensorflow_docs"],"interval":"6h"}' | doc-scraper run
+```
 
 ## MCP Server Mode
 

@@ -167,7 +167,7 @@ func runCrawl(args []string) {
 	resume := fs.Bool("resume", false, "Resume an interrupted crawl from existing state")
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error)")
 	jsonLogs := fs.Bool("json", false, "Emit logs as JSON (one record per line) instead of slog's text format")
-	pprofAddr := fs.String("pprof", "", "pprof address, e.g. localhost:6060 (disabled by default)")
+	pprofAddr := fs.String("pprof", "", "pprof address, e.g. localhost:6060; only effective in builds with -tags pprof (default builds log a warning and ignore it)")
 	incrementalMode := fs.Bool("incremental", false, "Enable incremental crawling (skip unchanged pages)")
 	fullMode := fs.Bool("full", false, "Force full crawl (ignore incremental settings)")
 
