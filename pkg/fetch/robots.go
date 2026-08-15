@@ -162,7 +162,19 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 	resp, fetchErr := rh.fetcher.FetchWithRetry(req, ctx)
 
 	if fetchErr != nil {
-		robotsLog.Error(fmt.Sprintf("Fetching robots.txt failed: %v", fetchErr))
+		// The fetcher hands back the response alongside 4xx/5xx errors, so close
+		// it here to avoid leaking the body. A 404 just means the host publishes
+		// no robots.txt, which by convention allows all -- log it quietly rather
+		// than alarming at ERROR level for an entirely normal situation.
+		if resp != nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusNotFound {
+				robotsLog.Info("No robots.txt found (404); allowing all for host")
+				rh.cacheFailure(host)
+				return nil
+			}
+		}
+		robotsLog.Warn(fmt.Sprintf("Fetching robots.txt failed, allowing all for host: %v", fetchErr))
 		rh.cacheFailure(host)
 		return nil
 	}
