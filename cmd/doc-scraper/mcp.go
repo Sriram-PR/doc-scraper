@@ -41,6 +41,8 @@ Available MCP Tools:
   get_job_status  Check the status of a crawl job
   cancel_crawl    Cancel a running or pending crawl job
   list_pages      Enumerate crawled pages for a site (paginated, metadata only)
+  get_freshness   Report how stale a site's latest crawl is
+  diff_crawl      Report pages added, removed, or changed since a timestamp
 `)
 	}
 

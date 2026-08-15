@@ -127,23 +127,33 @@ func loadConfig(path string) (*config.AppConfig, error) {
 // resolveSiteKeys resolves the effective site keys from the -site/-sites/
 // --all-sites flags. ok is false when none of the three were supplied; the
 // caller is responsible for printing the usage error and exiting in that case.
-func resolveSiteKeys(siteKey, sites string, allSites bool) (siteKeys []string, ok bool) {
+// resolveSiteKeys picks the crawl target from the mutually exclusive selectors,
+// in precedence order --all-sites > -sites > -site. warning is non-empty when a
+// lower-precedence selector was also set and silently ignored, so a typo'd -site
+// next to a valid -sites does not pass unnoticed.
+func resolveSiteKeys(siteKey, sites string, allSites bool) (siteKeys []string, warning string, ok bool) {
 	if allSites {
-		return nil, true // Signal to use all sites
+		if sites != "" || siteKey != "" {
+			warning = "--all-sites is set; ignoring -site/-sites"
+		}
+		return nil, warning, true
 	}
 	if sites != "" {
+		if siteKey != "" {
+			warning = "both -site and -sites given; using -sites and ignoring -site"
+		}
 		for _, s := range strings.Split(sites, ",") {
 			s = strings.TrimSpace(s)
 			if s != "" {
 				siteKeys = append(siteKeys, s)
 			}
 		}
-		return siteKeys, true
+		return siteKeys, warning, true
 	}
 	if siteKey != "" {
-		return []string{siteKey}, true
+		return []string{siteKey}, "", true
 	}
-	return nil, false
+	return nil, "", false
 }
 
 // runCrawl handles the crawl subcommand. A fresh crawl wipes prior state;
@@ -184,11 +194,14 @@ func runCrawl(args []string) {
 	// state gets wiped first.
 	isResume := *resume || *incrementalMode
 
-	siteKeys, ok := resolveSiteKeys(*siteKey, *sites, *allSites)
+	siteKeys, warning, ok := resolveSiteKeys(*siteKey, *sites, *allSites)
 	if !ok {
 		fmt.Fprintln(os.Stderr, "Error: one of -site, -sites, or --all-sites is required")
 		fs.Usage()
 		os.Exit(1)
+	}
+	if warning != "" {
+		fmt.Fprintln(os.Stderr, "Warning: "+warning)
 	}
 
 	logFormat := logFormatFor(*jsonLogs)
@@ -474,11 +487,14 @@ func runWatch(args []string) {
 		os.Exit(1)
 	}
 
-	siteKeys, ok := resolveSiteKeys(*siteKey, *sites, *allSites)
+	siteKeys, warning, ok := resolveSiteKeys(*siteKey, *sites, *allSites)
 	if !ok {
 		fmt.Fprintln(os.Stderr, "Error: one of -site, -sites, or --all-sites is required")
 		fs.Usage()
 		os.Exit(1)
+	}
+	if warning != "" {
+		fmt.Fprintln(os.Stderr, "Warning: "+warning)
 	}
 
 	executeWatch(*configFile, siteKeys, *allSites, *interval, *logLevel, logFormatFor(*jsonLogs))
