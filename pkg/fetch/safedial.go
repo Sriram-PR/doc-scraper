@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+
+	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
 // cgnatRange is RFC 6598 Carrier-Grade NAT space (100.64.0.0/10). Go's
@@ -51,7 +53,7 @@ func SafeDialContext(base *net.Dialer) func(ctx context.Context, network, addr s
 
 		if parsed, perr := netip.ParseAddr(host); perr == nil {
 			if IsBlockedAddr(parsed.Unmap()) {
-				return nil, fmt.Errorf("safedial: blocked address %s (private/loopback/link-local/cgnat/multicast)", parsed)
+				return nil, fmt.Errorf("%w: %s (private/loopback/link-local/cgnat/multicast)", utils.ErrBlockedAddress, parsed)
 			}
 			return base.DialContext(ctx, network, addr)
 		}
@@ -69,7 +71,7 @@ func SafeDialContext(base *net.Dialer) func(ctx context.Context, network, addr s
 		}
 		for _, ip := range ips {
 			if IsBlockedAddr(ip.Unmap()) {
-				return nil, fmt.Errorf("safedial: %q resolved to blocked address %s", host, ip)
+				return nil, fmt.Errorf("%w: %q resolved to %s", utils.ErrBlockedAddress, host, ip)
 			}
 		}
 

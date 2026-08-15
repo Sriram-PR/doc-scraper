@@ -22,6 +22,7 @@ var (
 	ErrDatabase           = errors.New("database error")   // Wraps badger errors
 	ErrSemaphoreTimeout   = errors.New("timeout acquiring semaphore")
 	ErrRequestCreation    = errors.New("failed to create HTTP request")
+	ErrBlockedAddress     = errors.New("blocked address (SSRF guard)") // Permanent; never retried
 	ErrResponseBodyRead   = errors.New("failed to read response body")
 	ErrMarkdownConversion = errors.New("failed to convert HTML to markdown")
 	ErrConfigValidation   = errors.New("configuration validation error")

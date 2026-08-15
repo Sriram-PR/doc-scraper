@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Sriram-PR/doc-scraper/pkg/utils"
 )
 
 func TestIsBlockedAddr(t *testing.T) {
@@ -95,8 +98,8 @@ func TestSafeDialContext_BlocksIPLiteral(t *testing.T) {
 				conn.Close()
 				t.Fatalf("SafeDialContext(%q) returned conn, want blocked error", addr)
 			}
-			if !strings.Contains(err.Error(), "safedial:") {
-				t.Errorf("SafeDialContext(%q) error = %q, want safedial: prefix", addr, err)
+			if !errors.Is(err, utils.ErrBlockedAddress) {
+				t.Errorf("SafeDialContext(%q) error = %q, want ErrBlockedAddress", addr, err)
 			}
 		})
 	}
