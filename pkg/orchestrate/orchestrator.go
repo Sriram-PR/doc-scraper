@@ -116,7 +116,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	siteCtx, siteCancel := context.WithCancel(o.ctx)
 	defer siteCancel()
 
-	store, err := storage.NewBadgerStore(siteCtx, o.appCfg.StateDir, siteCfg.AllowedDomain, o.resume, o.log)
+	store, err := storage.NewBadgerStore(siteCtx, o.appCfg.StateDir, siteKey, o.resume, o.log)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create store for '%s': %w", siteKey, err)
 		result.Success = false

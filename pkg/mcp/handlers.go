@@ -445,7 +445,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 	rateLimiter := fetch.NewRateLimiter(s.cfg.AppConfig.DefaultDelayPerHost, s.log)
 
 	// MCP jobs always start fresh, never resume.
-	store, err := storage.NewBadgerStore(jobCtx, s.cfg.AppConfig.StateDir, siteCfg.AllowedDomain, false, s.log)
+	store, err := storage.NewBadgerStore(jobCtx, s.cfg.AppConfig.StateDir, siteKey, false, s.log)
 	if err != nil {
 		s.jobManager.UpdateStatus(job.ID, JobStatusFailed, fmt.Sprintf("failed to open store: %v", err))
 		return

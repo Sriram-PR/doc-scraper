@@ -134,10 +134,14 @@ func serverHostname(server *httptest.Server) string {
 	return u
 }
 
+// testSiteKey is the site key every harness in this file crawls under; output
+// and state are keyed by it, not by the domain.
+const testSiteKey = "testsite"
+
 // siteOutputDir mirrors the layout Crawler computes internally
-// (OutputBaseDir/SanitizeFilename(AllowedDomain)).
-func siteOutputDir(appCfg *config.AppConfig, siteCfg *config.SiteConfig) string {
-	return filepath.Join(appCfg.OutputBaseDir, utils.SanitizeFilename(siteCfg.AllowedDomain))
+// (OutputBaseDir/SanitizeFilename(siteKey)).
+func siteOutputDir(appCfg *config.AppConfig, _ *config.SiteConfig) string {
+	return filepath.Join(appCfg.OutputBaseDir, utils.SanitizeFilename(testSiteKey))
 }
 
 // runCrawl wires up a real store/fetcher/rate-limiter and drives Crawler.Run
@@ -150,7 +154,7 @@ func runCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, siteCfg.AllowedDomain, false, logger)
+	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, false, logger)
 	require.NoError(t, err, "NewBadgerStore")
 	defer store.Close()
 
@@ -158,7 +162,7 @@ func runCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig
 	fetcher := fetch.NewFetcher(httpClient, appCfg, logger)
 	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logger)
 
-	c, err := NewCrawler(appCfg, siteCfg, "testsite", logger, store, fetcher, rateLimiter, ctx, cancel, false)
+	c, err := NewCrawler(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rateLimiter, ctx, cancel, false)
 	require.NoError(t, err, "NewCrawler")
 
 	return c.Run(false)
@@ -477,13 +481,13 @@ func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.S
 	logger := silentLogger()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, siteCfg.AllowedDomain, resume, logger)
+	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, resume, logger)
 	require.NoError(t, err)
 	defer store.Close()
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, logger)
 	fetcher := fetch.NewFetcher(httpClient, appCfg, logger)
 	rl := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logger)
-	c, err := NewCrawler(appCfg, siteCfg, "testsite", logger, store, fetcher, rl, ctx, cancel, resume)
+	c, err := NewCrawler(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rl, ctx, cancel, resume)
 	require.NoError(t, err)
 	require.NoError(t, c.Run(resume))
 }

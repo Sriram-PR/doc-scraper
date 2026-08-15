@@ -373,11 +373,11 @@ Because there is no conditional-request support yet, incremental mode still perf
 
 ## Output Structure
 
-Crawled content is saved under the `output_base_dir` defined in the config, organized by domain and preserving the site structure:
+Crawled content is saved under the `output_base_dir` defined in the config, organized by site key and preserving the site structure. Keying by site key (rather than domain) keeps two site configs that target the same domain in separate trees:
 
 ```
 <output_base_dir>/
-└── <sanitized_allowed_domain>/       # e.g., docs.example.com
+└── <sanitized_site_key>/            # e.g., flask_docs
     ├── images/                       # Always created; only populated when skip_images: false
     │   ├── image1.png
     │   └── image2.jpg

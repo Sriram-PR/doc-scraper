@@ -32,15 +32,16 @@ type BadgerStore struct {
 	keyCount atomic.Int64 // O(1) GetVisitedCount; maintained by atomic increments on writes
 }
 
-// NewBadgerStore opens the visited-DB directory for siteDomain.
+// NewBadgerStore opens the visited-DB directory for siteKey. Keying by site key
+// rather than domain keeps two site configs that target the same domain isolated.
 // resume=false wipes any existing directory first; resume=true reuses it and seeds the key count from existing data.
-func NewBadgerStore(ctx context.Context, stateDir, siteDomain string, resume bool, logger *slog.Logger) (*BadgerStore, error) {
+func NewBadgerStore(ctx context.Context, stateDir, siteKey string, resume bool, logger *slog.Logger) (*BadgerStore, error) {
 	store := &BadgerStore{
 		log: logger,
 		ctx: ctx,
 	}
 
-	dbDirName := utils.SanitizeFilename(siteDomain) + "_" + visitedDBDir
+	dbDirName := utils.SanitizeFilename(siteKey) + "_" + visitedDBDir
 	dbPath := filepath.Join(stateDir, dbDirName)
 
 	if !resume {
