@@ -215,7 +215,7 @@ sites:
 - `allowed_domain`: Restrict crawling to this domain (Required)
 - `allowed_path_prefix`: Further restrict crawling to URLs with this prefix (Required)
 - `content_selector`: CSS selector for main content extraction, or `"auto"` for automatic detection (Required)
-- `max_depth`: Exclusive upper bound on crawl depth from start URLs. Start pages are depth 0, so `1` crawls only the start pages, `2` adds their directly-linked pages, and so on. `0` = unlimited
+- `max_depth`: Exclusive upper bound on crawl depth from start URLs. Start pages are depth 0, so `1` crawls only the start pages, `2` adds their directly-linked pages, and so on. `0` = unlimited. URLs discovered from a `sitemap.xml` are seeded at depth 1 (one hop from the site root), so they are still bounded by `max_depth`: `max_depth: 1` stays start-only and skips sitemap expansion
 - `delay_per_host`: Override global delay setting for this site
 - `disallowed_path_patterns`: Array of regex patterns for URLs to skip
 - `link_extraction_selectors`: Array of CSS selectors for additional link extraction areas

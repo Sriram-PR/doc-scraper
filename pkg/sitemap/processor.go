@@ -357,8 +357,12 @@ func (sp *SitemapProcessor) handleURLSet(sitemapBytes []byte, errIndex error, si
 		}
 		if added {
 			sp.wg.Add(1)
-			// Enqueue the normalized URL so WorkItem.URL and the DB key agree.
-			sp.pq.Add(&models.WorkItem{URL: normalizedPageURL, Depth: 0})
+			// Sitemap URLs are discovered out-of-band from the site root, not by
+			// following links, so they have no real link-graph depth. Seeding them
+			// at depth 1 (one hop in) keeps WorkItem.URL and the DB key in agreement
+			// while letting the crawler's max_depth check still bound them: max_depth=1
+			// stays start-only, and their recorded depth is an honest 1 rather than 0.
+			sp.pq.Add(&models.WorkItem{URL: normalizedPageURL, Depth: 1})
 			queuedCount++
 		}
 	}
