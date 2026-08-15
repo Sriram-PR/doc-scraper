@@ -22,41 +22,53 @@ func silentLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func TestFlushBufferedJSONL_SortsByURL(t *testing.T) {
+func TestFinalizeJSONL_DedupesAndSortsByURL(t *testing.T) {
 	tmpDir := t.TempDir()
 	jsonlPath := filepath.Join(tmpDir, "pages.jsonl")
-	f, err := os.Create(jsonlPath)
+	f, err := os.OpenFile(jsonlPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	require.NoError(t, err)
 
 	om := &OutputManager{
-		log:           silentLogger(),
-		jsonlFile:     f,
-		jsonlFilePath: jsonlPath,
-		bufferOutput:  true,
-		collectedPageJSONL: []models.PageJSONL{
-			{URL: "https://example.com/zeta", Title: "Z"},
-			{URL: "https://example.com/alpha", Title: "A"},
-			{URL: "https://example.com/mu", Title: "M"},
-		},
+		log:            silentLogger(),
+		siteCfg:        &config.SiteConfig{AllowedDomain: "example.com"},
+		resolved:       &config.ResolvedSiteConfig{},
+		siteOutputDir:  tmpDir,
+		jsonlFile:      f,
+		jsonlFilePath:  jsonlPath,
+		crawlStartTime: time.Now(),
 	}
+	// Stream out of URL order, with a duplicate URL: the last write must win.
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/zeta", Title: "Z"}, silentLogger())
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/alpha", Title: "A-old"}, silentLogger())
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/mu", Title: "M"}, silentLogger())
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/alpha", Title: "A-new"}, silentLogger())
 
-	om.flushBufferedJSONL()
-	require.NoError(t, f.Close())
+	om.closeJSONLFile()
+	om.finalizeJSONL()
 
-	// Records should be empty post-flush (consumed).
-	assert.Nil(t, om.collectedPageJSONL)
+	lines := readJSONLLines(t, jsonlPath)
+	require.Len(t, lines, 4, "3 unique page records (alpha deduped) plus one crawl_meta")
 
-	got := readJSONLURLs(t, jsonlPath)
+	var pages []models.PageJSONL
+	for _, l := range lines {
+		var p models.PageJSONL
+		require.NoError(t, json.Unmarshal([]byte(l), &p))
+		if p.RecordType == models.RecordTypePage {
+			pages = append(pages, p)
+		}
+	}
+	require.Len(t, pages, 3)
 	assert.Equal(t, []string{
 		"https://example.com/alpha",
 		"https://example.com/mu",
 		"https://example.com/zeta",
-	}, got, "JSONL records must be written in URL order regardless of insertion order")
+	}, []string{pages[0].URL, pages[1].URL, pages[2].URL}, "page records must be written in URL order")
+	assert.Equal(t, "A-new", pages[0].Title, "last write for a duplicate URL must win")
 }
 
-func TestRecordJSONL_StreamsInResumeMode(t *testing.T) {
-	// When bufferOutput=false (resume mode), records must go straight to disk
-	// and NOT accumulate in collectedPageJSONL.
+func TestRecordJSONL_StreamsToDisk(t *testing.T) {
+	// Records must go straight to disk as they are produced, not accumulate in
+	// memory, regardless of fresh vs resume mode.
 	tmpDir := t.TempDir()
 	jsonlPath := filepath.Join(tmpDir, "pages.jsonl")
 	f, err := os.Create(jsonlPath)
@@ -66,21 +78,19 @@ func TestRecordJSONL_StreamsInResumeMode(t *testing.T) {
 		log:           silentLogger(),
 		jsonlFile:     f,
 		jsonlFilePath: jsonlPath,
-		bufferOutput:  false,
 	}
-	om.recordJSONL(models.PageJSONL{URL: "https://example.com/a", Title: "A"}, silentLogger())
-	om.recordJSONL(models.PageJSONL{URL: "https://example.com/b", Title: "B"}, silentLogger())
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/a", Title: "A"}, silentLogger())
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/b", Title: "B"}, silentLogger())
 	require.NoError(t, f.Close())
 
-	assert.Empty(t, om.collectedPageJSONL, "resume-mode records must not be buffered")
 	got := readJSONLURLs(t, jsonlPath)
 	assert.Len(t, got, 2, "both records should have been streamed to disk")
 }
 
-func TestClose_AppendsCrawlMetaRecordAsFinalLine(t *testing.T) {
+func TestClose_WritesSortedPagesAndCrawlMeta(t *testing.T) {
 	tmpDir := t.TempDir()
 	jsonlPath := filepath.Join(tmpDir, "pages.jsonl")
-	f, err := os.Create(jsonlPath)
+	f, err := os.OpenFile(jsonlPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	require.NoError(t, err)
 
 	om := &OutputManager{
@@ -91,14 +101,11 @@ func TestClose_AppendsCrawlMetaRecordAsFinalLine(t *testing.T) {
 		siteOutputDir:  tmpDir,
 		jsonlFile:      f,
 		jsonlFilePath:  jsonlPath,
-		bufferOutput:   true,
 		crawlStartTime: time.Now(),
-		collectedPageJSONL: []models.PageJSONL{
-			{RecordType: models.RecordTypePage, URL: "https://example.com/b"},
-			{RecordType: models.RecordTypePage, URL: "https://example.com/a"},
-		},
 	}
-	om.pagesRecorded.Store(2)
+	// Streamed out of URL order; Close must dedupe/sort and set total_pages.
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/b"}, silentLogger())
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/a"}, silentLogger())
 
 	require.NoError(t, om.Close())
 

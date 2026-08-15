@@ -31,6 +31,8 @@ const (
 	jsonlScannerMaxLine = 10 * 1024 * 1024 // page records are single lines and can be large
 )
 
+var pageRecordMarker = []byte(`"record_type":"page"`)
+
 // newJSONLScanner returns a scanner sized for the long single-line JSON records
 // the crawler writes, so a big page does not trip bufio's default line cap.
 func newJSONLScanner(r io.Reader) *bufio.Scanner {
@@ -47,15 +49,9 @@ type OutputManager struct {
 	siteKey       string
 	siteOutputDir string
 
-	jsonlFile          *os.File
-	jsonlFileMu        sync.Mutex
-	jsonlFilePath      string
-	collectedPageJSONL []models.PageJSONL
-
-	// bufferOutput=true (fresh crawls) buffers records and writes them sorted
-	// by URL at Close() for deterministic, diffable output. false (resume)
-	// streams records straight to disk so we don't overwrite existing content.
-	bufferOutput bool
+	jsonlFile     *os.File
+	jsonlFileMu   sync.Mutex
+	jsonlFilePath string
 
 	// Set by the crawler before Run; both feed the crawl_meta record at Close.
 	crawlStartTime time.Time
@@ -86,21 +82,21 @@ func NewOutputManager(log *slog.Logger, resolved *config.ResolvedSiteConfig, sit
 	}
 }
 
-// OpenFiles opens the JSONL output file when enabled. Must run after the
-// output directory exists and has been cleaned if needed.
+// OpenFiles opens the JSONL output file when enabled. Records stream straight to
+// disk during the crawl; Close rewrites the file into its canonical deduped,
+// sorted form. Must run after the output directory exists and has been cleaned
+// if needed.
 func (om *OutputManager) OpenFiles(resume bool) {
-	om.bufferOutput = !resume
-
 	if om.resolved.EnableJSONLOutput {
 		om.jsonlFilePath = filepath.Join(om.siteOutputDir, om.resolved.JSONLOutputFilename)
 		om.log.Info("JSONL output enabled", "path", om.jsonlFilePath)
 		if resume {
-			priorPages, err := stripLeftoverCrawlMeta(om.jsonlFilePath)
+			priorPages, err := countPriorPageRecords(om.jsonlFilePath)
 			if err != nil {
-				om.log.Warn("Resume: failed to rewrite JSONL without leftover crawl_meta records, file may contain duplicates", "path", om.jsonlFilePath, "err", err)
+				om.log.Warn("Resume: failed to count prior JSONL page records", "path", om.jsonlFilePath, "err", err)
 			} else if priorPages > 0 {
 				om.pagesRecorded.Store(priorPages)
-				om.log.Info("Resume: counted prior page records and stripped any leftover crawl_meta", "prior_pages", priorPages)
+				om.log.Info("Resume: counted prior page records", "prior_pages", priorPages)
 			}
 		}
 		om.jsonlFile = openOutputFile(om.log, om.jsonlFilePath, "JSONL", resume)
@@ -128,12 +124,11 @@ func openOutputFile(log *slog.Logger, path, label string, resume bool) *os.File 
 	return file
 }
 
-// stripLeftoverCrawlMeta rewrites path in place, dropping every crawl_meta
-// record so the resumed crawl can append fresh pages and a single
-// authoritative crawl_meta at Close. Returns the page-record count seen so
-// the caller can seed the cumulative page counter. A non-existent file is
-// not an error (treated as no prior records).
-func stripLeftoverCrawlMeta(path string) (int64, error) {
+// countPriorPageRecords counts existing page records so a resumed crawl can seed
+// its cumulative counter. Streams the file so no page bodies are held in memory;
+// a non-existent file yields zero. Leftover crawl_meta records need no stripping
+// here -- finalizeJSONL drops them and writes a single authoritative one.
+func countPriorPageRecords(path string) (int64, error) {
 	in, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -143,56 +138,34 @@ func stripLeftoverCrawlMeta(path string) (int64, error) {
 	}
 	defer in.Close()
 
-	var kept bytes.Buffer
 	var pages int64
 	scanner := newJSONLScanner(in)
 	for scanner.Scan() {
-		line := scanner.Bytes()
-		if bytes.Contains(line, []byte(`"record_type":"crawl_meta"`)) {
-			continue
-		}
-		if bytes.Contains(line, []byte(`"record_type":"page"`)) {
+		if bytes.Contains(scanner.Bytes(), pageRecordMarker) {
 			pages++
 		}
-		kept.Write(line)
-		kept.WriteByte('\n')
 	}
 	if err := scanner.Err(); err != nil {
 		return 0, fmt.Errorf("scan: %w", err)
 	}
-	if err := os.WriteFile(path, kept.Bytes(), 0644); err != nil {
-		return 0, fmt.Errorf("rewrite: %w", err)
-	}
 	return pages, nil
 }
 
-// Close flushes buffered records, appends crawl_meta, closes the file, writes
-// llms.txt/llms-full.txt from the resulting JSONL, and finally records this
-// crawl into the history index (if attached).
+// Close closes the streamed JSONL handle, rewrites the file into its canonical
+// deduped/sorted form with a single crawl_meta, writes llms.txt/llms-full.txt
+// from that JSONL, and records the crawl in the history index (if attached).
 func (om *OutputManager) Close() error {
-	if om.bufferOutput {
-		om.flushBufferedJSONL()
-		om.writeCrawlMetaRecord()
-		om.closeJSONLFile()
-	} else {
-		// Streamed (resume/incremental) mode appends records live during the
-		// crawl, so a reprocessed page leaves both its stale and fresh record in
-		// the file. Close the append handle, then rewrite the JSONL with one
-		// record per URL so it stays the authoritative, de-duplicated source of
-		// truth for llms.txt and the history index.
-		om.closeJSONLFile()
-		om.finalizeStreamedJSONL()
-	}
+	om.closeJSONLFile()
+	om.finalizeJSONL()
 	om.writeLLMsTxtFiles()
 	om.writeToIndex()
 	return nil
 }
 
-// writeToIndex rescans the just-closed JSONL for page records and records the
-// crawl in the history index. Re-scan keeps the path uniform across fresh
-// (buffered) and resume (streamed-append) modes; the on-disk JSONL is the
-// authoritative source of truth after Close. Errors are logged, not returned,
-// so a busted index can never break a successful crawl.
+// writeToIndex rescans the just-finalized JSONL for page records and records the
+// crawl in the history index. The on-disk JSONL is the authoritative source of
+// truth after Close. Errors are logged, not returned, so a busted index can
+// never break a successful crawl.
 func (om *OutputManager) writeToIndex() {
 	if om.idx == nil || om.jsonlFilePath == "" {
 		return
@@ -230,7 +203,7 @@ func readJSONLPagesForIndex(path string) ([]index.PageRecord, error) {
 	scanner := newJSONLScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		if !bytes.Contains(line, []byte(`"record_type":"page"`)) {
+		if !bytes.Contains(line, pageRecordMarker) {
 			continue
 		}
 		var p models.PageJSONL
@@ -304,6 +277,9 @@ func (om *OutputManager) closeJSONLFile() {
 	}
 }
 
+// recordJSONL streams one page record to the open JSONL file. Records go to disk
+// as they are produced so the full corpus is never held in memory; Close
+// rewrites the file into its deduped, sorted canonical form.
 func (om *OutputManager) recordJSONL(page models.PageJSONL, taskLog *slog.Logger) {
 	om.jsonlFileMu.Lock()
 	defer om.jsonlFileMu.Unlock()
@@ -311,52 +287,9 @@ func (om *OutputManager) recordJSONL(page models.PageJSONL, taskLog *slog.Logger
 	if om.jsonlFile == nil {
 		return
 	}
-	if om.bufferOutput {
-		om.collectedPageJSONL = append(om.collectedPageJSONL, page)
-		return
-	}
 	if err := writeJSONLLine(om.jsonlFile, page); err != nil {
 		taskLog.Error("Failed to write to JSONL file", "jsonl_file", om.jsonlFilePath, "err", err)
 	}
-}
-
-func (om *OutputManager) flushBufferedJSONL() {
-	om.jsonlFileMu.Lock()
-	defer om.jsonlFileMu.Unlock()
-
-	if !om.bufferOutput || om.jsonlFile == nil || len(om.collectedPageJSONL) == 0 {
-		return
-	}
-
-	sort.Slice(om.collectedPageJSONL, func(i, j int) bool {
-		return om.collectedPageJSONL[i].URL < om.collectedPageJSONL[j].URL
-	})
-
-	for _, page := range om.collectedPageJSONL {
-		if err := writeJSONLLine(om.jsonlFile, page); err != nil {
-			om.log.Error("Failed to flush JSONL record", "url", page.URL, "err", err)
-		}
-	}
-	om.log.Info("Flushed sorted JSONL records", "count", len(om.collectedPageJSONL), "path", om.jsonlFilePath)
-	om.collectedPageJSONL = nil
-}
-
-// writeCrawlMetaRecord appends the crawl summary as the final JSONL line.
-// On resume, OpenFiles strips any leftover crawl_meta records so the line
-// written here is the only one in the file.
-func (om *OutputManager) writeCrawlMetaRecord() {
-	om.jsonlFileMu.Lock()
-	defer om.jsonlFileMu.Unlock()
-
-	if om.jsonlFile == nil {
-		return
-	}
-	meta := om.buildCrawlMeta()
-	if err := writeJSONLLine(om.jsonlFile, meta); err != nil {
-		om.log.Error("Failed to write crawl_meta record", "path", om.jsonlFilePath, "err", err)
-		return
-	}
-	om.log.Info("Wrote crawl_meta record", "total_pages", meta.TotalPages, "path", om.jsonlFilePath)
 }
 
 func (om *OutputManager) buildCrawlMeta() models.CrawlMetaJSONL {
@@ -370,90 +303,155 @@ func (om *OutputManager) buildCrawlMeta() models.CrawlMetaJSONL {
 	}
 }
 
-// finalizeStreamedJSONL rewrites the streamed (resume/incremental) JSONL so it
-// holds one page record per URL (the freshest, since a reprocessed page's new
-// record is appended after its stale one) plus a single crawl_meta, sorted by
-// URL to match fresh-crawl output. This collapses the stale+fresh duplicate,
-// keeps llms.txt/llms-full.txt free of stale content, corrects the page count,
-// and lets the history-index insert (unique on crawl_id+url) succeed. Must run
-// after the append handle is closed. Errors are logged, never fatal.
-func (om *OutputManager) finalizeStreamedJSONL() {
+// pageSpan is the byte range of one page record within the streamed JSONL file.
+type pageSpan struct {
+	offset int64
+	length int
+}
+
+// finalizeJSONL rewrites the streamed JSONL into its canonical form: one page
+// record per URL (last occurrence wins, collapsing a resumed page's stale and
+// fresh copies), sorted by URL, followed by a single crawl_meta. It indexes the
+// file by byte offset and copies records through, so only URLs and offsets are
+// held in memory, never the page bodies -- memory stays flat on large corpora.
+// This keeps llms.txt/llms-full.txt free of stale content, corrects the page
+// count, and lets the history-index insert (unique on crawl_id+url) succeed.
+// Must run after the append handle is closed. Errors are logged, never fatal.
+func (om *OutputManager) finalizeJSONL() {
 	if om.jsonlFilePath == "" {
 		return
 	}
-	pages, err := dedupePageRecords(om.jsonlFilePath)
+	spans, err := indexLastPageOffsets(om.jsonlFilePath)
 	if err != nil {
-		om.log.Warn("Resume: failed to dedupe JSONL page records; appending crawl_meta over the existing file", "path", om.jsonlFilePath, "err", err)
+		om.log.Warn("Failed to index JSONL for finalize; appending crawl_meta over existing file", "path", om.jsonlFilePath, "err", err)
 		om.appendCrawlMeta()
 		return
 	}
-	om.pagesRecorded.Store(int64(len(pages)))
+	om.pagesRecorded.Store(int64(len(spans)))
 
-	var buf bytes.Buffer
-	for _, page := range pages {
-		line, mErr := json.Marshal(page)
-		if mErr != nil {
-			om.log.Error("Failed to marshal JSONL page during dedupe", "url", page.URL, "err", mErr)
-			continue
-		}
-		buf.Write(line)
-		buf.WriteByte('\n')
-	}
-	if meta, mErr := json.Marshal(om.buildCrawlMeta()); mErr != nil {
-		om.log.Error("Failed to marshal crawl_meta during dedupe", "err", mErr)
-	} else {
-		buf.Write(meta)
-		buf.WriteByte('\n')
-	}
-	if err := os.WriteFile(om.jsonlFilePath, buf.Bytes(), 0644); err != nil {
+	if err := om.rewriteFinalizedJSONL(spans); err != nil {
 		om.log.Error("Failed to write finalized JSONL", "path", om.jsonlFilePath, "err", err)
 		return
 	}
-	om.log.Info("Wrote crawl_meta record", "total_pages", len(pages), "path", om.jsonlFilePath)
+	om.log.Info("Wrote crawl_meta record", "total_pages", len(spans), "path", om.jsonlFilePath)
 }
 
-// dedupePageRecords reads a JSONL file and returns its page records with one
-// entry per URL (the last occurrence wins), sorted by URL. crawl_meta and
-// unparseable lines are skipped. A non-existent file yields no records.
-func dedupePageRecords(path string) ([]models.PageJSONL, error) {
+// indexLastPageOffsets scans the JSONL and returns, per URL, the byte span of
+// that URL's last page record. Only URLs and spans are retained, never bodies.
+func indexLastPageOffsets(path string) (map[string]pageSpan, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
+			return map[string]pageSpan{}, nil
 		}
 		return nil, err
 	}
 	defer f.Close()
 
-	latest := make(map[string]models.PageJSONL)
-	scanner := newJSONLScanner(f)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if !bytes.Contains(line, []byte(`"record_type":"page"`)) {
+	spans := make(map[string]pageSpan)
+	reader := bufio.NewReaderSize(f, jsonlScannerInitBuf)
+	var offset int64
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			if bytes.Contains(line, pageRecordMarker) {
+				var hdr struct {
+					RecordType string `json:"record_type"`
+					URL        string `json:"url"`
+				}
+				if json.Unmarshal(line, &hdr) == nil && hdr.RecordType == models.RecordTypePage {
+					spans[hdr.URL] = pageSpan{offset: offset, length: len(line)}
+				}
+			}
+			offset += int64(len(line))
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("read: %w", readErr)
+		}
+	}
+	return spans, nil
+}
+
+// rewriteFinalizedJSONL writes the deduped, URL-sorted page records plus a fresh
+// crawl_meta to a temp file (copying each record by offset so page bodies never
+// all sit in memory at once) and atomically renames it over the JSONL.
+func (om *OutputManager) rewriteFinalizedJSONL(spans map[string]pageSpan) error {
+	src, err := os.Open(om.jsonlFilePath)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer src.Close()
+
+	tmpPath := om.jsonlFilePath + ".tmp"
+	tmp, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open temp: %w", err)
+	}
+	w := bufio.NewWriter(tmp)
+
+	urls := make([]string, 0, len(spans))
+	for u := range spans {
+		urls = append(urls, u)
+	}
+	sort.Strings(urls)
+
+	buf := make([]byte, 0, jsonlScannerInitBuf)
+	for _, u := range urls {
+		s := spans[u]
+		if cap(buf) < s.length {
+			buf = make([]byte, s.length)
+		}
+		rec := buf[:s.length]
+		if _, rErr := src.ReadAt(rec, s.offset); rErr != nil {
+			om.log.Error("Failed to read JSONL record during finalize", "url", u, "err", rErr)
 			continue
 		}
-		var p models.PageJSONL
-		if err := json.Unmarshal(line, &p); err != nil {
-			continue
+		// Normalize to exactly one trailing newline; the final streamed record
+		// may lack one if the crawl was interrupted mid-write.
+		if _, wErr := w.Write(bytes.TrimRight(rec, "\n")); wErr != nil {
+			return finalizeWriteErr(tmp, tmpPath, wErr)
 		}
-		if p.RecordType != models.RecordTypePage {
-			continue
+		if wErr := w.WriteByte('\n'); wErr != nil {
+			return finalizeWriteErr(tmp, tmpPath, wErr)
 		}
-		latest[p.URL] = p
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
+
+	if meta, mErr := json.Marshal(om.buildCrawlMeta()); mErr != nil {
+		om.log.Error("Failed to marshal crawl_meta during finalize", "err", mErr)
+	} else {
+		if _, wErr := w.Write(append(meta, '\n')); wErr != nil {
+			return finalizeWriteErr(tmp, tmpPath, wErr)
+		}
 	}
-	pages := make([]models.PageJSONL, 0, len(latest))
-	for _, p := range latest {
-		pages = append(pages, p)
+
+	if err := w.Flush(); err != nil {
+		return finalizeWriteErr(tmp, tmpPath, fmt.Errorf("flush temp: %w", err))
 	}
-	sort.Slice(pages, func(i, j int) bool { return pages[i].URL < pages[j].URL })
-	return pages, nil
+	if err := tmp.Sync(); err != nil {
+		om.log.Warn("Failed to sync finalized JSONL temp", "err", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close temp: %w", err)
+	}
+	if err := os.Rename(tmpPath, om.jsonlFilePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("rename temp: %w", err)
+	}
+	return nil
+}
+
+func finalizeWriteErr(tmp *os.File, tmpPath string, cause error) error {
+	_ = tmp.Close()
+	_ = os.Remove(tmpPath)
+	return cause
 }
 
 // appendCrawlMeta appends a single crawl_meta record, used as a fallback when
-// the dedupe rewrite cannot read the file. Best-effort.
+// the finalize rewrite cannot index the file. Best-effort.
 func (om *OutputManager) appendCrawlMeta() {
 	f, err := os.OpenFile(om.jsonlFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
