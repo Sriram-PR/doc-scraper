@@ -97,14 +97,29 @@ This installs the `doc-scraper` binary to your `GOPATH/bin` directory (usually `
 
 ### Quick Start
 
-1. Create a basic `config.yaml` file (see [Configuration](#configuration-configyaml) section)
-2. Run the crawler:
+Create a minimal `config.yaml` in the project root:
 
-   ```bash
-   ./doc-scraper crawl -site your_site_key -loglevel info
-   ```
+```yaml
+output_base_dir: "./crawled_docs"
+state_dir: "./crawler_state"
+enable_jsonl_output: true
+sites:
+  rust_cli_book:
+    start_urls:
+      - "https://rust-cli.github.io/book/index.html"
+    allowed_domain: "rust-cli.github.io"
+    allowed_path_prefix: "/book/"
+    content_selector: "#content, main"
+    max_depth: 2          # seed plus one level; set 0 for the whole book
+```
 
-3. Find your crawled documentation in the `./crawled_docs/` directory
+Run the crawl:
+
+```bash
+./doc-scraper crawl -site rust_cli_book -loglevel info
+```
+
+The Markdown, plus `pages.jsonl`, `llms.txt`, and `llms-full.txt`, lands under `./crawled_docs/rust_cli_book/` (output is organized by site key). A small book like this finishes in a few seconds; large sites can take minutes, so start with a low `max_depth` to gauge size before removing the bound.
 
 ## Configuration (`config.yaml`)
 

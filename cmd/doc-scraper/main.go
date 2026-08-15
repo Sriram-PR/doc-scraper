@@ -59,7 +59,7 @@ func logFormatFor(jsonOut bool) string {
 	return pkglog.FormatText
 }
 
-const version = "2.6.1"
+const version = "2.7.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -246,6 +246,10 @@ func runConfig(args []string) {
 			os.Exit(1)
 		}
 		os.Exit(doListSites(*configFile, *jsonOut, os.Stdout, os.Stderr))
+	case "-h", "--help", "help":
+		fmt.Println("Usage:")
+		fmt.Println("  doc-scraper config validate [-config <path>] [-site <key>] [-json]")
+		fmt.Println("  doc-scraper config list [-config <path>] [-json]")
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown config action: %s (expected: validate | list)\n", action)
 		os.Exit(1)
