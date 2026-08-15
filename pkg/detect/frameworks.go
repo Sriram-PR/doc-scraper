@@ -133,7 +133,9 @@ var frameworkSignatures = []FrameworkSignature{
 
 	{ // Sphinx (standalone)
 		Framework: FrameworkSphinx,
-		Selector:  "div.document, div.body, article.bd-article, main.bd-main",
+		// Inner content containers first; div.document is the outer wrapper that
+		// also holds the sidebar, so it stays last as a fallback only.
+		Selector: "div.body, article.bd-article, main.bd-main, div.document",
 		Classes: []string{
 			"sphinxsidebar",
 			"sphinx-tabs",

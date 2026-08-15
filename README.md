@@ -474,7 +474,7 @@ When you set `content_selector: "auto"` for a site, the crawler automatically de
 |-----------|------------------|---------------------------|
 | Docusaurus | `data-docusaurus` attribute, `__docusaurus` marker | `article[class*='theme-doc']`, `.theme-doc-markdown`, `article.markdown`, `main article` |
 | MkDocs Material | `data-md-component` attribute, `.md-content` class | `article.md-content__inner`, `.md-content article`, `.md-content` |
-| Sphinx | `searchindex.js`, `sphinxsidebar` class | `div.document`, `div.body`, `article.bd-article`, `main.bd-main` |
+| Sphinx | `searchindex.js`, `sphinxsidebar` class | `div.body`, `article.bd-article`, `main.bd-main`, `div.document` |
 | ReadTheDocs | `readthedocs` scripts, `.rst-content` class | `.rst-content`, `div[role='main']`, `.document` |
 | GitBook | `gitbook` class patterns, `markdown-section` | `section.normal.markdown-section`, `.page-inner section`, `main[class*='gitbook']` |
 

@@ -113,7 +113,7 @@ func (cp *ContentProcessor) SelectMainContent(
 			actualSelector = result.Selector
 			taskLog.Debug(fmt.Sprintf("Auto-detected selector for %s: %s", result.Framework, actualSelector))
 
-			mainContentSelection := doc.Find(actualSelector)
+			mainContentSelection := selectByPriority(doc, actualSelector)
 			if mainContentSelection.Length() == 0 {
 				taskLog.Warn(fmt.Sprintf("Detected selector '%s' not found, falling back to readability", actualSelector))
 				extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
@@ -134,7 +134,7 @@ func (cp *ContentProcessor) SelectMainContent(
 			}
 		}
 	} else {
-		mainContentSelection := doc.Find(siteCfg.ContentSelector)
+		mainContentSelection := selectByPriority(doc, siteCfg.ContentSelector)
 		if mainContentSelection.Length() == 0 {
 			err = fmt.Errorf("%w: selector '%s' not found on page '%s'", utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String())
 			taskLog.Warn(err.Error())
@@ -145,6 +145,25 @@ func (cp *ContentProcessor) SelectMainContent(
 	}
 
 	return mainContent, pageTitle, nil
+}
+
+// selectByPriority returns the first element matching selector, trying each
+// comma-separated alternative in listed order rather than DOM order. goquery's
+// Find("a, b").First() returns whichever of a/b comes first in the document, so
+// when one alternative is an ancestor of another (Sphinx's div.document wraps
+// div.body) the outer wrapper wins and drags its sidebar into the content.
+// Trying alternatives in order lets the more specific selector take precedence.
+// Returns a zero-length selection when none match, driving the readability fallback.
+func selectByPriority(doc *goquery.Document, selector string) *goquery.Selection {
+	for _, sel := range strings.Split(selector, ",") {
+		if sel = strings.TrimSpace(sel); sel == "" {
+			continue
+		}
+		if s := doc.Find(sel).First(); s.Length() > 0 {
+			return s
+		}
+	}
+	return doc.Find(selector)
 }
 
 // ProcessAndSaveContent processes images and internal links on the already-selected
