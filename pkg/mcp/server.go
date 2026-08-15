@@ -192,10 +192,12 @@ func (s *Server) registerTools() {
 	s.log.Info(fmt.Sprintf("Registered %d MCP tools", toolCount))
 }
 
-// Run starts the MCP server over the stdio transport.
-func (s *Server) Run() error {
+// Run serves the MCP stdio transport until ctx is cancelled or stdin closes.
+// ServeStdio installs its own signal handler and swallows Shutdown, so the
+// caller drives cancellation and cleanup explicitly via Listen instead.
+func (s *Server) Run(ctx context.Context) error {
 	s.log.Info("Starting MCP server with stdio transport")
-	return server.ServeStdio(s.mcpServer)
+	return server.NewStdioServer(s.mcpServer).Listen(ctx, os.Stdin, os.Stdout)
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {

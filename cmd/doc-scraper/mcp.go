@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	pkglog "github.com/Sriram-PR/doc-scraper/pkg/log"
 	"github.com/Sriram-PR/doc-scraper/pkg/mcp"
@@ -87,10 +92,21 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 
 	log.Info("Starting MCP server (stdio transport)")
 
-	if err := server.Run(); err != nil {
-		fmt.Fprintf(stderr, "MCP server error: %v\n", err)
-		return 1
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	runErr := server.Run(ctx)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		fmt.Fprintf(stderr, "Error during MCP server shutdown: %v\n", err)
 	}
 
+	// A cancelled context or closed stdin is a normal exit, not a failure.
+	if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, io.EOF) {
+		fmt.Fprintf(stderr, "MCP server error: %v\n", runErr)
+		return 1
+	}
 	return 0
 }
