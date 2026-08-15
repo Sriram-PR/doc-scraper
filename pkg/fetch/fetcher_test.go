@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 // testConfig returns an AppConfig with fast retry delays for testing

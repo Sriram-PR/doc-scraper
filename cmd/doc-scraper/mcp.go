@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	pkglog "github.com/Sriram-PR/doc-scraper/pkg/log"
-	"github.com/Sriram-PR/doc-scraper/pkg/mcp"
+	pkglog "github.com/Sriram-PR/doc-scraper/v2/pkg/log"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/mcp"
 )
 
 func runMcpServer(args []string) {

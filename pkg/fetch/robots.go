@@ -13,7 +13,7 @@ import (
 	"github.com/temoto/robotstxt"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 )
 
 // robotsNegativeTTL bounds how long a failed robots.txt fetch stays cached.

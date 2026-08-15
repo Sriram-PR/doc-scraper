@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"log/slog"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/models"
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 func testLogger() *slog.Logger {

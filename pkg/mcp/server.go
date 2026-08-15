@@ -10,8 +10,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
 const (

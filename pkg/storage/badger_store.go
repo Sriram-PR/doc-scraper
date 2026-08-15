@@ -13,9 +13,9 @@ import (
 
 	badger "github.com/dgraph-io/badger/v4"
 
-	pkglog "github.com/Sriram-PR/doc-scraper/pkg/log"
-	"github.com/Sriram-PR/doc-scraper/pkg/models"
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	pkglog "github.com/Sriram-PR/doc-scraper/v2/pkg/log"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 const (

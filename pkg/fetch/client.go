@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 )
 
 // Baked-in HTTP transport timings. These were exposed as config knobs prior to

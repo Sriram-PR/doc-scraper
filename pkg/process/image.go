@@ -21,12 +21,12 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
-	"github.com/Sriram-PR/doc-scraper/pkg/models"
-	"github.com/Sriram-PR/doc-scraper/pkg/parse"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage"
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 
 	"golang.org/x/sync/semaphore"
 )

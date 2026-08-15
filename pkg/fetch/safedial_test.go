@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 func TestIsBlockedAddr(t *testing.T) {

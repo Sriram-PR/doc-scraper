@@ -9,11 +9,11 @@ import (
 	"golang.org/x/sync/semaphore"
 	"log/slog"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
-	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
 // SiteResult contains the result of crawling a single site.
@@ -123,7 +123,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 		o.log.Error(fmt.Sprintf("Failed to create store for site '%s': %v", siteKey, err))
 		return result
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	go store.RunGC(siteCtx, 0)
 
 	opts := &crawler.CrawlerOptions{

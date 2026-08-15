@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"log/slog"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 )
 
 func silentLogger() *slog.Logger {

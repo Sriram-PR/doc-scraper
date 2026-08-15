@@ -1,7 +1,7 @@
 # LLM Documentation Scraper (`doc-scraper`)
 
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Sriram-PR/doc-scraper)](https://golang.org/)
-[![Go Reference](https://pkg.go.dev/badge/github.com/Sriram-PR/doc-scraper.svg)](https://pkg.go.dev/github.com/Sriram-PR/doc-scraper)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Sriram-PR/doc-scraper/v2.svg)](https://pkg.go.dev/github.com/Sriram-PR/doc-scraper/v2)
 [![License](https://img.shields.io/github/license/Sriram-PR/doc-scraper)](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE)
 
 > A configurable, concurrent, and resumable web crawler written in Go. Specifically designed to scrape technical documentation websites, extract core content, convert it cleanly to Markdown format suitable for ingestion by Large Language Models (LLMs), and save the results locally.
@@ -66,7 +66,7 @@ The main objective of this tool is to automate the often tedious process of gath
 Install the latest version directly from GitHub:
 
 ```bash
-go install github.com/Sriram-PR/doc-scraper/cmd/doc-scraper@latest
+go install github.com/Sriram-PR/doc-scraper/v2/cmd/doc-scraper@latest
 ```
 
 This installs the `doc-scraper` binary to your `GOPATH/bin` directory (usually `~/go/bin` or `%USERPROFILE%\go\bin`). Make sure this directory is in your `PATH`.

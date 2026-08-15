@@ -16,12 +16,12 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
-	"github.com/Sriram-PR/doc-scraper/pkg/models"
-	"github.com/Sriram-PR/doc-scraper/pkg/parse"
-	"github.com/Sriram-PR/doc-scraper/pkg/queue"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/queue"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 )
 
 // SitemapProcessor handles fetching, parsing, and processing sitemaps.

@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"log/slog"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/models"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
 // silentTestLogger returns a *slog.Logger that discards output (tests should

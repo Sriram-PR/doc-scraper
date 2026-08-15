@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 )
 
 // testContentProcessor returns a minimal ContentProcessor for testing

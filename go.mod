@@ -1,4 +1,4 @@
-module github.com/Sriram-PR/doc-scraper
+module github.com/Sriram-PR/doc-scraper/v2
 
 go 1.26
 

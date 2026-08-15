@@ -6,7 +6,7 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 // cgnatRange is RFC 6598 Carrier-Grade NAT space (100.64.0.0/10). Go's

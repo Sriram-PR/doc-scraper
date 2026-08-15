@@ -10,7 +10,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/watch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/watch"
 )
 
 // Command is the verb the task spec dispatches to.

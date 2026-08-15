@@ -21,12 +21,12 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
-	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
-	"github.com/Sriram-PR/doc-scraper/pkg/models"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
 func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -450,7 +450,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 		s.jobManager.UpdateStatus(job.ID, JobStatusFailed, fmt.Sprintf("failed to open store: %v", err))
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	appCfgCopy := *s.cfg.AppConfig
 	if job.Incremental {

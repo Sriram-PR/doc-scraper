@@ -19,11 +19,11 @@ import (
 
 	"context"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/models"
-	"github.com/Sriram-PR/doc-scraper/pkg/process"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 const (

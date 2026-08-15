@@ -19,15 +19,15 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/crawler"
-	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
-	pkglog "github.com/Sriram-PR/doc-scraper/pkg/log"
-	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
-	"github.com/Sriram-PR/doc-scraper/pkg/taskspec"
-	"github.com/Sriram-PR/doc-scraper/pkg/watch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
+	pkglog "github.com/Sriram-PR/doc-scraper/v2/pkg/log"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/orchestrate"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/taskspec"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/watch"
 )
 
 // fatal logs the message at error level and exits the process. Replaces
@@ -124,9 +124,6 @@ func loadConfig(path string) (*config.AppConfig, error) {
 	return &cfg, nil
 }
 
-// resolveSiteKeys resolves the effective site keys from the -site/-sites/
-// --all-sites flags. ok is false when none of the three were supplied; the
-// caller is responsible for printing the usage error and exiting in that case.
 // resolveSiteKeys picks the crawl target from the mutually exclusive selectors,
 // in precedence order --all-sites > -sites > -site. warning is non-empty when a
 // lower-precedence selector was also set and silently ignored, so a typo'd -site
@@ -801,7 +798,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	if err != nil {
 		fatal(log, "Failed to initialize visited DB: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	go store.RunGC(crawlCtx, 0) // 0 = use the store's built-in default (10m)
 

@@ -21,16 +21,16 @@ import (
 	"golang.org/x/sync/semaphore"
 	"log/slog"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/fetch"
-	"github.com/Sriram-PR/doc-scraper/pkg/models"
-	"github.com/Sriram-PR/doc-scraper/pkg/parse"
-	"github.com/Sriram-PR/doc-scraper/pkg/process"
-	"github.com/Sriram-PR/doc-scraper/pkg/queue"
-	"github.com/Sriram-PR/doc-scraper/pkg/sitemap"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/queue"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitemap"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 // Pre-compiled regexes for markdown link and image extraction.

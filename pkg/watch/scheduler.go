@@ -9,9 +9,9 @@ import (
 
 	"log/slog"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/orchestrate"
-	"github.com/Sriram-PR/doc-scraper/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/orchestrate"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
 // Scheduler manages periodic crawling of sites.

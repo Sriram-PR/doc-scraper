@@ -16,9 +16,9 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"gopkg.in/yaml.v3"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/detect"
-	"github.com/Sriram-PR/doc-scraper/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 // ContentProcessor handles content extraction, image/link processing, Markdown conversion, and saving.

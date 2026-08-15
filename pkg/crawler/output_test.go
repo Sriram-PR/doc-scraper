@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"log/slog"
 
-	"github.com/Sriram-PR/doc-scraper/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 )
 
 // silentLogger returns a *slog.Logger that discards all output.
