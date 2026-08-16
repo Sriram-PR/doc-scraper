@@ -206,8 +206,7 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 	}
 
 	jsonlPath := filepath.Join(
-		s.cfg.AppConfig.OutputBaseDir,
-		siteCfg.AllowedDomain,
+		s.cfg.AppConfig.SiteOutputDir(siteKey),
 		config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig),
 	)
 
@@ -503,8 +502,8 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 
 // getLastCrawledTime returns the end time from the last crawl_meta record in
 // the site's JSONL, or the zero time if none exists.
-func (s *Server) getLastCrawledTime(_ string, siteCfg *config.SiteConfig) time.Time {
-	siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
+func (s *Server) getLastCrawledTime(siteKey string, siteCfg *config.SiteConfig) time.Time {
+	siteOutputDir := s.cfg.AppConfig.SiteOutputDir(siteKey)
 	jsonlPath := filepath.Join(siteOutputDir, config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig))
 
 	file, err := os.Open(jsonlPath)
@@ -558,13 +557,12 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 	if siteKey == "" {
 		return mcp.NewToolResultError("site_key parameter is required"), nil
 	}
-	siteCfg, errResult := s.resolveSiteOrError(siteKey)
-	if errResult != nil {
+	if _, errResult := s.resolveSiteOrError(siteKey); errResult != nil {
 		return errResult, nil
 	}
 
-	siteOutputDir := filepath.Join(s.cfg.AppConfig.OutputBaseDir, siteCfg.AllowedDomain)
-	stateDBPath := filepath.Join(s.cfg.AppConfig.StateDir, siteCfg.AllowedDomain+"_visited_db")
+	siteOutputDir := s.cfg.AppConfig.SiteOutputDir(siteKey)
+	stateDBPath := storage.VisitedDBPath(s.cfg.AppConfig.StateDir, siteKey)
 	outputExists := dirExists(siteOutputDir)
 	stateExists := dirExists(stateDBPath)
 

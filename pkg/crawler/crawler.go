@@ -139,9 +139,7 @@ func NewCrawlerWithOptions(
 		logger.Info(fmt.Sprintf("Compiled %d disallowed path patterns.", len(compiledDisallowedPatterns)))
 	}
 
-	// Key output by site key, not domain, so two site configs targeting the same
-	// domain write to separate trees instead of clobbering each other.
-	siteOutputDir := filepath.Join(appCfg.OutputBaseDir, utils.SanitizeFilename(siteKey))
+	siteOutputDir := appCfg.SiteOutputDir(siteKey)
 
 	var globalSem *semaphore.Weighted
 	if opts != nil && opts.SharedSemaphore != nil {

@@ -64,7 +64,7 @@ func newTestServer(t *testing.T, siteKey, allowedDomain string) (*Server, string
 		log:        silentTestLogger(),
 		jobManager: NewJobManager("", nil),
 	}
-	return s, filepath.Join(outDir, allowedDomain, "pages.jsonl")
+	return s, filepath.Join(outDir, siteKey, "pages.jsonl")
 }
 
 // callListPages invokes handleListPages with the given arguments and parses the

@@ -24,6 +24,12 @@ const (
 	visitedDBDir   = "visited_db"
 )
 
+// VisitedDBPath returns a site's BadgerDB directory, keyed by site key. Readers
+// (e.g. MCP get_freshness) must derive it here so they cannot drift from the writer.
+func VisitedDBPath(stateDir, siteKey string) string {
+	return filepath.Join(stateDir, utils.SanitizeFilename(siteKey)+"_"+visitedDBDir)
+}
+
 // BadgerStore implements the VisitedStore interface using BadgerDB.
 type BadgerStore struct {
 	db       *badger.DB
@@ -41,8 +47,7 @@ func NewBadgerStore(ctx context.Context, stateDir, siteKey string, resume bool, 
 		ctx: ctx,
 	}
 
-	dbDirName := utils.SanitizeFilename(siteKey) + "_" + visitedDBDir
-	dbPath := filepath.Join(stateDir, dbDirName)
+	dbPath := VisitedDBPath(stateDir, siteKey)
 
 	if !resume {
 		logger.Warn("Resume flag is false. REMOVING existing state directory", "path", dbPath)
