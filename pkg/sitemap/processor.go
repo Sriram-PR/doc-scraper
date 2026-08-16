@@ -357,11 +357,8 @@ func (sp *SitemapProcessor) handleURLSet(sitemapBytes []byte, errIndex error, si
 		}
 		if added {
 			sp.wg.Add(1)
-			// Sitemap URLs are discovered out-of-band from the site root, not by
-			// following links, so they have no real link-graph depth. Seeding them
-			// at depth 1 (one hop in) keeps WorkItem.URL and the DB key in agreement
-			// while letting the crawler's max_depth check still bound them: max_depth=1
-			// stays start-only, and their recorded depth is an honest 1 rather than 0.
+			// Sitemap URLs have no link-graph depth; seed at depth 1 (one hop from
+			// the root) so max_depth still bounds them and max_depth=1 stays start-only.
 			sp.pq.Add(&models.WorkItem{URL: normalizedPageURL, Depth: 1})
 			queuedCount++
 		}

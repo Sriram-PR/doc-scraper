@@ -130,7 +130,7 @@ func (cp *ContentProcessor) SelectMainContent(
 					pageTitle = extractedTitle
 				}
 			} else {
-				mainContent = mainContentSelection.First().Clone()
+				mainContent = mainContentSelection.Clone()
 			}
 		}
 	} else {
@@ -140,7 +140,7 @@ func (cp *ContentProcessor) SelectMainContent(
 			taskLog.Warn(err.Error())
 			return nil, pageTitle, err
 		}
-		mainContent = mainContentSelection.First().Clone()
+		mainContent = mainContentSelection.Clone()
 		taskLog.Debug(fmt.Sprintf("Found main content using selector '%s'", siteCfg.ContentSelector))
 	}
 
@@ -148,12 +148,9 @@ func (cp *ContentProcessor) SelectMainContent(
 }
 
 // selectByPriority returns the first element matching selector, trying each
-// comma-separated alternative in listed order rather than DOM order. goquery's
-// Find("a, b").First() returns whichever of a/b comes first in the document, so
-// when one alternative is an ancestor of another (Sphinx's div.document wraps
-// div.body) the outer wrapper wins and drags its sidebar into the content.
-// Trying alternatives in order lets the more specific selector take precedence.
-// Returns a zero-length selection when none match, driving the readability fallback.
+// comma-separated alternative in order. Unlike Find("a, b").First() (DOM order),
+// this lets a specific selector win over an ancestor -- e.g. Sphinx's div.body
+// over its div.document wrapper, which would otherwise drag in the sidebar.
 func selectByPriority(doc *goquery.Document, selector string) *goquery.Selection {
 	for _, sel := range strings.Split(selector, ",") {
 		if sel = strings.TrimSpace(sel); sel == "" {

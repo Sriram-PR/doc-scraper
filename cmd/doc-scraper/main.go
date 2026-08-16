@@ -124,10 +124,9 @@ func loadConfig(path string) (*config.AppConfig, error) {
 	return &cfg, nil
 }
 
-// resolveSiteKeys picks the crawl target from the mutually exclusive selectors,
-// in precedence order --all-sites > -sites > -site. warning is non-empty when a
-// lower-precedence selector was also set and silently ignored, so a typo'd -site
-// next to a valid -sites does not pass unnoticed.
+// resolveSiteKeys picks the crawl target in precedence --all-sites > -sites >
+// -site. warning is non-empty when a lower-precedence selector was also set and
+// silently ignored, so a typo'd -site next to a valid -sites is not missed.
 func resolveSiteKeys(siteKey, sites string, allSites bool) (siteKeys []string, warning string, ok bool) {
 	if allSites {
 		if sites != "" || siteKey != "" {
@@ -209,13 +208,18 @@ func runCrawl(args []string) {
 	}
 }
 
+func printConfigUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  doc-scraper config validate [-config <path>] [-site <key>] [-json]")
+	fmt.Fprintln(w, "  doc-scraper config list [-config <path>] [-json]")
+}
+
 // runConfig dispatches the config subcommand (validate | list).
 func runConfig(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Error: config requires an action: validate | list")
-		fmt.Fprintln(os.Stderr, "\nUsage:")
-		fmt.Fprintln(os.Stderr, "  doc-scraper config validate [-config <path>] [-site <key>]")
-		fmt.Fprintln(os.Stderr, "  doc-scraper config list [-config <path>]")
+		fmt.Fprintln(os.Stderr)
+		printConfigUsage(os.Stderr)
 		os.Exit(1)
 	}
 
@@ -247,9 +251,7 @@ func runConfig(args []string) {
 		}
 		os.Exit(doListSites(*configFile, *jsonOut, os.Stdout, os.Stderr))
 	case "-h", "--help", "help":
-		fmt.Println("Usage:")
-		fmt.Println("  doc-scraper config validate [-config <path>] [-site <key>] [-json]")
-		fmt.Println("  doc-scraper config list [-config <path>] [-json]")
+		printConfigUsage(os.Stdout)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown config action: %s (expected: validate | list)\n", action)
 		os.Exit(1)

@@ -102,10 +102,8 @@ func Open(path string, retention int, log *slog.Logger) (*Index, error) {
 	if path == "" {
 		return nil, fmt.Errorf("index path is required")
 	}
-	// modernc/sqlite opens the file lazily on the first PRAGMA, so a missing
-	// parent directory surfaces as an opaque "unable to open database file"
-	// rather than a create. Ensure it exists first; watch/parallel/mcp reach
-	// here before anything else creates state_dir.
+	// modernc/sqlite opens lazily on the first PRAGMA, so a missing parent dir
+	// yields an opaque "unable to open database file"; create it first.
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("create index dir %q: %w", dir, err)

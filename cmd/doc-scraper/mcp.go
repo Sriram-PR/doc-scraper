@@ -99,10 +99,14 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 
 	runErr := server.Run(ctx)
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		fmt.Fprintf(stderr, "Error during MCP server shutdown: %v\n", err)
+	// Bound cleanup so a stuck Shutdown can't hang the process: Shutdown is
+	// synchronous and ignores its context, so race it against a timer here.
+	done := make(chan struct{})
+	go func() { defer close(done); _ = server.Shutdown(context.Background()) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		fmt.Fprintln(stderr, "MCP server shutdown timed out; exiting")
 	}
 
 	// A cancelled context or closed stdin is a normal exit, not a failure.

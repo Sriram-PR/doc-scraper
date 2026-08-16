@@ -124,10 +124,8 @@ func openOutputFile(log *slog.Logger, path, label string, resume bool) *os.File 
 	return file
 }
 
-// countPriorPageRecords counts existing page records so a resumed crawl can seed
-// its cumulative counter. Streams the file so no page bodies are held in memory;
-// a non-existent file yields zero. Leftover crawl_meta records need no stripping
-// here -- finalizeJSONL drops them and writes a single authoritative one.
+// countPriorPageRecords counts existing page records to seed a resumed crawl's
+// counter, streaming so no page bodies are held in memory. Missing file yields zero.
 func countPriorPageRecords(path string) (int64, error) {
 	in, err := os.Open(path)
 	if err != nil {
@@ -309,14 +307,10 @@ type pageSpan struct {
 	length int
 }
 
-// finalizeJSONL rewrites the streamed JSONL into its canonical form: one page
-// record per URL (last occurrence wins, collapsing a resumed page's stale and
-// fresh copies), sorted by URL, followed by a single crawl_meta. It indexes the
-// file by byte offset and copies records through, so only URLs and offsets are
-// held in memory, never the page bodies -- memory stays flat on large corpora.
-// This keeps llms.txt/llms-full.txt free of stale content, corrects the page
-// count, and lets the history-index insert (unique on crawl_id+url) succeed.
-// Must run after the append handle is closed. Errors are logged, never fatal.
+// finalizeJSONL rewrites the streamed JSONL into canonical form: one page record
+// per URL (last wins), sorted, plus a single crawl_meta. It indexes by byte offset
+// and copies records through, so only URLs and offsets are held in memory, never
+// page bodies. Must run after the append handle is closed; errors are logged.
 func (om *OutputManager) finalizeJSONL() {
 	if om.jsonlFilePath == "" {
 		return
@@ -390,6 +384,13 @@ func (om *OutputManager) rewriteFinalizedJSONL(spans map[string]pageSpan) error 
 	if err != nil {
 		return fmt.Errorf("open temp: %w", err)
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+		}
+	}()
 	w := bufio.NewWriter(tmp)
 
 	urls := make([]string, 0, len(spans))
@@ -412,42 +413,33 @@ func (om *OutputManager) rewriteFinalizedJSONL(spans map[string]pageSpan) error 
 		// Normalize to exactly one trailing newline; the final streamed record
 		// may lack one if the crawl was interrupted mid-write.
 		if _, wErr := w.Write(bytes.TrimRight(rec, "\n")); wErr != nil {
-			return finalizeWriteErr(tmp, tmpPath, wErr)
+			return wErr
 		}
 		if wErr := w.WriteByte('\n'); wErr != nil {
-			return finalizeWriteErr(tmp, tmpPath, wErr)
+			return wErr
 		}
 	}
 
 	if meta, mErr := json.Marshal(om.buildCrawlMeta()); mErr != nil {
 		om.log.Error("Failed to marshal crawl_meta during finalize", "err", mErr)
-	} else {
-		if _, wErr := w.Write(append(meta, '\n')); wErr != nil {
-			return finalizeWriteErr(tmp, tmpPath, wErr)
-		}
+	} else if _, wErr := w.Write(append(meta, '\n')); wErr != nil {
+		return wErr
 	}
 
 	if err := w.Flush(); err != nil {
-		return finalizeWriteErr(tmp, tmpPath, fmt.Errorf("flush temp: %w", err))
+		return fmt.Errorf("flush temp: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
 		om.log.Warn("Failed to sync finalized JSONL temp", "err", err)
 	}
 	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close temp: %w", err)
 	}
 	if err := os.Rename(tmpPath, om.jsonlFilePath); err != nil {
-		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename temp: %w", err)
 	}
+	committed = true
 	return nil
-}
-
-func finalizeWriteErr(tmp *os.File, tmpPath string, cause error) error {
-	_ = tmp.Close()
-	_ = os.Remove(tmpPath)
-	return cause
 }
 
 // appendCrawlMeta appends a single crawl_meta record, used as a fallback when
