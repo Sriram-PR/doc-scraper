@@ -332,7 +332,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 		} else {
 			errorType := "UnknownDownloadFailure"
 			if imgTaskErr != nil {
-				errorType = utils.CategorizeError(imgTaskErr)
+				errorType = imgTaskErr.Error()
 			}
 			entryToSave = models.ImageDBEntry{
 				Status:      models.ImageStatusFailure,

@@ -652,7 +652,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// pageTitle and savedContentPath feed the deferred logging; normalizedURLString feeds DB updates and YAML metadata.
 	var taskErr error                 // Stores the first critical error encountered in the pipeline.
 	var finalStatus models.PageStatus // PageStatusSuccess or PageStatusFailure (only set for non-skipped tasks)
-	var finalErrorType = "None"       // Categorized error type on failure.
+	var finalErrorType = "None"       // Error message on failure.
 	var skipped = false               // True if task is skipped due to prior processing or policy.
 	var pageTitle string              // Populated on successful content extraction.
 	var savedContentPath string       // Absolute path to the saved .md file.
@@ -682,8 +682,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 
 		if taskErr != nil {
 			finalStatus = models.PageStatusFailure
-			finalErrorType = utils.CategorizeError(taskErr)
-			logAttrs = append(logAttrs, "category", finalErrorType)
+			finalErrorType = taskErr.Error()
 			if !panicked { // Log non-panic errors (panic already logged above)
 				taskLog.With(logAttrs...).Warn(fmt.Sprintf("Task failed: %v", taskErr))
 			}
