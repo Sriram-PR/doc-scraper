@@ -54,9 +54,7 @@ func (o *Orchestrator) WithIndex(idx *index.Index) *Orchestrator {
 func NewOrchestrator(parent context.Context, appCfg *config.AppConfig, siteKeys []string, resume bool, log *slog.Logger) *Orchestrator {
 	ctx, cancel := context.WithCancel(parent)
 
-	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, log)
-	fetcher := fetch.NewFetcher(httpClient, appCfg, log)
-	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, log)
+	fetcher, rateLimiter := fetch.NewStack(appCfg, log)
 	globalSemaphore := semaphore.NewWeighted(int64(appCfg.MaxRequests))
 
 	return &Orchestrator{

@@ -32,11 +32,7 @@ import (
 func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	sites := make([]map[string]interface{}, 0, len(s.cfg.AppConfig.Sites))
 
-	keys := make([]string, 0, len(s.cfg.AppConfig.Sites))
-	for k := range s.cfg.AppConfig.Sites {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := config.GetAllSiteKeys(s.cfg.AppConfig)
 
 	for _, key := range keys {
 		siteCfg := s.cfg.AppConfig.Sites[key]
@@ -103,11 +99,7 @@ func (s *Server) handleCancelCrawl(ctx context.Context, request mcp.CallToolRequ
 // handleDescribeServer returns server identity, sites, and recent jobs in one
 // payload. Tool schemas are advertised by the MCP protocol and are not duplicated.
 func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	siteKeys := make([]string, 0, len(s.cfg.AppConfig.Sites))
-	for k := range s.cfg.AppConfig.Sites {
-		siteKeys = append(siteKeys, k)
-	}
-	sort.Strings(siteKeys)
+	siteKeys := config.GetAllSiteKeys(s.cfg.AppConfig)
 
 	sites := make([]map[string]interface{}, 0, len(siteKeys))
 	for _, key := range siteKeys {
@@ -439,9 +431,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 
 	jobCtx := s.jobManager.GetContext(job.ID)
 
-	httpClient := fetch.NewClient(s.cfg.AppConfig.HTTPClientSettings, s.log)
-	fetcher := fetch.NewFetcher(httpClient, s.cfg.AppConfig, s.log)
-	rateLimiter := fetch.NewRateLimiter(s.cfg.AppConfig.DefaultDelayPerHost, s.log)
+	fetcher, rateLimiter := fetch.NewStack(s.cfg.AppConfig, s.log)
 
 	// MCP jobs always start fresh, never resume.
 	store, err := storage.NewBadgerStore(jobCtx, s.cfg.AppConfig.StateDir, siteKey, false, s.log)
@@ -541,12 +531,7 @@ func (s *Server) resolveSiteOrError(siteKey string) (*config.SiteConfig, *mcp.Ca
 	if exists {
 		return siteCfg, nil
 	}
-	availableKeys := make([]string, 0, len(s.cfg.AppConfig.Sites))
-	for k := range s.cfg.AppConfig.Sites {
-		availableKeys = append(availableKeys, k)
-	}
-	sort.Strings(availableKeys)
-	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", siteKey, availableKeys))
+	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", siteKey, config.GetAllSiteKeys(s.cfg.AppConfig)))
 }
 
 // handleGetFreshness answers "is the local crawl recent enough to query, or

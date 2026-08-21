@@ -34,6 +34,14 @@ func NewFetcher(client *http.Client, cfg *config.AppConfig, log *slog.Logger) *F
 	}
 }
 
+// NewStack builds the fetcher and per-host rate limiter every crawl entry point
+// needs, so the CLI, the orchestrator, and the MCP server cannot drift apart in
+// how they configure the HTTP layer.
+func NewStack(cfg *config.AppConfig, log *slog.Logger) (*Fetcher, *RateLimiter) {
+	return NewFetcher(NewClient(cfg.HTTPClientSettings, log), cfg, log),
+		NewRateLimiter(cfg.DefaultDelayPerHost, log)
+}
+
 // FetchWithRetry performs the request with exponential backoff and jitter for 5xx and 429 responses.
 func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.Response, error) { //nolint:gocyclo // retry logic with multiple error paths
 	var lastErr error

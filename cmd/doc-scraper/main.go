@@ -808,9 +808,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 
 	go store.RunGC(crawlCtx, 0) // 0 = use the store's built-in default (10m)
 
-	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, logEntry)
-	fetcher := fetch.NewFetcher(httpClient, appCfg, logEntry)
-	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logEntry)
+	fetcher, rateLimiter := fetch.NewStack(appCfg, logEntry)
 
 	idx, err := index.OpenAt(appCfg.StateDir, appCfg.CrawlHistoryRetention, logEntry)
 	if err != nil {
