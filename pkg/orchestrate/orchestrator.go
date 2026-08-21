@@ -173,22 +173,6 @@ func (o *Orchestrator) Cancel() {
 	o.cancel()
 }
 
-// GetProgress returns progress snapshots for completed sites.
-func (o *Orchestrator) GetProgress() []crawler.CrawlerProgress {
-	o.resultsMu.Lock()
-	defer o.resultsMu.Unlock()
-
-	progress := make([]crawler.CrawlerProgress, 0, len(o.results))
-	for _, r := range o.results {
-		progress = append(progress, crawler.CrawlerProgress{
-			SiteKey:        r.SiteKey,
-			PagesProcessed: r.PagesProcessed,
-			IsRunning:      false,
-		})
-	}
-	return progress
-}
-
 func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 	o.log.Info("============================================")
 	o.log.Info(fmt.Sprintf("Parallel crawl completed in %v", totalDuration))

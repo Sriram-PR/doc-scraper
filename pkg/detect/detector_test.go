@@ -262,8 +262,8 @@ func TestCaching(t *testing.T) {
 	}
 
 	// Verify cache size
-	if detector.cache.Size() != 1 {
-		t.Errorf("Expected cache size 1, got %d", detector.cache.Size())
+	if len(detector.cache.cache) != 1 {
+		t.Errorf("Expected cache size 1, got %d", len(detector.cache.cache))
 	}
 }
 
@@ -292,13 +292,7 @@ func TestSelectorCache(t *testing.T) {
 	}
 
 	// Test size
-	if cache.Size() != 1 {
-		t.Errorf("Expected size 1, got %d", cache.Size())
-	}
-
-	// Test clear
-	cache.Clear()
-	if cache.Size() != 0 {
-		t.Errorf("Expected size 0 after clear, got %d", cache.Size())
+	if len(cache.cache) != 1 {
+		t.Errorf("Expected size 1, got %d", len(cache.cache))
 	}
 }

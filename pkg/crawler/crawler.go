@@ -99,21 +99,6 @@ type CrawlerOptions struct {
 	Index *index.Index
 }
 
-func NewCrawler(
-	appCfg *config.AppConfig,
-	siteCfg *config.SiteConfig,
-	siteKey string,
-	baseLogger *slog.Logger,
-	store storage.VisitedStore,
-	fetcher fetch.HTTPFetcher,
-	rateLimiter *fetch.RateLimiter,
-	crawlCtx context.Context,
-	cancelCrawl context.CancelFunc,
-	resume bool,
-) (*Crawler, error) {
-	return NewCrawlerWithOptions(appCfg, siteCfg, siteKey, baseLogger, store, fetcher, rateLimiter, crawlCtx, cancelCrawl, resume, nil)
-}
-
 // NewCrawlerWithOptions wires a Crawler and its components; opts may be nil to use defaults.
 func NewCrawlerWithOptions(
 	appCfg *config.AppConfig,

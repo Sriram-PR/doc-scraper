@@ -162,8 +162,8 @@ func runCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig
 	fetcher := fetch.NewFetcher(httpClient, appCfg, logger)
 	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logger)
 
-	c, err := NewCrawler(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rateLimiter, ctx, cancel, false)
-	require.NoError(t, err, "NewCrawler")
+	c, err := NewCrawlerWithOptions(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rateLimiter, ctx, cancel, false, nil)
+	require.NoError(t, err, "NewCrawlerWithOptions")
 
 	return c.Run(false)
 }
@@ -487,7 +487,7 @@ func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.S
 	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, logger)
 	fetcher := fetch.NewFetcher(httpClient, appCfg, logger)
 	rl := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logger)
-	c, err := NewCrawler(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rl, ctx, cancel, resume)
+	c, err := NewCrawlerWithOptions(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rl, ctx, cancel, resume, nil)
 	require.NoError(t, err)
 	require.NoError(t, c.Run(resume))
 }

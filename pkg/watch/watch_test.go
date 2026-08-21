@@ -45,30 +45,6 @@ func TestParseInterval(t *testing.T) {
 	}
 }
 
-func TestFormatInterval(t *testing.T) {
-	tests := []struct {
-		input    time.Duration
-		expected string
-	}{
-		{30 * time.Second, "30s"},
-		{5 * time.Minute, "5m"},
-		{time.Hour, "1h"},
-		{90 * time.Minute, "1h30m"},
-		{24 * time.Hour, "1d"},
-		{36 * time.Hour, "1d12h"},
-		{7 * 24 * time.Hour, "7d"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			got := FormatInterval(tt.input)
-			if got != tt.expected {
-				t.Errorf("FormatInterval(%v) = %q, want %q", tt.input, got, tt.expected)
-			}
-		})
-	}
-}
-
 func TestStateManager(t *testing.T) {
 	// Create temp directory for state file
 	tmpDir := t.TempDir()
@@ -128,34 +104,6 @@ func TestStateManager(t *testing.T) {
 	}
 	if state2.PagesProcessed != 100 {
 		t.Errorf("Loaded PagesProcessed = %d, want 100", state2.PagesProcessed)
-	}
-}
-
-func TestStateManagerGetAllSiteStates(t *testing.T) {
-	tmpDir := t.TempDir()
-	sm := NewStateManager(tmpDir)
-	_ = sm.Load()
-
-	sm.UpdateSiteState("site1", true, 50, "")
-	sm.UpdateSiteState("site2", false, 0, "some error")
-	sm.UpdateSiteState("site3", true, 200, "")
-
-	states := sm.GetAllSiteStates()
-
-	if len(states) != 3 {
-		t.Errorf("GetAllSiteStates() returned %d states, want 3", len(states))
-	}
-
-	if states["site1"].PagesProcessed != 50 {
-		t.Errorf("site1 PagesProcessed = %d, want 50", states["site1"].PagesProcessed)
-	}
-
-	if states["site2"].LastRunSuccess {
-		t.Error("site2 LastRunSuccess should be false")
-	}
-
-	if states["site2"].ErrorMessage != "some error" {
-		t.Errorf("site2 ErrorMessage = %q, want 'some error'", states["site2"].ErrorMessage)
 	}
 }
 

@@ -30,17 +30,3 @@ func (c *SelectorCache) Set(domain string, result DetectionResult) {
 	defer c.mu.Unlock()
 	c.cache[domain] = result
 }
-
-// Clear removes all cached entries.
-func (c *SelectorCache) Clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cache = make(map[string]DetectionResult)
-}
-
-// Size returns the number of cached entries.
-func (c *SelectorCache) Size() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return len(c.cache)
-}

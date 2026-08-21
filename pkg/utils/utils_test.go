@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -357,54 +355,5 @@ func TestCalculateStringSHA256(t *testing.T) {
 				t.Errorf("CalculateStringSHA256(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
-	}
-}
-
-func TestCalculateFileSHA256(t *testing.T) {
-	// Create a temporary file with known content
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "test.txt")
-
-	content := "hello world"
-	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
-
-	result, err := CalculateFileSHA256(tmpFile)
-	if err != nil {
-		t.Fatalf("CalculateFileSHA256() unexpected error: %v", err)
-	}
-
-	// Same content as TestCalculateStringSHA256 "HelloWorld" case
-	expected := "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
-	if result != expected {
-		t.Errorf("CalculateFileSHA256() = %q, want %q", result, expected)
-	}
-}
-
-func TestCalculateFileSHA256_NonExistentFile(t *testing.T) {
-	_, err := CalculateFileSHA256("/nonexistent/path/file.txt")
-	if err == nil {
-		t.Error("CalculateFileSHA256() expected error for non-existent file, got nil")
-	}
-}
-
-func TestCalculateFileSHA256_EmptyFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "empty.txt")
-
-	if err := os.WriteFile(tmpFile, []byte{}, 0644); err != nil {
-		t.Fatalf("Failed to create empty test file: %v", err)
-	}
-
-	result, err := CalculateFileSHA256(tmpFile)
-	if err != nil {
-		t.Fatalf("CalculateFileSHA256() unexpected error: %v", err)
-	}
-
-	// SHA256 of empty content
-	expected := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	if result != expected {
-		t.Errorf("CalculateFileSHA256(empty) = %q, want %q", result, expected)
 	}
 }

@@ -138,15 +138,3 @@ func (m *StateManager) GetNextRunTime(siteKey string, interval time.Duration) ti
 
 	return state.LastRunTime.Add(interval)
 }
-
-// GetAllSiteStates returns a snapshot copy of all site states.
-func (m *StateManager) GetAllSiteStates() map[string]SiteState {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make(map[string]SiteState, len(m.state.Sites))
-	for k, v := range m.state.Sites {
-		result[k] = v
-	}
-	return result
-}

@@ -79,14 +79,3 @@ func TestCancel_AfterRunIsSafe(t *testing.T) {
 	_ = o.Run()
 	o.Cancel() // must not panic when called post-Run
 }
-
-func TestGetProgress_MatchesResults(t *testing.T) {
-	cfg := minimalAppConfig(t)
-	o := NewOrchestrator(context.Background(), cfg, []string{"does_not_exist"}, false, silentLogger())
-	_ = o.Run()
-
-	progress := o.GetProgress()
-	require.Len(t, progress, 1)
-	assert.Equal(t, "does_not_exist", progress[0].SiteKey)
-	assert.False(t, progress[0].IsRunning)
-}

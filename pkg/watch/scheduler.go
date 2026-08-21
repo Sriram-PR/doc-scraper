@@ -187,63 +187,6 @@ func (s *Scheduler) logNextRun() {
 	}
 }
 
-// GetStatus returns the current status of all watched sites.
-func (s *Scheduler) GetStatus() map[string]SiteStatus {
-	status := make(map[string]SiteStatus)
-
-	for _, siteKey := range s.siteKeys {
-		state, exists := s.stateManager.GetSiteState(siteKey)
-		nextRun := s.stateManager.GetNextRunTime(siteKey, s.interval)
-
-		status[siteKey] = SiteStatus{
-			SiteKey:        siteKey,
-			LastRunTime:    state.LastRunTime,
-			LastRunSuccess: state.LastRunSuccess,
-			PagesProcessed: state.PagesProcessed,
-			ErrorMessage:   state.ErrorMessage,
-			NextRunTime:    nextRun,
-			NeverRun:       !exists,
-		}
-	}
-
-	return status
-}
-
-// SiteStatus contains the status of a watched site.
-type SiteStatus struct {
-	SiteKey        string
-	LastRunTime    time.Time
-	LastRunSuccess bool
-	PagesProcessed int64
-	ErrorMessage   string
-	NextRunTime    time.Time
-	NeverRun       bool
-}
-
-// FormatInterval formats a duration as a compact human-readable string.
-func FormatInterval(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	if d < 24*time.Hour {
-		hours := int(d.Hours())
-		mins := int(d.Minutes()) % 60
-		if mins > 0 {
-			return fmt.Sprintf("%dh%dm", hours, mins)
-		}
-		return fmt.Sprintf("%dh", hours)
-	}
-	days := int(d.Hours()) / 24
-	hours := int(d.Hours()) % 24
-	if hours > 0 {
-		return fmt.Sprintf("%dd%dh", days, hours)
-	}
-	return fmt.Sprintf("%dd", days)
-}
-
 // ParseInterval parses a duration string with added support for day suffixes (e.g. "7d", "1d12h").
 func ParseInterval(s string) (time.Duration, error) {
 	d, err := time.ParseDuration(s)
