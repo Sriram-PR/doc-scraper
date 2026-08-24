@@ -544,11 +544,6 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType string, imgLogEntry *slog.Logger) (string, error) { //nolint:gocyclo // filename generation with many content-type and extension edge cases
 	originalExt := path.Ext(baseImgURL.Path)
 	imgBaseName := utils.SanitizeFilename(strings.TrimSuffix(path.Base(baseImgURL.Path), originalExt))
-	if imgBaseName == "" || imgBaseName == "_" {
-		urlHashOnly := fmt.Sprintf("%x", sha256.Sum256([]byte(absImgURL)))[:12]
-		imgBaseName = "image_" + urlHashOnly
-		imgLogEntry.Debug(fmt.Sprintf("Sanitized base name was empty, using hash fallback: %s", imgBaseName))
-	}
 
 	finalExt := originalExt
 
