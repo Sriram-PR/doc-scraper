@@ -115,12 +115,9 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 	if numImageWorkers <= 0 {
 		numImageWorkers = ip.appCfg.NumWorkers
 	}
-	imageTaskChan := make(chan ImageDownloadTask, numImageWorkers*2)
-
-	taskLog.Info(fmt.Sprintf("Launching %d image download workers", numImageWorkers))
-	for i := 1; i <= numImageWorkers; i++ {
-		go ip.imageWorker(i, imageTaskChan, siteOutputDir, imageMap, &imageErrs, &imgErrMu, &imgWg)
-	}
+	// Acquired on the dispatching goroutine so at most numImageWorkers downloads
+	// are in flight and no more than that many goroutines exist at once.
+	imgSem := semaphore.NewWeighted(int64(numImageWorkers))
 
 	localImageDir := filepath.Join(siteOutputDir, ImageDir)
 	if mkDirErr := os.MkdirAll(localImageDir, 0755); mkDirErr != nil {
@@ -241,24 +238,24 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 				ImgLogEntry:      imgLog,
 				Ctx:              ctx,
 			}
-			imgWg.Add(1)
-
-			select {
-			case imageTaskChan <- task:
-			case <-ctx.Done():
-				imgLog.Warn(fmt.Sprintf("Context cancelled while trying to dispatch image task for '%s': %v", imgSrc, ctx.Err()))
-				imgWg.Done()
+			if err := imgSem.Acquire(ctx, 1); err != nil {
+				imgLog.Warn(fmt.Sprintf("Context cancelled while trying to dispatch image task for '%s': %v", imgSrc, err))
 				element.SetAttr("data-crawl-status", "error-dispatch-context")
+				return
 			}
+
+			imgWg.Add(1)
+			go func() {
+				defer imgWg.Done()
+				defer imgSem.Release(1)
+				ip.processSingleImageTask(task, siteOutputDir, imageMap, &imageErrs, &imgErrMu)
+			}()
 		}
 	})
 
-	taskLog.Debug("Finished dispatching all image tasks for this page. Closing task channel.")
-	close(imageTaskChan)
-
-	taskLog.Debug("Waiting for image download workers to finish...")
+	taskLog.Debug("Waiting for image downloads to finish...")
 	imgWg.Wait()
-	taskLog.Debug("All image download workers finished for this page.")
+	taskLog.Debug("All image downloads finished for this page.")
 
 	if len(imageErrs) > 0 {
 		taskLog.Warn(fmt.Sprintf("Finished image processing for page with %d non-fatal error(s).", len(imageErrs)))
@@ -268,25 +265,6 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 	return imageMap, imageErrs
 }
 
-func (ip *ImageProcessor) imageWorker(
-	id int,
-	taskChan <-chan ImageDownloadTask,
-	siteOutputDir string,
-	imageMap map[string]models.ImageData,
-	imageErrs *[]error,
-	imgErrMu *sync.Mutex,
-	imgWg *sync.WaitGroup,
-) {
-	workerLog := ip.log.With("image_worker_id", id)
-	workerLog.Debug("Image worker started")
-
-	for task := range taskChan {
-		ip.processSingleImageTask(task, siteOutputDir, imageMap, imageErrs, imgErrMu, imgWg)
-	}
-
-	workerLog.Debug("Image worker finished (task channel closed)")
-}
-
 // processSingleImageTask handles the download, saving, and DB update for one image.
 func (ip *ImageProcessor) processSingleImageTask(
 	task ImageDownloadTask,
@@ -294,7 +272,6 @@ func (ip *ImageProcessor) processSingleImageTask(
 	imageMap map[string]models.ImageData,
 	imageErrs *[]error,
 	imgErrMu *sync.Mutex,
-	imgWg *sync.WaitGroup,
 ) {
 	ctx := task.Ctx
 	if ctx == nil {
@@ -353,8 +330,6 @@ func (ip *ImageProcessor) processSingleImageTask(
 			*imageErrs = append(*imageErrs, dbUpdateErr)
 			imgErrMu.Unlock()
 		}
-
-		imgWg.Done()
 	}()
 
 	userAgent := ip.resolved.UserAgent

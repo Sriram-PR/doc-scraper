@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/sync/semaphore"
@@ -617,6 +618,138 @@ func TestProcessImages_ReportsDBCheckError(t *testing.T) {
 	}
 	if got := crawlStatuses(sel); len(got) != 1 || got[0] != "error-db" {
 		t.Errorf("data-crawl-status = %v, want [error-db]", got)
+	}
+}
+
+// concurrencyFetcher serves a body for any URL while recording how many
+// downloads were in flight at once.
+type concurrencyFetcher struct {
+	mu       sync.Mutex
+	inFlight int
+	maxSeen  int
+	calls    int
+}
+
+func (c *concurrencyFetcher) FetchWithRetry(req *http.Request, _ context.Context) (*http.Response, error) {
+	c.mu.Lock()
+	c.inFlight++
+	c.calls++
+	if c.inFlight > c.maxSeen {
+		c.maxSeen = c.inFlight
+	}
+	c.mu.Unlock()
+
+	time.Sleep(20 * time.Millisecond)
+
+	c.mu.Lock()
+	c.inFlight--
+	c.mu.Unlock()
+
+	return imageResponse("DATA", "image/png", ""), nil
+}
+
+func newImageProcessorWithWorkers(t *testing.T, store *fakeImageStore, fetcher fetch.HTTPFetcher, workers int) *ImageProcessor {
+	t.Helper()
+
+	appCfg := &config.AppConfig{
+		NumWorkers:         workers,
+		NumImageWorkers:    workers,
+		MaxRequests:        32,
+		MaxRequestsPerHost: 32,
+	}
+	rl := fetch.NewRateLimiter(0, silentLog())
+	globalSem := semaphore.NewWeighted(int64(appCfg.MaxRequests))
+	hostSem := fetch.NewHostSemaphorePool(appCfg.MaxRequestsPerHost, silentLog())
+	robots := fetch.NewRobotsHandler(&stubFetcher{err: errors.New("no robots")}, rl, globalSem, nil, appCfg, silentLog())
+
+	return NewImageProcessor(store, fetcher, robots, rl, globalSem, hostSem, &config.ResolvedSiteConfig{}, appCfg, silentLog())
+}
+
+func imagesHTML(n int) string {
+	var b strings.Builder
+	b.WriteString("<body>")
+	for i := range n {
+		fmt.Fprintf(&b, `<img src="https://e.com/img/%d.png">`, i)
+	}
+	b.WriteString("</body>")
+	return b.String()
+}
+
+func TestProcessImages_DownloadsEveryImageOnThePage(t *testing.T) {
+	const count = 6
+	dir := t.TempDir()
+
+	store := newFakeImageStore()
+	fetcher := &concurrencyFetcher{}
+	ip := newImageProcessorWithWorkers(t, store, fetcher, 3)
+
+	sel := imageDoc(t, imagesHTML(count))
+	pageURL, _ := url.Parse("https://e.com/page.html")
+
+	imgMap, errs := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, dir, silentLog(), context.Background())
+
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(imgMap) != count {
+		t.Errorf("downloaded %d images, want %d", len(imgMap), count)
+	}
+	if fetcher.calls != count {
+		t.Errorf("fetcher called %d times, want %d", fetcher.calls, count)
+	}
+	for _, data := range imgMap {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(data.LocalPath))); err != nil {
+			t.Errorf("image %q not written to disk: %v", data.OriginalURL, err)
+		}
+	}
+}
+
+// num_image_workers must still cap how many downloads run at once.
+func TestProcessImages_BoundsConcurrentDownloads(t *testing.T) {
+	const workers = 2
+
+	store := newFakeImageStore()
+	fetcher := &concurrencyFetcher{}
+	ip := newImageProcessorWithWorkers(t, store, fetcher, workers)
+
+	sel := imageDoc(t, imagesHTML(8))
+	pageURL, _ := url.Parse("https://e.com/page.html")
+
+	ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), context.Background())
+
+	fetcher.mu.Lock()
+	defer fetcher.mu.Unlock()
+	if fetcher.maxSeen > workers {
+		t.Errorf("observed %d concurrent downloads, want at most %d", fetcher.maxSeen, workers)
+	}
+	if fetcher.maxSeen < 2 {
+		t.Errorf("observed %d concurrent downloads, expected the work to actually overlap", fetcher.maxSeen)
+	}
+}
+
+func TestProcessImages_CancelledContextStopsDispatch(t *testing.T) {
+	store := newFakeImageStore()
+	fetcher := &concurrencyFetcher{}
+	ip := newImageProcessorWithWorkers(t, store, fetcher, 2)
+
+	sel := imageDoc(t, imagesHTML(3))
+	pageURL, _ := url.Parse("https://e.com/page.html")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	imgMap, _ := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), ctx)
+
+	if len(imgMap) != 0 {
+		t.Errorf("downloaded %d images despite a cancelled context", len(imgMap))
+	}
+	if fetcher.calls != 0 {
+		t.Errorf("fetcher called %d times despite a cancelled context", fetcher.calls)
+	}
+	for _, s := range crawlStatuses(sel) {
+		if s != "error-dispatch-context" {
+			t.Errorf("data-crawl-status = %q, want error-dispatch-context", s)
+		}
 	}
 }
 
