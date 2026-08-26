@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/JohannesKaufmann/html-to-markdown/plugin"
@@ -25,6 +26,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
@@ -175,6 +177,23 @@ type pageListEntry struct {
 
 // handleListPages returns paginated page metadata, URL-sorted, from the site's
 // JSONL output. Returns an empty result with a hint when no crawl exists yet.
+// siteJSONLPath locates the crawl JSONL that backs the stored corpus. The
+// second return is false when JSONL output is disabled for the site, which is
+// worth reporting separately from a missing file: the crawl may have run fine
+// and simply written Markdown only.
+func (s *Server) siteJSONLPath(siteKey string, siteCfg *config.SiteConfig) (string, bool) {
+	if !config.GetEffectiveEnableJSONLOutput(siteCfg, s.cfg.AppConfig) {
+		return "", false
+	}
+	return filepath.Join(
+		s.cfg.AppConfig.SiteOutputDir(siteKey),
+		config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig),
+	), true
+}
+
+const jsonlDisabledHint = "JSONL output is disabled for site '%s', so no stored corpus is available to read. " +
+	"Set enable_jsonl_output: true globally or for the site and re-run crawl_site."
+
 func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	siteKey := request.GetString("site_key", "")
 	if siteKey == "" {
@@ -197,10 +216,10 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 		offset = 0
 	}
 
-	jsonlPath := filepath.Join(
-		s.cfg.AppConfig.SiteOutputDir(siteKey),
-		config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig),
-	)
+	jsonlPath, jsonlEnabled := s.siteJSONLPath(siteKey, siteCfg)
+	if !jsonlEnabled {
+		return mcp.NewToolResultError(fmt.Sprintf(jsonlDisabledHint, siteKey)), nil
+	}
 
 	file, err := os.Open(jsonlPath)
 	if err != nil {
@@ -589,9 +608,10 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 	if _, ok := result["last_crawl_ended_at"]; !ok {
 		result["next_actions"] = "No prior crawl recorded. Run crawl_site to populate the history index."
 	} else {
-		result["next_actions"] = "list_pages to enumerate what was crawled; crawl_site to refresh; " +
-			"diff_crawl with since=last_crawl_ended_at to compute what changed. get_page re-fetches " +
-			"a URL live and does not read this crawl."
+		result["next_actions"] = "list_pages to enumerate what was crawled, then read_page to read any " +
+			"of those pages from the stored crawl; crawl_site to refresh; diff_crawl with " +
+			"since=last_crawl_ended_at to compute what changed. get_page re-fetches a URL live and " +
+			"does not read this crawl."
 	}
 
 	return mcp.NewToolResultText(formatJSON(result)), nil
@@ -703,4 +723,139 @@ func formatJSON(data map[string]interface{}) string {
 		return fmt.Sprintf("{\"error\": %q}", err.Error())
 	}
 	return string(b)
+}
+
+const (
+	defaultReadPageBytes = 100 * 1024
+	maxReadPageBytes     = 1024 * 1024
+)
+
+// findPageRecord streams the crawl JSONL and returns the first page record for
+// wantURL, stopping at the match instead of reading the whole file. Normalized
+// forms are compared as a fallback so a caller's trailing slash or fragment
+// still resolves. A nil record with a nil error means the page is not in the
+// corpus.
+func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
+	file, err := os.Open(jsonlPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	wantNorm, _, normErr := parse.ParseAndNormalize(wantURL)
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.Contains(line, `"record_type":"page"`) {
+			continue
+		}
+		var p models.PageJSONL
+		if err := json.Unmarshal([]byte(line), &p); err != nil || p.RecordType != models.RecordTypePage {
+			continue
+		}
+		if p.URL == wantURL {
+			return &p, nil
+		}
+		if normErr == nil {
+			if gotNorm, _, err := parse.ParseAndNormalize(p.URL); err == nil && gotNorm == wantNorm {
+				return &p, nil
+			}
+		}
+	}
+	return nil, scanner.Err()
+}
+
+// sliceAtRuneBoundary returns up to maxBytes of s starting at offset, snapping
+// both cuts to rune boundaries so a page split across several reads never
+// yields invalid UTF-8.
+func sliceAtRuneBoundary(s string, offset, maxBytes int) (chunk string, start int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(s) {
+		offset = len(s)
+	}
+	for offset > 0 && offset < len(s) && !utf8.RuneStart(s[offset]) {
+		offset--
+	}
+	chunk = s[offset:]
+	if len(chunk) > maxBytes {
+		cut := maxBytes
+		for cut > 0 && !utf8.RuneStart(chunk[cut]) {
+			cut--
+		}
+		chunk = chunk[:cut]
+	}
+	return chunk, offset
+}
+
+// handleReadPage serves a page's markdown out of the stored crawl. This is the
+// counterpart to get_page, which always re-fetches over the network.
+func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	siteKey := request.GetString("site_key", "")
+	if siteKey == "" {
+		return mcp.NewToolResultError("site_key parameter is required"), nil
+	}
+	urlStr := request.GetString("url", "")
+	if urlStr == "" {
+		return mcp.NewToolResultError("url parameter is required"), nil
+	}
+	siteCfg, errResult := s.resolveSiteOrError(siteKey)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	maxBytes := request.GetInt("max_bytes", defaultReadPageBytes)
+	if maxBytes <= 0 {
+		maxBytes = defaultReadPageBytes
+	}
+	if maxBytes > maxReadPageBytes {
+		maxBytes = maxReadPageBytes
+	}
+	offset := request.GetInt("offset", 0)
+
+	jsonlPath, jsonlEnabled := s.siteJSONLPath(siteKey, siteCfg)
+	if !jsonlEnabled {
+		return mcp.NewToolResultError(fmt.Sprintf(jsonlDisabledHint, siteKey)), nil
+	}
+
+	record, err := findPageRecord(jsonlPath, urlStr)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"no crawl output found for site '%s'. Run crawl_site first.", siteKey)), nil
+		}
+		return mcp.NewToolResultError(fmt.Sprintf("failed to read crawl output for site '%s': %v", siteKey, err)), nil
+	}
+	if record == nil {
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"url '%s' is not in the stored crawl for site '%s'. Use list_pages to see what was crawled, "+
+				"or get_page to fetch it live.", urlStr, siteKey)), nil
+	}
+
+	chunk, start := sliceAtRuneBoundary(record.Content, offset, maxBytes)
+	end := start + len(chunk)
+
+	result := map[string]interface{}{
+		"site_key":       siteKey,
+		"url":            record.URL,
+		"title":          record.Title,
+		"content":        chunk,
+		"content_length": len(chunk),
+		"total_length":   len(record.Content),
+		"offset":         start,
+		"truncated":      end < len(record.Content),
+		"depth":          record.Depth,
+		"crawled_at":     record.CrawledAt,
+		"content_hash":   record.ContentHash,
+		"headings":       record.Headings,
+		"source":         "stored_crawl",
+	}
+	if end < len(record.Content) {
+		result["next_offset"] = end
+	}
+
+	return mcp.NewToolResultText(formatJSON(result)), nil
 }

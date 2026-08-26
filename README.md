@@ -654,11 +654,12 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 |------|-------------|
 | `describe_server` | Orientation manifest: server identity + sites + recent jobs in one call (call this first) |
 | `list_sites` | List all configured sites from config file |
-| `get_page` | Fetch a single URL and return content as markdown |
+| `get_page` | Fetch a single URL live over the network and return content as markdown |
 | `crawl_site` | Start a background crawl for a site (returns job ID) |
 | `get_job_status` | Check the status of a background crawl job |
 | `cancel_crawl` | Cancel a running or pending crawl job by job ID |
 | `list_pages` | Enumerate crawled pages for a site (paginated, metadata only) |
+| `read_page` | Return a crawled page's markdown from the stored output, without network access |
 | `get_freshness` | Report how stale a site's latest crawl is, from the crawl-history index |
 | `diff_crawl` | Report pages added, removed, or changed since a given timestamp |
 

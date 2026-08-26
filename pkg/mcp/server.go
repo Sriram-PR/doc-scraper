@@ -144,9 +144,9 @@ func (s *Server) registerTools() {
 
 	listPagesTool := mcp.NewTool("list_pages",
 		mcp.WithDescription("List crawled pages for a site, paginated and sorted by URL. Returns "+
-			"metadata only (URL, title, depth, crawled_at, content_length). Stored page content lives "+
-			"in the crawl output directory; get_page re-fetches a URL live rather than returning the "+
-			"crawled copy."),
+			"metadata only (URL, title, depth, crawled_at, content_length). Pass any URL returned here "+
+			"to read_page to get its stored markdown; get_page re-fetches a URL live rather than "+
+			"returning the crawled copy."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config (use list_sites to discover available keys)"),
@@ -159,6 +159,29 @@ func (s *Server) registerTools() {
 		),
 	)
 	addTool(listPagesTool, s.handleListPages)
+
+	readPageTool := mcp.NewTool("read_page",
+		mcp.WithDescription("Return a page's markdown from the stored crawl output, without any "+
+			"network access. This is the counterpart to get_page: read_page serves the crawled copy "+
+			"that already had the site's content_selector applied, while get_page re-fetches the URL "+
+			"live. Use list_pages to discover URLs, then read_page to read them. Large pages are "+
+			"truncated at max_bytes; follow next_offset to read the rest."),
+		mcp.WithString("site_key",
+			mcp.Required(),
+			mcp.Description("Site key from config (use list_sites to discover available keys)"),
+		),
+		mcp.WithString("url",
+			mcp.Required(),
+			mcp.Description("URL of a crawled page, as reported by list_pages"),
+		),
+		mcp.WithNumber("max_bytes",
+			mcp.Description("Maximum content bytes to return (default: 102400, max: 1048576)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Byte offset into the page content, for reading a truncated page in parts (default: 0)"),
+		),
+	)
+	addTool(readPageTool, s.handleReadPage)
 
 	getFreshnessTool := mcp.NewTool("get_freshness",
 		mcp.WithDescription("Return the most recent crawl summary for a site "+

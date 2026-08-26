@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
@@ -526,4 +528,182 @@ func TestHandleDiffCrawl_AddedRemovedChanged(t *testing.T) {
 	assert.Equal(t, "https://docs.example.com/a", chgEntry["url"])
 	assert.Equal(t, "ha2", chgEntry["content_hash"])
 	assert.Equal(t, "ha1", chgEntry["prior_hash"])
+}
+
+// callReadPage invokes handleReadPage and parses the JSON response.
+func callReadPage(t *testing.T, s *Server, args map[string]any) map[string]any {
+	t.Helper()
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = args
+	result, err := s.handleReadPage(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, result.Content, 1)
+	tc, ok := result.Content[0].(mcpgo.TextContent)
+	require.True(t, ok, "expected TextContent")
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &got))
+	return got
+}
+
+// readPageError invokes handleReadPage and returns the raw text, for the error
+// paths that do not emit JSON.
+func readPageError(t *testing.T, s *Server, args map[string]any) string {
+	t.Helper()
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = args
+	result, err := s.handleReadPage(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, result.IsError, "expected an error result")
+	tc, ok := result.Content[0].(mcpgo.TextContent)
+	require.True(t, ok)
+	return tc.Text
+}
+
+func seedCorpus(t *testing.T, jsonlPath string) {
+	t.Helper()
+	writeJSONLRecords(t, jsonlPath, []interface{}{
+		models.PageJSONL{
+			RecordType: models.RecordTypePage, URL: "https://docs.example.com/a", Title: "A",
+			Depth: 0, CrawledAt: "2026-05-23T10:00:00Z", Content: "# A\n\nBody of A.",
+			ContentHash: "hash-a", Headings: []string{"A"},
+		},
+		models.PageJSONL{
+			RecordType: models.RecordTypePage, URL: "https://docs.example.com/b", Title: "B",
+			Depth: 1, CrawledAt: "2026-05-23T10:00:01Z", Content: "# B\n\nBody of B.",
+			ContentHash: "hash-b",
+		},
+		models.CrawlMetaJSONL{RecordType: models.RecordTypeCrawlMeta, SiteKey: "docs", TotalPages: 2},
+	})
+}
+
+func TestHandleReadPage_ReturnsStoredContent(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	seedCorpus(t, jsonlPath)
+
+	got := callReadPage(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
+
+	assert.Equal(t, "# A\n\nBody of A.", got["content"])
+	assert.Equal(t, "A", got["title"])
+	assert.Equal(t, "hash-a", got["content_hash"])
+	assert.Equal(t, "stored_crawl", got["source"])
+	assert.EqualValues(t, 0, got["depth"])
+	assert.Equal(t, "2026-05-23T10:00:00Z", got["crawled_at"])
+	assert.Equal(t, false, got["truncated"])
+	assert.NotContains(t, got, "next_offset")
+}
+
+// The crawl_meta footer must never be mistaken for a page record.
+func TestHandleReadPage_IgnoresCrawlMetaRecord(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	seedCorpus(t, jsonlPath)
+
+	got := callReadPage(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/b"})
+	assert.Equal(t, "# B\n\nBody of B.", got["content"])
+}
+
+func TestHandleReadPage_NormalizesURL(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	seedCorpus(t, jsonlPath)
+
+	// A fragment the caller carried over from a docs link must still resolve.
+	got := callReadPage(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a#section"})
+	assert.Equal(t, "https://docs.example.com/a", got["url"])
+	assert.Equal(t, "# A\n\nBody of A.", got["content"])
+}
+
+func TestHandleReadPage_TruncatesAndResumesByOffset(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	body := strings.Repeat("x", 250)
+	writeJSONLRecords(t, jsonlPath, []interface{}{
+		models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://docs.example.com/big", Content: body},
+	})
+
+	first := callReadPage(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/big", "max_bytes": 100})
+	assert.Equal(t, true, first["truncated"])
+	assert.EqualValues(t, 250, first["total_length"])
+	assert.EqualValues(t, 100, first["content_length"])
+	assert.EqualValues(t, 100, first["next_offset"])
+
+	var reassembled strings.Builder
+	reassembled.WriteString(first["content"].(string))
+	offset := first["next_offset"]
+	for {
+		next := callReadPage(t, s, map[string]any{
+			"site_key": "docs", "url": "https://docs.example.com/big",
+			"max_bytes": 100, "offset": offset,
+		})
+		reassembled.WriteString(next["content"].(string))
+		if next["truncated"] != true {
+			break
+		}
+		offset = next["next_offset"]
+	}
+	assert.Equal(t, body, reassembled.String(), "paging through next_offset must reassemble the page exactly")
+}
+
+// Truncation must not split a multi-byte rune, or the JSON response carries
+// invalid UTF-8 that the client cannot decode.
+func TestHandleReadPage_TruncationKeepsValidUTF8(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	body := strings.Repeat("é", 100) // 2 bytes per rune
+	writeJSONLRecords(t, jsonlPath, []interface{}{
+		models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://docs.example.com/utf8", Content: body},
+	})
+
+	// An odd max_bytes lands mid-rune and must be snapped back.
+	got := callReadPage(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/utf8", "max_bytes": 51})
+	content := got["content"].(string)
+	assert.True(t, utf8.ValidString(content), "truncated content must be valid UTF-8")
+	assert.EqualValues(t, 50, got["content_length"], "cut should snap back to the rune boundary")
+
+	rest := callReadPage(t, s, map[string]any{
+		"site_key": "docs", "url": "https://docs.example.com/utf8",
+		"max_bytes": 1000, "offset": got["next_offset"],
+	})
+	assert.Equal(t, body, content+rest["content"].(string))
+}
+
+func TestHandleReadPage_UnknownURL(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	seedCorpus(t, jsonlPath)
+
+	text := readPageError(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/missing"})
+	assert.Contains(t, text, "not in the stored crawl")
+	assert.Contains(t, text, "list_pages")
+}
+
+func TestHandleReadPage_NoCrawlYet(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+
+	text := readPageError(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
+	assert.Contains(t, text, "no crawl output found")
+	assert.Contains(t, text, "crawl_site")
+}
+
+func TestHandleReadPage_MissingParams(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+
+	assert.Contains(t, readPageError(t, s, map[string]any{"url": "https://docs.example.com/a"}), "site_key parameter is required")
+	assert.Contains(t, readPageError(t, s, map[string]any{"site_key": "docs"}), "url parameter is required")
+	assert.Contains(t, readPageError(t, s, map[string]any{"site_key": "ghost", "url": "https://x/"}), "site 'ghost' not found")
+}
+
+// JSONL disabled is a distinct condition from "never crawled": the crawl may
+// have succeeded and written markdown only.
+func TestHandleReadPage_JSONLDisabledIsReportedDistinctly(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	s.cfg.AppConfig.EnableJSONLOutput = false
+
+	text := readPageError(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
+	assert.Contains(t, text, "JSONL output is disabled")
+	assert.Contains(t, text, "enable_jsonl_output")
+
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"site_key": "docs"}
+	result, err := s.handleListPages(context.Background(), req)
+	require.NoError(t, err)
+	tc, ok := result.Content[0].(mcpgo.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "JSONL output is disabled")
 }
