@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/JohannesKaufmann/html-to-markdown/plugin"
@@ -346,6 +347,18 @@ func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *con
 	return fullPath, true
 }
 
+// visibleText trims whitespace and zero-width characters, so anchors that
+// render as nothing (Docusaurus hash-links use U+200B) compare equal to "".
+func visibleText(s *goquery.Selection) string {
+	return strings.TrimFunc(s.Text(), func(r rune) bool {
+		switch r {
+		case '\u200b', '\u200c', '\u200d', '\ufeff':
+			return true
+		}
+		return unicode.IsSpace(r)
+	})
+}
+
 // cleanupHTML removes framework-specific noise before markdown conversion
 // (Sphinx headerlinks, RTD edit links, generic permalink anchors).
 func (cp *ContentProcessor) cleanupHTML(content *goquery.Selection) {
@@ -356,11 +369,32 @@ func (cp *ContentProcessor) cleanupHTML(content *goquery.Selection) {
 	content.Find("a[title='Link to this heading']").Remove()
 
 	content.Find("a").Each(func(i int, s *goquery.Selection) {
-		text := strings.TrimSpace(s.Text())
+		text := visibleText(s)
 		href, _ := s.Attr("href")
 		if text == "¶" || text == "#" || (text == "" && strings.HasPrefix(href, "#")) {
 			s.Remove()
 		}
+	})
+
+	// mdBook, Docker, and Sphinx toc-backrefs wrap the whole heading in a
+	// same-page anchor, which would otherwise render as "# [Title](\#title)".
+	// Matched on text rather than href because Sphinx points these at a
+	// generated id ("#id2") that never matches the heading's own id. Anchors
+	// pointing off-page are left alone, so headings that are genuine links
+	// (changelog entries linking to a diff) survive.
+	content.Find("h1, h2, h3, h4, h5, h6").Each(func(i int, heading *goquery.Selection) {
+		headingText := visibleText(heading)
+		if headingText == "" {
+			return
+		}
+		heading.Find("a").Each(func(j int, a *goquery.Selection) {
+			if href, ok := a.Attr("href"); !ok || !strings.HasPrefix(href, "#") {
+				return
+			}
+			if visibleText(a) == headingText {
+				a.Contents().Unwrap()
+			}
+		})
 	})
 }
 
