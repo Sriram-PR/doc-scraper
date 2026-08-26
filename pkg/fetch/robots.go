@@ -12,6 +12,7 @@ import (
 
 	"github.com/temoto/robotstxt"
 	"golang.org/x/sync/semaphore"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 )
@@ -40,6 +41,7 @@ type RobotsHandler struct {
 	rateLimiter     *RateLimiter
 	robotsCache     map[string]robotsCacheEntry
 	robotsCacheMu   sync.Mutex
+	inflight        singleflight.Group
 	globalSemaphore *semaphore.Weighted
 	sitemapNotifier SitemapDiscoverer
 	cfg             *config.AppConfig
@@ -120,6 +122,22 @@ func (rh *RobotsHandler) GetRobotsData(targetURL *url.URL, signalChan chan<- boo
 		return data
 	}
 
+	// The crawler primes robots.txt on one goroutine while seeding URLs on
+	// another, so without collapsing concurrent misses every worker that starts
+	// before the priming fetch returns issues its own duplicate request.
+	v, _, _ := rh.inflight.Do(host, func() (any, error) {
+		if data, found := rh.lookupCache(host); found {
+			return data, nil
+		}
+		return rh.fetchAndCacheRobots(targetURL, host, hostLog, ctx), nil
+	})
+	data, _ := v.(*robotstxt.RobotsData)
+	return data
+}
+
+// fetchAndCacheRobots performs the robots.txt request for one host and records
+// the outcome in the cache. Callers must hold the singleflight slot for host.
+func (rh *RobotsHandler) fetchAndCacheRobots(targetURL *url.URL, host string, hostLog *slog.Logger, ctx context.Context) *robotstxt.RobotsData {
 	robotsURL := &url.URL{Scheme: targetURL.Scheme, Host: host, Path: "/robots.txt"}
 	if targetURL.Scheme != "http" && targetURL.Scheme != "https" {
 		hostLog.Warn(fmt.Sprintf("Invalid scheme '%s', defaulting to https for robots.txt", targetURL.Scheme))
