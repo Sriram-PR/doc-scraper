@@ -43,6 +43,7 @@ type RobotsHandler struct {
 	robotsCacheMu   sync.Mutex
 	inflight        singleflight.Group
 	globalSemaphore *semaphore.Weighted
+	hostSemPool     *HostSemaphorePool
 	sitemapNotifier SitemapDiscoverer
 	cfg             *config.AppConfig
 	log             *slog.Logger
@@ -52,6 +53,7 @@ func NewRobotsHandler(
 	fetcher HTTPFetcher,
 	rateLimiter *RateLimiter,
 	globalSemaphore *semaphore.Weighted,
+	hostSemPool *HostSemaphorePool,
 	sitemapNotifier SitemapDiscoverer,
 	cfg *config.AppConfig,
 	log *slog.Logger,
@@ -61,6 +63,7 @@ func NewRobotsHandler(
 		rateLimiter:     rateLimiter,
 		robotsCache:     make(map[string]robotsCacheEntry),
 		globalSemaphore: globalSemaphore,
+		hostSemPool:     hostSemPool,
 		sitemapNotifier: sitemapNotifier,
 		cfg:             cfg,
 		log:             log,
@@ -148,6 +151,22 @@ func (rh *RobotsHandler) fetchAndCacheRobots(targetURL *url.URL, host string, ho
 	robotsLog.Info("Fetching robots.txt...")
 
 	semTimeout := config.DefaultSemaphoreAcquireTimeout
+
+	// Host semaphore first, then global, matching the page and image fetch
+	// paths so robots.txt counts against max_requests_per_host like any other
+	// request rather than slipping over the cap.
+	if rh.hostSemPool != nil {
+		ctxHost, cancelHost := context.WithTimeout(ctx, semTimeout)
+		hostErr := rh.hostSemPool.Acquire(ctxHost, host)
+		cancelHost()
+		if hostErr != nil {
+			robotsLog.Error(fmt.Sprintf("Error acquiring host semaphore: %v", hostErr))
+			rh.cacheFailure(host)
+			return nil
+		}
+		defer rh.hostSemPool.Release(host)
+	}
+
 	acquiredSemaphore := false
 	robotsLog.Debug("Acquiring global semaphore...")
 	ctxAcquire, cancelAcquire := context.WithTimeout(ctx, semTimeout)

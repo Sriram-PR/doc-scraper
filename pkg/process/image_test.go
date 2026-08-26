@@ -414,7 +414,7 @@ func newTestImageProcessor(t *testing.T, store *fakeImageStore, imgFetcher fetch
 	rl := fetch.NewRateLimiter(0, silentLog())
 	globalSem := semaphore.NewWeighted(int64(appCfg.MaxRequests))
 	hostSem := fetch.NewHostSemaphorePool(appCfg.MaxRequestsPerHost, silentLog())
-	robots := fetch.NewRobotsHandler(&stubFetcher{err: errors.New("no robots")}, rl, globalSem, nil, appCfg, silentLog())
+	robots := fetch.NewRobotsHandler(&stubFetcher{err: errors.New("no robots")}, rl, globalSem, hostSem, nil, appCfg, silentLog())
 
 	return NewImageProcessor(store, imgFetcher, robots, rl, globalSem, hostSem, resolved, appCfg, silentLog())
 }
@@ -660,7 +660,7 @@ func newImageProcessorWithWorkers(t *testing.T, store *fakeImageStore, fetcher f
 	rl := fetch.NewRateLimiter(0, silentLog())
 	globalSem := semaphore.NewWeighted(int64(appCfg.MaxRequests))
 	hostSem := fetch.NewHostSemaphorePool(appCfg.MaxRequestsPerHost, silentLog())
-	robots := fetch.NewRobotsHandler(&stubFetcher{err: errors.New("no robots")}, rl, globalSem, nil, appCfg, silentLog())
+	robots := fetch.NewRobotsHandler(&stubFetcher{err: errors.New("no robots")}, rl, globalSem, hostSem, nil, appCfg, silentLog())
 
 	return NewImageProcessor(store, fetcher, robots, rl, globalSem, hostSem, &config.ResolvedSiteConfig{}, appCfg, silentLog())
 }

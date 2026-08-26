@@ -165,7 +165,7 @@ func NewCrawlerWithOptions(
 
 	c.output = NewOutputManager(logger, resolved, siteCfg, siteKey, siteOutputDir)
 
-	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c, appCfg, logger)
+	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c.hostSemPool, c, appCfg, logger)
 	c.sitemapProcessor = sitemap.NewSitemapProcessor(c.sitemapQueue, c.pq, c.store, c.fetcher, c.rateLimiter, c.globalSemaphore, c.compiledDisallowedPatterns, c.siteCfg, c.appCfg, logger, &c.wg)
 	c.imageProcessor = process.NewImageProcessor(c.store, c.fetcher, c.robotsHandler, c.rateLimiter, c.globalSemaphore, c.hostSemPool, c.resolved, c.appCfg, logger)
 	c.contentProcessor = process.NewContentProcessor(c.imageProcessor, c.appCfg, logger)

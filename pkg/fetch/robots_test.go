@@ -111,7 +111,7 @@ func (c *countingRobotsFetcher) count(u string) int {
 
 func newFetchingRobotsHandler(f HTTPFetcher) *RobotsHandler {
 	cfg := &config.AppConfig{DefaultUserAgent: "test-agent", MaxRequests: 8}
-	return NewRobotsHandler(f, NewRateLimiter(0, testLogger()), semaphore.NewWeighted(8), nil, cfg, testLogger())
+	return NewRobotsHandler(f, NewRateLimiter(0, testLogger()), semaphore.NewWeighted(8), NewHostSemaphorePool(4, testLogger()), nil, cfg, testLogger())
 }
 
 // Concurrent misses for one host must collapse into a single request.
