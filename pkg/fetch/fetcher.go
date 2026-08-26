@@ -132,12 +132,15 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 
 		case statusCode >= 400 && statusCode < 500:
 			// 4xx (except 429) are not retryable; caller must close body.
-			resLog.Warn("Client error (4xx), not retrying")
+			// Logged at debug because every caller reports the returned error
+			// with its own context, and robots.txt deliberately reports a 404
+			// at info level.
+			resLog.Debug("Client error (4xx), not retrying")
 			return currentResp, fmt.Errorf("%w: status %d %s", utils.ErrClientHTTPError, statusCode, currentResp.Status)
 
 		default:
 			// Non-2xx, non-retryable; caller must close body.
-			resLog.Warn(fmt.Sprintf("Non-retryable/unexpected status: %d", statusCode))
+			resLog.Debug(fmt.Sprintf("Non-retryable/unexpected status: %d", statusCode))
 			return currentResp, fmt.Errorf("%w: status %d %s", utils.ErrOtherHTTPError, statusCode, currentResp.Status)
 		}
 	}
