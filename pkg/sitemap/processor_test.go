@@ -133,7 +133,7 @@ func newTestProcessor(
 	var wg sync.WaitGroup
 
 	sp := NewSitemapProcessor(
-		sitemapQueue, pq, store, f, rl, sem,
+		sitemapQueue, pq, store, f, rl, sem, fetch.NewHostSemaphorePool(10, log),
 		disallowed, siteCfg, defaultAppCfg(), log, &wg,
 	)
 	return sp, sitemapQueue, pq, &wg
@@ -419,7 +419,7 @@ func TestProcessSitemapIndexFanOut(t *testing.T) {
 	var wg sync.WaitGroup
 	appCfg := defaultAppCfg()
 	appCfg.MaxRequests = 8 // exercise the bounded worker pool
-	sp := NewSitemapProcessor(sitemapQueue, pq, store, &routeFetcher{routes}, rl, sem, nil, defaultSiteCfg(), appCfg, log, &wg)
+	sp := NewSitemapProcessor(sitemapQueue, pq, store, &routeFetcher{routes}, rl, sem, fetch.NewHostSemaphorePool(8, log), nil, defaultSiteCfg(), appCfg, log, &wg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -439,5 +439,147 @@ func TestProcessSitemapIndexFanOut(t *testing.T) {
 	}
 	if store.visitedCount() != n {
 		t.Fatalf("expected %d visited entries, got %d", n, store.visitedCount())
+	}
+}
+
+// hostConcurrencyFetcher records the peak number of simultaneous in-flight
+// requests per host, holding each request open long enough to overlap.
+type hostConcurrencyFetcher struct {
+	routes map[string]string
+	hold   time.Duration
+
+	mu      sync.Mutex
+	active  map[string]int
+	peak    map[string]int
+	fetched int
+}
+
+func newHostConcurrencyFetcher(routes map[string]string, hold time.Duration) *hostConcurrencyFetcher {
+	return &hostConcurrencyFetcher{
+		routes: routes,
+		hold:   hold,
+		active: make(map[string]int),
+		peak:   make(map[string]int),
+	}
+}
+
+func (m *hostConcurrencyFetcher) FetchWithRetry(req *http.Request, _ context.Context) (*http.Response, error) {
+	host := req.URL.Hostname()
+	m.mu.Lock()
+	m.active[host]++
+	m.fetched++
+	if m.active[host] > m.peak[host] {
+		m.peak[host] = m.active[host]
+	}
+	m.mu.Unlock()
+
+	time.Sleep(m.hold)
+
+	m.mu.Lock()
+	m.active[host]--
+	m.mu.Unlock()
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(m.routes[req.URL.String()])),
+	}, nil
+}
+
+func (m *hostConcurrencyFetcher) peakFor(host string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.peak[host]
+}
+
+// sitemapIndexOver builds a sitemap index pointing at one nested sitemap per
+// entry, each nested sitemap holding a single in-scope page.
+func sitemapIndexOver(hosts []string, perHost int) (map[string]string, []string) {
+	const ns = `xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"`
+	routes := map[string]string{}
+	indexURLs := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		var idx strings.Builder
+		fmt.Fprintf(&idx, `<?xml version="1.0" encoding="UTF-8"?><sitemapindex %s>`, ns)
+		for i := range perHost {
+			nested := fmt.Sprintf("https://%s/docs/sitemap-%d.xml", host, i)
+			page := fmt.Sprintf("https://example.com/docs/%s-page-%d", host, i)
+			fmt.Fprintf(&idx, `<sitemap><loc>%s</loc></sitemap>`, nested)
+			routes[nested] = fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?><urlset %s><url><loc>%s</loc></url></urlset>`, ns, page)
+		}
+		idx.WriteString(`</sitemapindex>`)
+		indexURL := fmt.Sprintf("https://%s/sitemap_index.xml", host)
+		routes[indexURL] = idx.String()
+		indexURLs = append(indexURLs, indexURL)
+	}
+	return routes, indexURLs
+}
+
+func startConcurrencyProcessor(t *testing.T, f fetch.HTTPFetcher, workers, perHost int) (*queue.ThreadSafePriorityQueue, chan string, *sync.WaitGroup, context.CancelFunc) {
+	t.Helper()
+	log := discardLogger()
+	pq := queue.NewThreadSafePriorityQueue(log)
+	rl := fetch.NewRateLimiter(0, log)
+	sitemapQueue := make(chan string, 8)
+	var wg sync.WaitGroup
+	appCfg := defaultAppCfg()
+	appCfg.MaxRequests = workers
+
+	sp := NewSitemapProcessor(
+		sitemapQueue, pq, newMockPageStore(), f, rl,
+		semaphore.NewWeighted(int64(workers)), fetch.NewHostSemaphorePool(perHost, log),
+		nil, defaultSiteCfg(), appCfg, log, &wg,
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	sp.Start(ctx)
+	return pq, sitemapQueue, &wg, cancel
+}
+
+func TestProcessSitemapRespectsPerHostLimit(t *testing.T) {
+	const perHost = 2
+	const nested = 24
+	routes, indexURLs := sitemapIndexOver([]string{"example.com"}, nested)
+	f := newHostConcurrencyFetcher(routes, 15*time.Millisecond)
+
+	pq, sitemapQueue, wg, cancel := startConcurrencyProcessor(t, f, 8, perHost)
+	defer cancel()
+
+	wg.Add(1)
+	sitemapQueue <- indexURLs[0]
+
+	waitForPQLen(t, pq, nested, 20*time.Second)
+	drainPQAndBalance(pq, wg)
+	wg.Wait()
+
+	if got := f.peakFor("example.com"); got > perHost {
+		t.Fatalf("sitemap fetches exceeded max_requests_per_host: peak %d, limit %d", got, perHost)
+	}
+}
+
+func TestProcessSitemapDistinctHostsNotSerialized(t *testing.T) {
+	const perHost = 2
+	const nested = 12
+	hosts := []string{"a.example.com", "b.example.com"}
+	routes, indexURLs := sitemapIndexOver(hosts, nested)
+	f := newHostConcurrencyFetcher(routes, 15*time.Millisecond)
+
+	pq, sitemapQueue, wg, cancel := startConcurrencyProcessor(t, f, 8, perHost)
+	defer cancel()
+
+	for _, u := range indexURLs {
+		wg.Add(1)
+		sitemapQueue <- u
+	}
+
+	waitForPQLen(t, pq, nested*len(hosts), 20*time.Second)
+	drainPQAndBalance(pq, wg)
+	wg.Wait()
+
+	for _, host := range hosts {
+		if got := f.peakFor(host); got > perHost {
+			t.Fatalf("host %s exceeded per-host limit: peak %d, limit %d", host, got, perHost)
+		}
+		if f.peakFor(host) < 2 {
+			t.Fatalf("host %s never reached its own limit; hosts appear serialized (peak %d)", host, f.peakFor(host))
+		}
 	}
 }

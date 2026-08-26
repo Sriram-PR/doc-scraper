@@ -32,6 +32,7 @@ type SitemapProcessor struct {
 	fetcher                    fetch.HTTPFetcher
 	rateLimiter                *fetch.RateLimiter
 	globalSemaphore            *semaphore.Weighted
+	hostSemPool                *fetch.HostSemaphorePool
 	compiledDisallowedPatterns []*regexp.Regexp
 	siteCfg                    *config.SiteConfig
 	appCfg                     *config.AppConfig
@@ -48,6 +49,7 @@ func NewSitemapProcessor(
 	fetcher fetch.HTTPFetcher,
 	rateLimiter *fetch.RateLimiter,
 	globalSemaphore *semaphore.Weighted,
+	hostSemPool *fetch.HostSemaphorePool,
 	compiledDisallowedPatterns []*regexp.Regexp,
 	siteCfg *config.SiteConfig,
 	appCfg *config.AppConfig,
@@ -61,6 +63,7 @@ func NewSitemapProcessor(
 		fetcher:                    fetcher,
 		rateLimiter:                rateLimiter,
 		globalSemaphore:            globalSemaphore,
+		hostSemPool:                hostSemPool,
 		compiledDisallowedPatterns: compiledDisallowedPatterns,
 		siteCfg:                    siteCfg,
 		appCfg:                     appCfg,
@@ -213,8 +216,8 @@ func (sp *SitemapProcessor) recoverPanic(smURL string) {
 	}
 }
 
-// processSitemap acquires a global request slot, fetches one sitemap, and
-// dispatches on whether it is a sitemap index or a URL set.
+// processSitemap acquires the per-host and global request slots, fetches one
+// sitemap, and dispatches on whether it is a sitemap index or a URL set.
 func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string, backlog *sitemapBacklog) {
 	sitemapLog := sp.log.With("sitemap_url", smURL)
 	sitemapLog.Info("Processing sitemap")
@@ -225,6 +228,16 @@ func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string, ba
 		return
 	}
 	sitemapHost := parsedSitemapURL.Hostname()
+
+	// Host slot first, then global, matching the page, image, and robots.txt
+	// fetch paths. Without it the sitemap pool issues up to max_requests
+	// concurrent requests to a single host regardless of max_requests_per_host.
+	if sp.hostSemPool != nil {
+		if !sp.acquireHostSlot(ctx, sitemapHost, sitemapLog) {
+			return
+		}
+		defer sp.hostSemPool.Release(sitemapHost)
+	}
 
 	if !sp.acquireGlobalSlot(ctx, sitemapLog) {
 		return
@@ -247,6 +260,17 @@ func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string, ba
 	sp.handleURLSet(sitemapBytes, errIndex, sitemapLog)
 }
 
+func (sp *SitemapProcessor) acquireHostSlot(ctx context.Context, host string, sitemapLog *slog.Logger) bool {
+	ctxH, cancelH := context.WithTimeout(ctx, config.DefaultSemaphoreAcquireTimeout)
+	err := sp.hostSemPool.Acquire(ctxH, host)
+	cancelH()
+	if err == nil {
+		return true
+	}
+	logSlotFailure(ctx, sitemapLog, "HOST", err)
+	return false
+}
+
 func (sp *SitemapProcessor) acquireGlobalSlot(ctx context.Context, sitemapLog *slog.Logger) bool {
 	ctxG, cancelG := context.WithTimeout(ctx, config.DefaultSemaphoreAcquireTimeout)
 	err := sp.globalSemaphore.Acquire(ctxG, 1)
@@ -254,15 +278,21 @@ func (sp *SitemapProcessor) acquireGlobalSlot(ctx context.Context, sitemapLog *s
 	if err == nil {
 		return true
 	}
+	logSlotFailure(ctx, sitemapLog, "GLOBAL", err)
+	return false
+}
+
+// logSlotFailure reports a failed semaphore acquisition, demoting the ordinary
+// shutdown case to a warning so cancelling a crawl does not log errors.
+func logSlotFailure(ctx context.Context, sitemapLog *slog.Logger, which string, err error) {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil:
-		sitemapLog.Warn(fmt.Sprintf("Could not acquire GLOBAL semaphore due to main context cancellation: %v", ctx.Err()))
+		sitemapLog.Warn(fmt.Sprintf("Could not acquire %s semaphore due to main context cancellation: %v", which, ctx.Err()))
 	case errors.Is(err, context.DeadlineExceeded):
-		sitemapLog.Error(fmt.Sprintf("Timeout acquiring GLOBAL semaphore: %v", err))
+		sitemapLog.Error(fmt.Sprintf("Timeout acquiring %s semaphore: %v", which, err))
 	default:
-		sitemapLog.Error(fmt.Sprintf("Error acquiring GLOBAL semaphore: %v", err))
+		sitemapLog.Error(fmt.Sprintf("Error acquiring %s semaphore: %v", which, err))
 	}
-	return false
 }
 
 // fetchSitemap retrieves and reads the sitemap body, capped at 10 MB. The
