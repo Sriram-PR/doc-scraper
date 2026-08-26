@@ -89,7 +89,9 @@ func (s *Server) registerTools() {
 	addTool(listSitesTool, s.handleListSites)
 
 	getPageTool := mcp.NewTool("get_page",
-		mcp.WithDescription("Fetch a single URL and return its content as markdown"),
+		mcp.WithDescription("Fetch a URL live over the network and return its content as markdown. "+
+			"This is an on-demand fetch independent of any crawl: it does not read the stored crawl "+
+			"output, and it ignores the site's configured content_selector and scope."),
 		mcp.WithString("url",
 			mcp.Required(),
 			mcp.Description("The URL to fetch"),
@@ -141,7 +143,10 @@ func (s *Server) registerTools() {
 	addTool(describeServerTool, s.handleDescribeServer)
 
 	listPagesTool := mcp.NewTool("list_pages",
-		mcp.WithDescription("List crawled pages for a site, paginated and sorted by URL. Returns metadata only (URL, title, depth, crawled_at, content_length); use get_page to fetch a specific page's full content."),
+		mcp.WithDescription("List crawled pages for a site, paginated and sorted by URL. Returns "+
+			"metadata only (URL, title, depth, crawled_at, content_length). Stored page content lives "+
+			"in the crawl output directory; get_page re-fetches a URL live rather than returning the "+
+			"crawled copy."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config (use list_sites to discover available keys)"),
@@ -171,7 +176,7 @@ func (s *Server) registerTools() {
 		mcp.WithDescription("Return added/removed/changed pages between the latest crawl and "+
 			"the most recent crawl whose crawl_ended_at <= since. Hash-based verdicts from the "+
 			"SQLite history index. Pair with get_freshness: pass the last_crawl_ended_at value "+
-			"as since after running crawl_site --incremental to see exactly what changed."),
+			"as since after running crawl_site with incremental set to true to see exactly what changed."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config"),

@@ -589,7 +589,9 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 	if _, ok := result["last_crawl_ended_at"]; !ok {
 		result["next_actions"] = "No prior crawl recorded. Run crawl_site to populate the history index."
 	} else {
-		result["next_actions"] = "list_pages or get_page to read; crawl_site to refresh; diff_crawl with since=last_crawl_ended_at to compute what changed."
+		result["next_actions"] = "list_pages to enumerate what was crawled; crawl_site to refresh; " +
+			"diff_crawl with since=last_crawl_ended_at to compute what changed. get_page re-fetches " +
+			"a URL live and does not read this crawl."
 	}
 
 	return mcp.NewToolResultText(formatJSON(result)), nil
