@@ -115,12 +115,14 @@ func (cp *ContentProcessor) SelectMainContent(
 			taskLog.Debug(fmt.Sprintf("Auto-detected selector for %s: %s", result.Framework, actualSelector))
 
 			mainContentSelection := selectByPriority(doc, actualSelector)
-			if mainContentSelection.Length() == 0 {
-				taskLog.Warn(fmt.Sprintf("Detected selector '%s' not found, falling back to readability", actualSelector))
+			if !hasExtractableContent(mainContentSelection) {
+				taskLog.Warn(fmt.Sprintf(
+					"Detected selector '%s' yielded no content (%d element(s) matched), falling back to readability",
+					actualSelector, mainContentSelection.Length()))
 				extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
 				if extractErr != nil {
 					err = fmt.Errorf(
-						"%w: selector '%s' not found and readability failed for '%s': %v",
+						"%w: selector '%s' yielded no content and readability failed for '%s': %v",
 						utils.ErrContentSelector, actualSelector, finalURL.String(), extractErr, //nolint:errorlint // extractErr is supplemental
 					)
 					taskLog.Warn(err.Error())
@@ -136,8 +138,9 @@ func (cp *ContentProcessor) SelectMainContent(
 		}
 	} else {
 		mainContentSelection := selectByPriority(doc, siteCfg.ContentSelector)
-		if mainContentSelection.Length() == 0 {
-			err = fmt.Errorf("%w: selector '%s' not found on page '%s'", utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String())
+		if !hasExtractableContent(mainContentSelection) {
+			err = fmt.Errorf("%w: selector '%s' yielded no content on page '%s' (%d element(s) matched)",
+				utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String(), mainContentSelection.Length())
 			taskLog.Warn(err.Error())
 			return nil, pageTitle, err
 		}
@@ -357,6 +360,19 @@ func visibleText(s *goquery.Selection) string {
 		}
 		return unicode.IsSpace(r)
 	})
+}
+
+// hasExtractableContent reports whether a selection is worth saving. Matching
+// an element is not enough: a site can render some pages through a different
+// template that leaves the content container present but empty (MkDocs
+// Material's own landing page is literally "<article class=md-content__inner> </article>"),
+// which would otherwise be written out as a blank page. Embedded media counts,
+// so a page whose content region is only a diagram or table is not discarded.
+func hasExtractableContent(s *goquery.Selection) bool {
+	if visibleText(s) != "" {
+		return true
+	}
+	return s.Find("img, picture, video, audio, svg, iframe, table, pre").Length() > 0
 }
 
 // cleanupHTML removes framework-specific noise before markdown conversion

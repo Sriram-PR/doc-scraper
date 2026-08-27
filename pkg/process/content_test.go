@@ -488,3 +488,121 @@ func TestCleanupHTML_LeavesBodyLinksAlone(t *testing.T) {
 		t.Errorf("expected the two body links to survive, got %q", got)
 	}
 }
+
+func selectMainContentFixture(t *testing.T, html, selector string) (*goquery.Selection, string, error) {
+	t.Helper()
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	u, _ := url.Parse("https://docs.example.com/page/")
+	cp := NewContentProcessor(nil, &config.AppConfig{}, silentLog())
+	return cp.SelectMainContent(doc, u, &config.SiteConfig{ContentSelector: selector}, silentLog())
+}
+
+func TestHasExtractableContent(t *testing.T) {
+	tests := []struct {
+		name string
+		html string
+		want bool
+	}{
+		{"Prose", `<article>Real documentation body.</article>`, true},
+		{"Empty", `<article></article>`, false},
+		{"WhitespaceOnly", `<article>   </article>`, false},
+		{"NewlinesAndTabs", "<article>\n\t\n  </article>", false},
+		{"ZeroWidthOnly", `<article>&#8203;&#65279;</article>`, false},
+		{"NestedEmptyWrappers", `<article><div><span></span></div></article>`, false},
+		{"ImageOnly", `<article><img src="/diagram.png"></article>`, true},
+		{"TableOnly", `<article><table><tr><td></td></tr></table></article>`, true},
+		{"CodeBlockOnly", `<article><pre></pre></article>`, true},
+		{"SvgOnly", `<article><svg viewBox="0 0 1 1"></svg></article>`, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := goquery.NewDocumentFromReader(strings.NewReader(tt.html))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if got := hasExtractableContent(doc.Find("article")); got != tt.want {
+				t.Errorf("hasExtractableContent() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// The real MkDocs Material landing page: the content container is present and
+// correctly detected, but holds a single space. Matching on element count alone
+// saved this as a blank page.
+func TestSelectMainContent_ExplicitSelectorMatchedButEmpty(t *testing.T) {
+	html := `<html><head><title>Material for MkDocs</title></head><body>
+		<nav class="md-nav">Getting started Setup Reference</nav>
+		<article class="md-content__inner md-typeset"> </article>
+	</body></html>`
+
+	_, _, err := selectMainContentFixture(t, html, "article.md-content__inner")
+	if err == nil {
+		t.Fatal("expected an error for a matched-but-empty selector, got nil (page would be saved blank)")
+	}
+	if !strings.Contains(err.Error(), "yielded no content") {
+		t.Errorf("error should name the empty-content condition, got: %v", err)
+	}
+}
+
+func TestSelectMainContent_ExplicitSelectorNotFoundStillErrors(t *testing.T) {
+	html := `<html><head><title>T</title></head><body><div class="other">x</div></body></html>`
+
+	_, _, err := selectMainContentFixture(t, html, "article.md-content__inner")
+	if err == nil {
+		t.Fatal("expected an error when the selector matches nothing")
+	}
+}
+
+func TestSelectMainContent_ExplicitSelectorWithContentSucceeds(t *testing.T) {
+	html := `<html><head><title>T</title></head><body>
+		<article class="md-content__inner">Configure retries with max_retries.</article>
+	</body></html>`
+
+	content, title, err := selectMainContentFixture(t, html, "article.md-content__inner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if title != "T" {
+		t.Errorf("title = %q, want %q", title, "T")
+	}
+	if !strings.Contains(content.Text(), "max_retries") {
+		t.Errorf("content missing real body, got %q", content.Text())
+	}
+}
+
+// An image-only content region is legitimate and must survive the empty check.
+func TestSelectMainContent_ExplicitSelectorImageOnlySurvives(t *testing.T) {
+	html := `<html><head><title>Architecture</title></head><body>
+		<article class="md-content__inner"><img src="/architecture.svg" alt=""></article>
+	</body></html>`
+
+	content, _, err := selectMainContentFixture(t, html, "article.md-content__inner")
+	if err != nil {
+		t.Fatalf("image-only content region must not be treated as empty: %v", err)
+	}
+	if content.Find("img").Length() != 1 {
+		t.Error("expected the image to be preserved")
+	}
+}
+
+// Auto mode must route a matched-but-empty container to readability rather than
+// saving the blank container.
+func TestSelectMainContent_AutoMatchedButEmptyFallsBackToReadability(t *testing.T) {
+	html := `<html><head><title>Material for MkDocs</title></head>
+		<body data-md-component="skip">
+		<article class="md-content__inner md-typeset"> </article>
+		<div><p>` + strings.Repeat("Readability needs a decent block of prose to score a candidate. ", 12) + `</p></div>
+	</body></html>`
+
+	content, _, err := selectMainContentFixture(t, html, "auto")
+	if err != nil {
+		t.Fatalf("expected readability fallback to recover content, got: %v", err)
+	}
+	if !strings.Contains(content.Text(), "Readability needs a decent block") {
+		t.Errorf("fallback did not return the prose block, got %q", content.Text())
+	}
+}
