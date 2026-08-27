@@ -8,7 +8,6 @@ package index
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"fmt"
 	"log/slog"
 	"os"
@@ -18,9 +17,6 @@ import (
 
 	_ "modernc.org/sqlite"
 )
-
-//go:embed schema.sql
-var schemaDDL string
 
 // Mode is the crawl mode label persisted with each crawl record.
 type Mode string
@@ -131,17 +127,17 @@ func Open(path string, retention int, log *slog.Logger) (*Index, error) {
 			return nil, fmt.Errorf("pragma %q: %w", p, err)
 		}
 	}
-	if _, err := db.ExecContext(ctx, schemaDDL); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("apply schema: %w", err)
-	}
 	idx := &Index{
 		db:        db,
 		log:       log.With("component", "index", "path", path),
 		retention: retention,
 		path:      path,
 	}
-	idx.log.Info("crawl-history index opened", "retention", retention)
+	if err := migrate(ctx, db, idx.log); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	idx.log.Info("crawl-history index opened", "retention", retention, "schema_version", latestVersion())
 	return idx, nil
 }
 

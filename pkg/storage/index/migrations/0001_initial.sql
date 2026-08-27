@@ -1,7 +1,3 @@
-CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER PRIMARY KEY
-);
-
 CREATE TABLE IF NOT EXISTS crawls (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     site_key         TEXT    NOT NULL,
