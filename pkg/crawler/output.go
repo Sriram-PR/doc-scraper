@@ -377,7 +377,13 @@ func (om *OutputManager) rewriteFinalizedJSONL(spans map[string]pageSpan) error 
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
 	}
-	defer src.Close()
+
+	srcClosed := false
+	defer func() {
+		if !srcClosed {
+			_ = src.Close()
+		}
+	}()
 
 	tmpPath := om.jsonlFilePath + ".tmp"
 	tmp, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
@@ -435,6 +441,11 @@ func (om *OutputManager) rewriteFinalizedJSONL(spans map[string]pageSpan) error 
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp: %w", err)
 	}
+	if err := src.Close(); err != nil {
+		return fmt.Errorf("close source: %w", err)
+	}
+	srcClosed = true
+
 	if err := os.Rename(tmpPath, om.jsonlFilePath); err != nil {
 		return fmt.Errorf("rename temp: %w", err)
 	}
