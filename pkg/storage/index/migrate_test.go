@@ -118,6 +118,12 @@ func TestMigrateAdoptsLegacyDatabaseWithoutDataLoss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open raw: %v", err)
 	}
+	seedClosed := false
+	defer func() {
+		if !seedClosed {
+			_ = db.Close()
+		}
+	}()
 	res, err := db.Exec(`INSERT INTO crawls(site_key,crawl_started_at,crawl_ended_at,total_pages,mode)
 	                     VALUES('docs','2026-05-01T10:00:00Z','2026-05-01T10:05:00Z',2,'full')`)
 	if err != nil {
@@ -135,7 +141,12 @@ func TestMigrateAdoptsLegacyDatabaseWithoutDataLoss(t *testing.T) {
 	if before != 0 {
 		t.Fatalf("legacy fixture should have no version row, got %d", before)
 	}
-	db.Close()
+	// Must be closed before Open: Windows refuses to work with the file while
+	// another handle is live, and the migration takes a write lock.
+	if err := db.Close(); err != nil {
+		t.Fatalf("close seed db: %v", err)
+	}
+	seedClosed = true
 
 	idx, err := Open(path, 5, discardLog())
 	if err != nil {
@@ -179,6 +190,7 @@ func TestMigrateIsIdempotentAcrossReopens(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open #%d: %v", i+1, err)
 		}
+		t.Cleanup(func() { _ = idx.Close() })
 		var rows int
 		if err := idx.db.QueryRow(`SELECT count(*) FROM schema_version`).Scan(&rows); err != nil {
 			t.Fatalf("count schema_version: %v", err)
@@ -198,11 +210,20 @@ func TestMigrateRefusesNewerSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	stamped := false
+	defer func() {
+		if !stamped {
+			_ = idx.Close()
+		}
+	}()
 	future := latestVersion() + 7
 	if _, err := idx.db.Exec(`INSERT INTO schema_version(version) VALUES(?)`, future); err != nil {
 		t.Fatalf("stamp future version: %v", err)
 	}
-	idx.Close()
+	if err := idx.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	stamped = true
 
 	_, err = Open(path, 5, discardLog())
 	if err == nil {
@@ -278,6 +299,12 @@ func TestMigrateReleasesLockAfterFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open raw: %v", err)
 	}
+	brokenClosed := false
+	defer func() {
+		if !brokenClosed {
+			_ = db.Close()
+		}
+	}()
 	broken := append(append([]migration{}, migrations...), migration{
 		version: latestVersion() + 1, name: "broken", file: "test://broken",
 		sql: `THIS IS NOT VALID SQL;`,
@@ -285,7 +312,10 @@ func TestMigrateReleasesLockAfterFailure(t *testing.T) {
 	if err := migrateSteps(context.Background(), db, discardLog(), broken); err == nil {
 		t.Fatal("expected failure")
 	}
-	db.Close()
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+	brokenClosed = true
 
 	done := make(chan error, 1)
 	go func() {
@@ -330,7 +360,9 @@ func TestMigrateConcurrentOpens(t *testing.T) {
 			t.Errorf("concurrent Open #%d failed: %v", i, err)
 			continue
 		}
-		idxs[i].Close()
+		if err := idxs[i].Close(); err != nil {
+			t.Errorf("close #%d: %v", i, err)
+		}
 	}
 
 	idx, err := Open(path, 5, discardLog())

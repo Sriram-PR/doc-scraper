@@ -11,7 +11,14 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows and macOS are here because the crawler touches the filesystem in
+    # ways that only differ off Linux: Windows refuses to rename over an open
+    # file handle, and its coarser clock makes timestamp ties routine.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -23,7 +30,7 @@ jobs:
       - name: Vet
         run: go vet ./...
       - name: Test
-        run: go test ./... -race -timeout=180s
+        run: go test ./... -race -timeout=300s
 
   lint:
     runs-on: ubuntu-latest
