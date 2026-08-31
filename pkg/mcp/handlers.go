@@ -121,9 +121,7 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 
 	// Newest first, capped so the payload stays small for long-running servers.
 	allJobs := s.jobManager.ListJobs()
-	sort.Slice(allJobs, func(i, j int) bool {
-		return allJobs[i].StartedAt.After(allJobs[j].StartedAt)
-	})
+	sortJobsNewestFirst(allJobs)
 	const maxJobs = 20
 	if len(allJobs) > maxJobs {
 		allJobs = allJobs[:maxJobs]

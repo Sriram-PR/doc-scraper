@@ -41,9 +41,14 @@ func isTerminalStatus(s JobStatus) bool {
 }
 
 type Job struct {
-	ID             string    `json:"id"`
-	SiteKey        string    `json:"site_key"`
-	Status         JobStatus `json:"status"`
+	ID      string    `json:"id"`
+	SiteKey string    `json:"site_key"`
+	Status  JobStatus `json:"status"`
+	// Seq is a per-manager creation counter. StartedAt alone cannot order jobs
+	// on a platform whose clock is too coarse to separate two CreateJob calls
+	// (Windows), and job IDs are random UUIDs, so it takes a monotonic key to
+	// keep "newest first" meaning what it says.
+	Seq            uint64    `json:"seq"`
 	StartedAt      time.Time `json:"started_at"`
 	CompletedAt    time.Time `json:"completed_at,omitempty"`
 	PagesProcessed int64     `json:"pages_processed"`
@@ -67,6 +72,8 @@ type JobManager struct {
 
 	persistPath string // empty disables persistence
 	log         *slog.Logger
+
+	seq atomic.Uint64 // monotonic creation counter; see Job.Seq
 
 	flushMu   sync.Mutex // serializes disk writes; never held with mu
 	dirty     atomic.Bool
@@ -118,6 +125,7 @@ func (m *JobManager) load() {
 	// a non-nil ctx for GetContext.
 	deadCtx, deadCancel := context.WithCancel(context.Background())
 	deadCancel()
+	var maxSeq uint64
 	for _, job := range file.Jobs {
 		if job == nil || job.ID == "" {
 			continue
@@ -132,7 +140,13 @@ func (m *JobManager) load() {
 		job.ctx = deadCtx //nolint:fatcontext // shared dead context, see above
 		job.cancel = deadCancel
 		m.jobs[job.ID] = job
+		if job.Seq > maxSeq {
+			maxSeq = job.Seq
+		}
 	}
+	// Resume numbering above the loaded jobs so a restart cannot hand out a
+	// sequence that sorts below jobs already on disk.
+	m.seq.Store(maxSeq)
 	m.pruneTerminalLocked()
 	if m.log != nil {
 		m.log.Info("loaded MCP jobs", "count", len(m.jobs), "path", m.persistPath)
@@ -155,6 +169,22 @@ func (m *JobManager) snapshotLocked() []*Job {
 // pruneTerminalLocked keeps only the most recent maxTerminalJobs terminal jobs,
 // deleting the oldest by CompletedAt. Active (pending/running) jobs are always
 // retained. Caller must hold m.mu.
+// sortJobsNewestFirst orders jobs for display, most recent first. ListJobs
+// walks a map, so the comparator has to be a total order or that random order
+// leaks into results whenever two jobs share a timestamp.
+func sortJobsNewestFirst(jobs []*Job) {
+	sort.Slice(jobs, func(i, j int) bool {
+		a, b := jobs[i], jobs[j]
+		if !a.StartedAt.Equal(b.StartedAt) {
+			return a.StartedAt.After(b.StartedAt)
+		}
+		if a.Seq != b.Seq {
+			return a.Seq > b.Seq
+		}
+		return a.ID < b.ID
+	})
+}
+
 func (m *JobManager) pruneTerminalLocked() {
 	var terminal []*Job
 	for _, job := range m.jobs {
@@ -165,8 +195,18 @@ func (m *JobManager) pruneTerminalLocked() {
 	if len(terminal) <= maxTerminalJobs {
 		return
 	}
+	// Oldest first; the pruner deletes from the front, so a comparator that
+	// leaves ties unordered would delete an arbitrary subset of jobs that
+	// finished in the same clock tick. Seq then ID make this a total order.
 	sort.Slice(terminal, func(i, j int) bool {
-		return terminal[i].CompletedAt.Before(terminal[j].CompletedAt)
+		a, b := terminal[i], terminal[j]
+		if !a.CompletedAt.Equal(b.CompletedAt) {
+			return a.CompletedAt.Before(b.CompletedAt)
+		}
+		if a.Seq != b.Seq {
+			return a.Seq < b.Seq
+		}
+		return a.ID < b.ID
 	})
 	for _, job := range terminal[:len(terminal)-maxTerminalJobs] {
 		delete(m.jobs, job.ID)
@@ -267,6 +307,7 @@ func (m *JobManager) CreateJob(siteKey string, incremental bool) (*Job, error) {
 		ID:          uuid.New().String(),
 		SiteKey:     siteKey,
 		Status:      JobStatusPending,
+		Seq:         m.seq.Add(1),
 		StartedAt:   time.Now(),
 		Incremental: incremental,
 		ctx:         ctx,

@@ -3,11 +3,13 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -512,4 +514,157 @@ func TestPersistence_LoadIgnoresGarbage(t *testing.T) {
 	var file jobsFile
 	require.NoError(t, json.Unmarshal(data, &file))
 	assert.Len(t, file.Jobs, 1)
+}
+
+// forceTiedTimestamps simulates a clock too coarse to separate CreateJob calls,
+// which is what Windows does and what Linux's nanosecond clock hides.
+func forceTiedTimestamps(jobs []*Job, at time.Time) {
+	for _, j := range jobs {
+		j.StartedAt = at
+		if !j.CompletedAt.IsZero() {
+			j.CompletedAt = at
+		}
+	}
+}
+
+func TestListJobsOrderingIsTotalUnderTiedTimestamps(t *testing.T) {
+	tied := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	var want []string
+
+	for run := range 100 {
+		m := NewJobManager("", nil)
+		created := make([]*Job, 0, 4)
+		for _, k := range []string{"alpha", "beta", "gamma", "delta"} {
+			j, err := m.CreateJob(k, false)
+			if err != nil {
+				t.Fatalf("CreateJob: %v", err)
+			}
+			created = append(created, j)
+		}
+		forceTiedTimestamps(created, tied)
+
+		jobs := m.ListJobs()
+		sortJobsNewestFirst(jobs)
+
+		got := make([]string, len(jobs))
+		for i, j := range jobs {
+			got[i] = j.SiteKey
+		}
+		if run == 0 {
+			want = got
+			continue
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Fatalf("run %d ordering %v differs from %v; comparator is not a total order", run, got, want)
+			}
+		}
+	}
+
+	// Creation order must survive, not merely be stable: newest first.
+	if want[0] != "delta" || want[3] != "alpha" {
+		t.Errorf("tied timestamps lost creation order: got %v, want delta..alpha", want)
+	}
+}
+
+// The pruner deletes jobs, so an unordered tie means deleting the wrong ones.
+func TestPruneKeepsNewestUnderTiedTimestamps(t *testing.T) {
+	tied := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+
+	for range 50 {
+		m := NewJobManager("", nil)
+		all := make([]*Job, 0, maxTerminalJobs+5)
+		for i := range maxTerminalJobs + 5 {
+			j, err := m.CreateJob(fmt.Sprintf("site-%03d", i), false)
+			if err != nil {
+				t.Fatalf("CreateJob: %v", err)
+			}
+			j.Status = JobStatusCompleted
+			all = append(all, j)
+		}
+		forceTiedTimestamps(all, tied)
+
+		m.mu.Lock()
+		m.pruneTerminalLocked()
+		m.mu.Unlock()
+
+		kept := map[uint64]bool{}
+		for _, j := range m.ListJobs() {
+			kept[j.Seq] = true
+		}
+		if len(kept) != maxTerminalJobs {
+			t.Fatalf("kept %d jobs, want %d", len(kept), maxTerminalJobs)
+		}
+		// The five lowest sequences are the oldest and must be the ones dropped.
+		for _, j := range all[:5] {
+			if kept[j.Seq] {
+				t.Fatalf("pruner kept an older job (seq %d) and dropped a newer one", j.Seq)
+			}
+		}
+	}
+}
+
+// Sequence numbering must continue above jobs already on disk, or a restart
+// makes new jobs sort underneath old ones.
+func TestSeqResumesAfterReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+
+	m1 := NewJobManager(path, nil)
+	var lastSeq uint64
+	for i := range 3 {
+		j, err := m1.CreateJob(fmt.Sprintf("site-%d", i), false)
+		if err != nil {
+			t.Fatalf("CreateJob: %v", err)
+		}
+		j.Status = JobStatusCompleted
+		lastSeq = j.Seq
+	}
+	m1.flush()
+	m1.Stop()
+
+	m2 := NewJobManager(path, nil)
+	defer m2.Stop()
+	j, err := m2.CreateJob("after-restart", false)
+	if err != nil {
+		t.Fatalf("CreateJob after reload: %v", err)
+	}
+	if j.Seq <= lastSeq {
+		t.Errorf("seq restarted at %d, must exceed the persisted max of %d", j.Seq, lastSeq)
+	}
+}
+
+// Jobs persisted before Seq existed unmarshal to 0; ordering must stay total.
+func TestLegacyJobsWithoutSeqStillOrderTotally(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	legacy := `{"version":1,"jobs":[
+		{"id":"aaa","site_key":"a","status":"completed","started_at":"2026-08-30T12:00:00Z","completed_at":"2026-08-30T12:00:00Z"},
+		{"id":"bbb","site_key":"b","status":"completed","started_at":"2026-08-30T12:00:00Z","completed_at":"2026-08-30T12:00:00Z"},
+		{"id":"ccc","site_key":"c","status":"completed","started_at":"2026-08-30T12:00:00Z","completed_at":"2026-08-30T12:00:00Z"}]}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy jobs: %v", err)
+	}
+
+	var want []string
+	for run := range 50 {
+		m := NewJobManager(path, nil)
+		jobs := m.ListJobs()
+		sortJobsNewestFirst(jobs)
+		got := make([]string, len(jobs))
+		for i, j := range jobs {
+			got[i] = j.ID
+		}
+		m.Stop()
+		if run == 0 {
+			want = got
+			continue
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Fatalf("legacy jobs ordering %v differs from %v", got, want)
+			}
+		}
+	}
+	if len(want) != 3 {
+		t.Fatalf("expected 3 legacy jobs, got %d", len(want))
+	}
 }
