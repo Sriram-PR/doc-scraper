@@ -47,6 +47,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **Modular Code** | Organized into packages for clarity and maintainability |
 | **CLI Utilities** | Built-in `config validate` and `config list` commands for configuration management |
 | **MCP Server Mode** | Expose as Model Context Protocol server for Claude Code/Cursor integration |
+| **Full-Text Search** | Offline BM25 search over crawled docs (SQLite FTS5) via the `search_docs` MCP tool |
 | **Auto Content Detection** | Automatic framework detection (Docusaurus, MkDocs, Sphinx, GitBook, ReadTheDocs) with readability fallback |
 | **Parallel Site Crawling** | Crawl multiple sites concurrently with shared resource management |
 | **Watch Mode** | Scheduled periodic re-crawling with state persistence |
@@ -660,6 +661,7 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 | `cancel_crawl` | Cancel a running or pending crawl job by job ID |
 | `list_pages` | Enumerate crawled pages for a site (paginated, metadata only) |
 | `read_page` | Return a crawled page's markdown from the stored output, without network access |
+| `search_docs` | Full-text search across crawled docs (BM25, stemming, snippets), without network access |
 | `get_freshness` | Report how stale a site's latest crawl is, from the crawl-history index |
 | `diff_crawl` | Report pages added, removed, or changed since a given timestamp |
 

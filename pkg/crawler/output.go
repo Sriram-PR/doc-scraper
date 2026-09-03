@@ -157,7 +157,20 @@ func (om *OutputManager) Close() error {
 	om.finalizeJSONL()
 	om.writeLLMsTxtFiles()
 	om.writeToIndex()
+	om.writeChunks()
 	return nil
+}
+
+// writeChunks refreshes the full-text chunk index from the finalized JSONL.
+// Like writeToIndex, errors are logged rather than returned so search-index
+// trouble can never fail a successful crawl.
+func (om *OutputManager) writeChunks() {
+	if om.idx == nil || om.jsonlFilePath == "" {
+		return
+	}
+	if err := IndexChunksFromJSONL(context.Background(), om.idx, om.siteKey, om.jsonlFilePath, om.log); err != nil {
+		om.log.Warn("index: failed to refresh chunk index", "err", err)
+	}
 }
 
 // writeToIndex rescans the just-finalized JSONL for page records and records the

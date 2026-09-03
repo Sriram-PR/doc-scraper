@@ -155,10 +155,11 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 		"total_sites": len(sites),
 		"total_jobs":  len(jobs),
 		"jobs_capped": len(s.jobManager.ListJobs()) > maxJobs,
-		"next_actions": "Use list_sites for full site config, list_pages to enumerate crawled " +
-			"pages, crawl_site to start a crawl, get_job_status to check a job, get_page to " +
-			"fetch a single URL, get_freshness to check how stale a site's crawl is, diff_crawl " +
-			"to see what changed since a given timestamp.",
+		"next_actions": "Use search_docs to find where something is documented, list_sites for " +
+			"full site config, list_pages to enumerate crawled pages, crawl_site to start a " +
+			"crawl, get_job_status to check a job, get_page to fetch a single URL, " +
+			"get_freshness to check how stale a site's crawl is, diff_crawl to see what " +
+			"changed since a given timestamp.",
 	}
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }
@@ -855,5 +856,57 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		result["next_offset"] = end
 	}
 
+	return mcp.NewToolResultText(formatJSON(result)), nil
+}
+
+const maxSearchResults = 50
+
+func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	query := strings.TrimSpace(request.GetString("query", ""))
+	if query == "" {
+		return mcp.NewToolResultError("query parameter is required"), nil
+	}
+	siteKey := request.GetString("site_key", "")
+	if siteKey != "" {
+		if _, errResult := s.resolveSiteOrError(siteKey); errResult != nil {
+			return errResult, nil
+		}
+	}
+	limit := request.GetInt("limit", 10)
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > maxSearchResults {
+		limit = maxSearchResults
+	}
+	if s.idx == nil {
+		return mcp.NewToolResultError("crawl-history index is disabled (state_dir is unset), so full-text search is unavailable"), nil
+	}
+
+	results, err := s.idx.SearchChunks(ctx, query, siteKey, limit)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("search failed: %v", err)), nil
+	}
+
+	result := map[string]interface{}{
+		"query":   query,
+		"count":   len(results),
+		"results": results,
+	}
+	if siteKey != "" {
+		result["site_key"] = siteKey
+	}
+	if len(results) == 0 {
+		hint := "No matches. Broaden the query, or check the corpus with list_sites and list_pages."
+		if siteKey != "" {
+			if has, hasErr := s.idx.SiteHasChunks(ctx, siteKey); hasErr == nil && !has {
+				hint = "This site has no indexed content yet. Run crawl_site to build its corpus " +
+					"(existing crawls are indexed automatically shortly after server start)."
+			}
+		}
+		result["next_actions"] = hint
+	} else {
+		result["next_actions"] = "Use read_page with a result's site_key and url to read the full page."
+	}
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }

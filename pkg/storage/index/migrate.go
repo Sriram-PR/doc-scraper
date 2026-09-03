@@ -33,6 +33,7 @@ func embedded(version int, name, file string) migration {
 
 var migrations = []migration{
 	embedded(1, "initial crawl history", "migrations/0001_initial.sql"),
+	embedded(2, "chunks and full-text search", "migrations/0002_chunks.sql"),
 }
 
 // schemaVersionDDL is applied outside the migration list because the runner has
