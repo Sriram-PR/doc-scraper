@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -108,24 +109,20 @@ func Open(path string, retention int, log *slog.Logger) (*Index, error) {
 	if retention <= 0 {
 		retention = DefaultRetention
 	}
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", path)
+	// Per-connection pragmas go in the DSN so every connection database/sql
+	// pools gets them; a plain db.Exec would configure only whichever single
+	// connection happened to run it, leaving the rest without foreign_keys
+	// and silently breaking ON DELETE CASCADE.
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// Apply pragmas that survive the connection.
-	pragmas := []string{
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA synchronous = NORMAL",
-		"PRAGMA foreign_keys = ON",
-	}
-	for _, p := range pragmas {
-		if _, err := db.ExecContext(ctx, p); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("pragma %q: %w", p, err)
-		}
+	if err := enableWAL(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
 	}
 	idx := &Index{
 		db:        db,
@@ -139,6 +136,30 @@ func Open(path string, retention int, log *slog.Logger) (*Index, error) {
 	}
 	idx.log.Info("crawl-history index opened", "retention", retention, "schema_version", latestVersion())
 	return idx, nil
+}
+
+// enableWAL switches the database to WAL journaling, retrying on SQLITE_BUSY.
+// The journal-mode pragma is documented to bypass the busy handler entirely,
+// so when two connections race to convert a fresh database the loser fails
+// instantly despite busy_timeout; WAL is a persistent property of the file,
+// so once anyone wins, later attempts are no-ops.
+func enableWAL(ctx context.Context, db *sql.DB) error {
+	const pragma = "PRAGMA journal_mode = WAL"
+	for {
+		_, err := db.ExecContext(ctx, pragma)
+		if err == nil {
+			return nil
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "SQLITE_BUSY") && !strings.Contains(msg, "database is locked") {
+			return fmt.Errorf("pragma %q: %w", pragma, err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("pragma %q: %w (retry budget exhausted)", pragma, err)
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }
 
 // Close releases the database handle. Safe to call on a nil receiver.

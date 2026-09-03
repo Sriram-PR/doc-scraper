@@ -5,8 +5,11 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newTestIndex(t *testing.T, retention int) *Index {
@@ -251,4 +254,44 @@ func TestRecordCrawlValidation(t *testing.T) {
 	if err := idx.RecordCrawl(context.Background(), CrawlRecord{SiteKey: "x"}); err == nil {
 		t.Fatalf("expected error on empty mode")
 	}
+}
+
+func TestNoOrphanedPageHistoryAcrossPooledConnections(t *testing.T) {
+	idx := newTestIndex(t, 2)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 18)
+	for site := range 3 {
+		wg.Add(1)
+		go func(key string) {
+			defer wg.Done()
+			for i := range 6 {
+				cr := CrawlRecord{
+					SiteKey:        key,
+					CrawlStartedAt: time.Now().Add(time.Duration(i) * time.Second),
+					CrawlEndedAt:   time.Now().Add(time.Duration(i)*time.Second + time.Millisecond),
+					Mode:           ModeFull,
+					Pages: []PageRecord{
+						{URL: "https://" + key + "/a", Title: "A", ContentHash: "h", Depth: 1},
+						{URL: "https://" + key + "/b", Title: "B", ContentHash: "h", Depth: 1},
+					},
+				}
+				errs <- idx.RecordCrawl(ctx, cr)
+			}
+		}("site" + string(rune('0'+site)))
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	// Retention pruning deletes crawls; ON DELETE CASCADE must have removed
+	// their page rows on every pooled connection, not just the one that
+	// happened to run a foreign_keys pragma.
+	var orphans int
+	require.NoError(t, idx.db.QueryRow(
+		`SELECT COUNT(*) FROM page_history WHERE crawl_id NOT IN (SELECT id FROM crawls)`).Scan(&orphans))
+	require.Zero(t, orphans, "page_history rows must never outlive their crawl")
 }
