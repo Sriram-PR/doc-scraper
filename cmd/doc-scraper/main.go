@@ -27,6 +27,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/taskspec"
+	versionpkg "github.com/Sriram-PR/doc-scraper/v2/pkg/version"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/watch"
 )
 
@@ -59,7 +60,7 @@ func logFormatFor(jsonOut bool) string {
 	return pkglog.FormatText
 }
 
-const version = "2.7.2"
+var version = versionpkg.Version
 
 func main() {
 	if len(os.Args) < 2 {

@@ -61,3 +61,5 @@ coverage.html
 
 # Environment variables file (if used)
 .env
+# goreleaser build output
+dist/

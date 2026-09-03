@@ -12,12 +12,12 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/version"
 )
 
-const (
-	serverName    = "doc-scraper"
-	serverVersion = "2.7.2"
-)
+const serverName = "doc-scraper"
+
+var serverVersion = version.Version
 
 // ServerConfig holds configuration for the MCP server. Only the stdio
 // transport is supported (Claude Desktop, Claude Code, Cursor). The older

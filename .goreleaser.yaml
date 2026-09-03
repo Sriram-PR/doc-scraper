@@ -1,0 +1,50 @@
+version: 2
+
+project_name: doc-scraper
+
+builds:
+  - main: ./cmd/doc-scraper
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/Sriram-PR/doc-scraper/v2/pkg/version.Version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - config.yaml
+
+dockers_v2:
+  - images:
+      - ghcr.io/sriram-pr/doc-scraper
+    tags:
+      - "{{ .Version }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.source: https://github.com/Sriram-PR/doc-scraper
+      org.opencontainers.image.licenses: Apache-2.0
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+
+release:
+  draft: false
