@@ -17,6 +17,7 @@
   "documentation": "https://github.com/Sriram-PR/doc-scraper#readme",
   "support": "https://github.com/Sriram-PR/doc-scraper/issues",
   "license": "Apache-2.0",
+  "privacy_policies": ["https://github.com/Sriram-PR/doc-scraper/blob/main/PRIVACY.md"],
   "keywords": ["documentation", "crawler", "search", "markdown", "offline", "rag", "docs"],
   "server": {
     "type": "binary",

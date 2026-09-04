@@ -751,6 +751,10 @@ Contributions are welcome! Please feel free to open an issue to discuss bugs, su
 
 Please ensure code adheres to Go best practices and includes appropriate documentation.
 
+## Privacy Policy
+
+doc-scraper collects nothing: no telemetry, no analytics, no accounts. All output and state stays on your machine, and the only network requests it makes are the crawls and fetches you explicitly ask for. Full policy: [PRIVACY.md](https://github.com/Sriram-PR/doc-scraper/blob/main/PRIVACY.md).
+
 ## License
 
 This project is licensed under the [Apache-2.0 License](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE).
