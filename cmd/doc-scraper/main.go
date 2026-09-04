@@ -209,10 +209,9 @@ func runCrawl(args []string) {
 
 	logFormat := logFormatFor(*jsonLogs)
 	if *allSites || len(siteKeys) > 1 {
-		executeParallelCrawl(*configFile, siteKeys, *allSites, *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode)
-	} else {
-		executeCrawl(*configFile, siteKeys[0], *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode)
+		os.Exit(executeParallelCrawl(*configFile, siteKeys, *allSites, *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode))
 	}
+	os.Exit(executeCrawl(*configFile, siteKeys[0], *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode))
 }
 
 func printConfigUsage(w io.Writer) {
@@ -422,24 +421,24 @@ func runStdinTask(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	dispatchTaskSpec(spec)
+	os.Exit(dispatchTaskSpec(spec))
 }
 
 // dispatchTaskSpec routes a validated TaskSpec to the same execute* entry
 // points the flag-driven subcommands use.
-func dispatchTaskSpec(spec *taskspec.TaskSpec) {
+func dispatchTaskSpec(spec *taskspec.TaskSpec) int {
 	logFormat := logFormatFor(spec.JSONLogs)
 	siteKeys := spec.SiteKeys()
 	switch spec.Command {
 	case taskspec.CommandCrawl:
 		if spec.AllSites || len(siteKeys) > 1 {
-			executeParallelCrawl(spec.Config, siteKeys, spec.AllSites, spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full)
-		} else {
-			executeCrawl(spec.Config, siteKeys[0], spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full)
+			return executeParallelCrawl(spec.Config, siteKeys, spec.AllSites, spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full)
 		}
+		return executeCrawl(spec.Config, siteKeys[0], spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full)
 	case taskspec.CommandWatch:
 		executeWatch(spec.Config, siteKeys, spec.AllSites, spec.Interval, spec.Loglevel, logFormat)
 	}
+	return 0
 }
 
 func printRunUsage(w io.Writer) {
@@ -688,7 +687,7 @@ func validateSiteConfigs(appCfg *config.AppConfig, siteKeys []string, log *slog.
 	}
 }
 
-func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) {
+func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) int {
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
 
@@ -728,20 +727,15 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 
 	results := orch.Run()
 
-	hasFailure := false
 	for _, r := range results {
 		if !r.Success {
-			hasFailure = true
-			break
+			return 1
 		}
 	}
-
-	if hasFailure {
-		os.Exit(1)
-	}
+	return 0
 }
 
-func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) {
+func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) int {
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
 
@@ -843,20 +837,21 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	err = crawlerInstance.Run(isResume)
 
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		switch {
+		case errors.Is(err, context.Canceled):
 			log.Warn("Crawl cancelled gracefully.")
-			os.Exit(0)
-		} else if errors.Is(err, context.DeadlineExceeded) {
+			return 0
+		case errors.Is(err, context.DeadlineExceeded):
 			log.Error("Crawl timed out (global timeout).")
-			os.Exit(1)
-		} else {
+			return 1
+		default:
 			log.Error(fmt.Sprintf("Crawl finished with error: %v", err))
-			os.Exit(1)
+			return 1
 		}
 	}
 
 	log.Info("Crawl completed successfully.")
-	os.Exit(0)
+	return 0
 }
 
 // logAppConfig logs the effective global configuration
