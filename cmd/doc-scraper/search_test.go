@@ -23,9 +23,11 @@ func writeSearchFixture(t *testing.T) (cfgPath string) {
 	tmpDir := t.TempDir()
 	stateDir := filepath.Join(tmpDir, "state")
 	cfgPath = filepath.Join(tmpDir, "config.yaml")
+	// Single-quoted YAML plus forward slashes: a double-quoted Windows path
+	// like D:\a\... is parsed as YAML escape sequences and breaks loading.
 	content := `
-state_dir: "` + stateDir + `"
-output_base_dir: "` + filepath.Join(tmpDir, "out") + `"
+state_dir: '` + filepath.ToSlash(stateDir) + `'
+output_base_dir: '` + filepath.ToSlash(filepath.Join(tmpDir, "out")) + `'
 sites:
   demo:
     start_urls: ["https://demo.example.com/docs/"]
