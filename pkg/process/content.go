@@ -134,6 +134,9 @@ func (cp *ContentProcessor) SelectMainContent(
 				}
 			} else {
 				mainContent = mainContentSelection.Clone()
+				if result.Exclude != "" {
+					mainContent.Find(result.Exclude).Remove()
+				}
 			}
 		}
 	} else {

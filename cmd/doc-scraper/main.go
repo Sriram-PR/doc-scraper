@@ -81,6 +81,8 @@ func main() {
 		runMcpServer(os.Args[2:])
 	case "search":
 		runSearch(os.Args[2:])
+	case "add":
+		runAdd(os.Args[2:])
 	case "version":
 		fmt.Printf("doc-scraper %s\n", version)
 	case "-h", "--help", "help":
@@ -109,6 +111,7 @@ Commands:
   config      Inspect configuration: 'config validate' or 'config list'
   mcp-server  Start MCP server for AI tool integration
   search      Search the crawled corpus from the command line (BM25 over the local index)
+  add         Probe a docs site and draft a config entry for it (confirm before write)
   version     Show version info
 
 Run 'doc-scraper <command> -h' for command-specific help.`)

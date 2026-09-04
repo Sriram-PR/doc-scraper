@@ -259,6 +259,7 @@ Execute the compiled binary from the project root directory:
 | Command | Description |
 |---------|-------------|
 | `crawl` | Start a crawl (add `--resume` to continue an interrupted one) |
+| `add` | Probe a docs site and draft a config entry for it: detects the framework, proposes crawl scope from the sitemap, previews one extracted page, and writes only after confirmation |
 | `config validate` | Validate configuration file without crawling |
 | `config list` | List available site keys from config |
 | `mcp-server` | Start MCP server for AI tool integration |
@@ -285,6 +286,26 @@ Execute the compiled binary from the project root directory:
 | `-full` | Force full crawl (ignore incremental settings) | `false` |
 
 **Note:** One of `-site`, `-sites`, or `--all-sites` is required.
+
+**add:**
+
+```bash
+doc-scraper add https://vitepress.dev/guide/what-is-vitepress
+```
+
+Probes the site with a handful of polite requests (the page, robots.txt, llms.txt, the sitemap), then shows what it found before anything is written: the detected framework and content selector (validated against the fetched page), a crawl scope clustered from the sitemap with page counts as evidence, sibling version/locale trees proposed as exclusions, and a markdown preview of the extracted page with code-block fidelity numbers. The entry is appended to your config only after you confirm; the rest of the file is preserved byte-for-byte, comments included.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-config <path>` | Path to config file (created if missing) | `config.yaml` |
+| `-site <key>` | Site key to use instead of the derived one | - |
+| `-selector <css>` | Content CSS selector, skipping auto-detection | - |
+| `-depth <n>` | Override the proposed max_depth | - |
+| `-yes` | Write without prompting | `false` |
+| `-dry-run` | Draft only, never write (exit code 2) | `false` |
+| `-json` | Emit the draft as JSON on stdout (human text goes to stderr) | `false` |
+
+Exit codes: `0` written, `1` error, `2` drafted but not written. For agents and scripts: `add -dry-run -json <url>` inspects, then `add -yes <url>` commits; with no terminal attached the command fails fast instead of waiting on stdin. Sites whose robots.txt disallows crawling the given path are refused, and robots rules that restrict AI crawlers are surfaced as a warning.
 
 **config validate:**
 
@@ -489,17 +510,13 @@ When you set `content_selector: "auto"` for a site, the crawler automatically de
 
 ### Supported Frameworks
 
-| Framework | Detection Method | Selectors (with fallbacks) |
-|-----------|------------------|---------------------------|
-| Docusaurus | `data-docusaurus` attribute, `__docusaurus` marker | `article[class*='theme-doc']`, `.theme-doc-markdown`, `article.markdown`, `main article` |
-| MkDocs Material | `data-md-component` attribute, `.md-content` class | `article.md-content__inner`, `.md-content article`, `.md-content` |
-| Sphinx | `searchindex.js`, `sphinxsidebar` class | `div.body`, `article.bd-article`, `main.bd-main`, `div.document` |
-| ReadTheDocs | `readthedocs` scripts, `.rst-content` class | `.rst-content`, `div[role='main']`, `.document` |
-| GitBook | `gitbook` class patterns, `markdown-section` | `section.normal.markdown-section`, `.page-inner section`, `main[class*='gitbook']` |
+Detection recognizes 30+ documentation generators and hosted platforms, checked in three tiers of decreasing trust: the `<meta name="generator">` tag, structural DOM signatures (attributes, ids, classes), and asset path patterns. Covered families include Docusaurus, VitePress, VuePress, Starlight/Astro, Nextra, Fumadocs, Mintlify, GitBook, MkDocs (Material, ReadTheDocs theme, and plain), Sphinx (furo, pydata, book, RTD, and classic themes), Antora, Docsy, hugo-book, Geekdoc, just-the-docs, mdBook, rustdoc, pkg.go.dev, Javadoc, Doxygen, TypeDoc, Writerside, ReadMe.com, Intercom, and Docus.
+
+Every detected selector is validated against the live page before it is trusted: if it matches nothing or captures too little text, the crawler falls back instead of extracting empty content. Client-rendered shells (Docsify, Swagger UI, Redoc, Scalar, Document360, and generic empty-body SPAs) are recognized and reported as needing JavaScript rendering rather than silently producing an empty crawl.
 
 ### Fallback Behavior
 
-If no known framework is detected, the crawler uses Mozilla's Readability algorithm to automatically extract the main content from the page. This provides reliable content extraction for most documentation sites without manual configuration.
+If no known framework is detected (or the detected selectors do not match the page), the crawler uses Mozilla's Readability algorithm to extract the main content. This works well on classic server-rendered docs, but can drop code blocks on some modern sites, so `doc-scraper add`'s preview reports code-block fidelity before you commit a config.
 
 ### Example Usage
 

@@ -1,0 +1,930 @@
+[
+ {
+  "url": "https://www.froggit.fr/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://botonic.io/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://redux.js.org/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://raspisuite.com",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://pglet.io",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://www.fbidb.io/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://flatifycss.com",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://www.fast.design/docs/introduction/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://www.fathym.com/blog",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://buildtracker.dev",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://wiki.brucesong.xyz/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://www.files.gallery/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://pcc-archive.org/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://gitbrent.github.io/PptxGenJS/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://reactnative.dev",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://sass-fairy.com/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://aventus-network-services.github.io/avn-gateway-docs/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://relay.dev/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://docs.flagsmith.com",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://testing-library.com/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://docs.sodaforsparc.io/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://tamalweb.com/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://realtime-apps-iap.github.io",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://ossinsight.io",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://formatjs.io/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.okp4.network/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://runiac.io",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://docs.dojo.tech/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://isaacscript.github.io/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://jy95.github.io/i18n-tools/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://messiahhh.github.io/blog/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://verdaccio.org",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://hanabi.github.io/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://infinum.github.io/eightshift-docs/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://www.talentbrick.com/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://oxidizer-rs.github.io",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://docs.getleon.ai",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://formiz-react.com/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://easypanel.io",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://foalts.org/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://developers.verida.io/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://dinosaur.leedom.me",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://covid-fr.misterfishup.com/en/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://console-table.netlify.app/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://community.moja.global/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://countrystatecity.in/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://mapillary.github.io/mapillary-js/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://crawlee.dev/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://lerna.js.org",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://dipscope.com/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://developers.home-assistant.io/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://docs.rokt.com/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://blog.palashsh.me/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://tidb.net/book/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://pnpm.js.org/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://react-redux.js.org",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://notes.nayanpatel.net",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://docs.mixcore.org/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://clutch.sh/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://redux-cool.js.org/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://kuizuo.cn",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://single-spa.js.org/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://\u4e03\u9662\u521b\u65b0\u57fa\u5730.cn",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://juffalow.com/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://repeater.js.org/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://firelordjs.com",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://docs.taro.zone/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://chaos-mesh.org",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://cho.sh/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://sqlframes.com/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://fullstackchronicles.io/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://vue.nodegui.org/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://evantay.com/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://homarr.dev/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://geekyweb.eu.org/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://drops-of-php.hi-folks.dev/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://docs.reactbricks.com",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://feedbackspark.com/docs/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://fomr.io/help",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://alumni.cottonwoodhigh.school/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://www.launchfa.st/documentation",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://crawler.siteone.io/?utm_source=starlight-docs",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://capgo.app/docs",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://zumerlab.github.io/orbit-docs/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://docs.astronvim.com",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://tutorialkit.dev/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://astro-snapshot.johng.io",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://terrateam.io/docs",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://lavamoat.github.io/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://docs.mrrobot.app",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://omni-byte.com/docs/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://docs.kinde.com/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://hitkeep.com",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://events-3bg.pages.dev/jotter",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://lilypond.ky.fyi",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://www.pulseahead.com/docs",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://saucer.app",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://runs-on.com",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://grpc.md/docs/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://felicity.pages.dev/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://ion.sst.dev/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://brycerussell.github.io/qbcore-docs/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://codesweetly.com/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://accessible-astro.incluud.dev",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://aspire.dev/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://sibiraj-s.github.io/ngx-editor/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://screenshotone.com/docs/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://docs.osirisjson.org",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://vtbag.dev",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://www.quotesdomain.com/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.cookie-api.com",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://astro-tips.dev/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://bonjourr.fr/docs",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://nostalgist.js.org/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://biomejs.dev/",
+  "framework": "starlight"
+ },
+ {
+  "url": "https://vitepress.dev/guide/what-is-vitepress",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://vuejs.org/guide/introduction.html",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://vitest.dev/guide/",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://vite.dev/guide/",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://rollupjs.org/introduction/",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://pinia.vuejs.org/introduction.html",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://vueuse.org/guide/",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://unocss.dev/guide/",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://router.vuejs.org/guide/",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://cn.vuejs.org/guide/introduction",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://vitepress.vuejs.org/guide/getting-started",
+  "framework": "vitepress"
+ },
+ {
+  "url": "https://squidfunk.github.io/mkdocs-material/getting-started/",
+  "framework": "mkdocs-material"
+ },
+ {
+  "url": "https://fastapi.tiangolo.com/tutorial/",
+  "framework": "mkdocs-material"
+ },
+ {
+  "url": "https://typer.tiangolo.com/tutorial/",
+  "framework": "mkdocs-material"
+ },
+ {
+  "url": "https://sqlmodel.tiangolo.com/",
+  "framework": "mkdocs-material"
+ },
+ {
+  "url": "https://textual.textualize.io/getting_started/",
+  "framework": "mkdocs-material"
+ },
+ {
+  "url": "https://rich.readthedocs.io/en/stable/introduction.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://mkdocstrings.github.io/",
+  "framework": "mkdocs-material"
+ },
+ {
+  "url": "https://www.mkdocs.org/user-guide/",
+  "framework": "mkdocs-material"
+ },
+ {
+  "url": "https://knative.dev/docs/",
+  "framework": "mkdocs-material"
+ },
+ {
+  "url": "https://hydra.cc/docs/intro/",
+  "framework": "docusaurus"
+ },
+ {
+  "url": "https://docs.python.org/3/tutorial/index.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://click.palletsprojects.com/en/stable/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://flask.palletsprojects.com/en/stable/quickstart/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://jinja.palletsprojects.com/en/stable/templates/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://requests.readthedocs.io/en/latest/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://docs.pytest.org/en/stable/getting-started.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://docs.sqlalchemy.org/en/20/tutorial/index.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://docs.celeryq.dev/en/stable/getting-started/introduction.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://www.sphinx-doc.org/en/master/usage/quickstart.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://alabaster.readthedocs.io/en/latest/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://docs.djangoproject.com/en/5.1/intro/tutorial01/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://numpy.org/doc/stable/user/quickstart.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://pandas.pydata.org/docs/user_guide/index.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://matplotlib.org/stable/users/getting_started/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://scipy.org/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.scipy.org/doc/scipy/tutorial/index.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://pip.pypa.io/en/stable/getting-started/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://setuptools.pypa.io/en/latest/userguide/quickstart.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://virtualenv.pypa.io/en/latest/user_guide.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://tox.wiki/en/stable/user_guide.html",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.readthedocs.com/platform/stable/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://sphinx-rtd-theme.readthedocs.io/en/stable/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://pytorch.org/docs/stable/index.html",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://cryptography.io/en/latest/",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://pillow.readthedocs.io/en/stable/handbook/tutorial.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://urllib3.readthedocs.io/en/stable/user-guide.html",
+  "framework": "sphinx"
+ },
+ {
+  "url": "https://doc.rust-lang.org/book/ch01-00-getting-started.html",
+  "framework": "mdbook"
+ },
+ {
+  "url": "https://rust-lang.github.io/mdBook/guide/creating.html",
+  "framework": "mdbook"
+ },
+ {
+  "url": "https://docs.rs/serde/latest/serde/",
+  "framework": "rustdoc"
+ },
+ {
+  "url": "https://pkg.go.dev/net/http",
+  "framework": "godoc"
+ },
+ {
+  "url": "https://docs.gitbook.com",
+  "framework": "gitbook"
+ },
+ {
+  "url": "https://vnx.gitbook.io/vnx-platform",
+  "framework": "gitbook"
+ },
+ {
+  "url": "https://mintlify.com/docs",
+  "framework": "mintlify"
+ },
+ {
+  "url": "https://docs.pinecone.io",
+  "framework": "mintlify"
+ },
+ {
+  "url": "https://resend.com/docs/introduction",
+  "framework": "mintlify"
+ },
+ {
+  "url": "https://docs.perplexity.ai",
+  "framework": "mintlify"
+ },
+ {
+  "url": "https://docs.elevenlabs.io",
+  "framework": "fern"
+ },
+ {
+  "url": "https://nextra.site/docs",
+  "framework": "nextra"
+ },
+ {
+  "url": "https://reactflow.dev/learn",
+  "framework": "nextra"
+ },
+ {
+  "url": "https://typia.io/docs",
+  "framework": "nextra"
+ },
+ {
+  "url": "https://fumadocs.dev/docs/ui",
+  "framework": "fumadocs"
+ },
+ {
+  "url": "https://swr.vercel.app/docs/getting-started",
+  "framework": "fumadocs"
+ },
+ {
+  "url": "https://kubernetes.io/docs/concepts/overview/",
+  "framework": "docsy"
+ },
+ {
+  "url": "https://www.docsy.dev/docs/",
+  "framework": "docsy"
+ },
+ {
+  "url": "https://opentelemetry.io/docs/",
+  "framework": "docsy"
+ },
+ {
+  "url": "https://etcd.io/docs/",
+  "framework": "docsy"
+ },
+ {
+  "url": "https://www.kubeflow.org/docs/",
+  "framework": "docsy"
+ },
+ {
+  "url": "https://agones.dev/site/docs/",
+  "framework": "docsy"
+ },
+ {
+  "url": "https://docs.antora.org/antora/latest/",
+  "framework": "antora"
+ },
+ {
+  "url": "https://docs.couchbase.com/home/index.html",
+  "framework": "antora"
+ },
+ {
+  "url": "https://docs.asciidoctor.org/",
+  "framework": "antora"
+ },
+ {
+  "url": "https://docs.spring.io/spring-framework/reference/",
+  "framework": "antora"
+ },
+ {
+  "url": "https://just-the-docs.com/docs/configuration/",
+  "framework": "just-the-docs"
+ },
+ {
+  "url": "https://vuepress.vuejs.org/guide/getting-started.html",
+  "framework": "vuepress"
+ },
+ {
+  "url": "https://academy.subquery.network/indexer/welcome.html",
+  "framework": "vuepress"
+ },
+ {
+  "url": "https://www.doxygen.nl/manual/index.html",
+  "framework": "doxygen"
+ },
+ {
+  "url": "https://vtk.org/doc/nightly/html/index.html",
+  "framework": "doxygen"
+ },
+ {
+  "url": "https://pointclouds.org/documentation/",
+  "framework": "doxygen"
+ },
+ {
+  "url": "https://eigen.tuxfamily.org/dox/",
+  "framework": "doxygen"
+ },
+ {
+  "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/module-summary.html",
+  "framework": "javadoc"
+ },
+ {
+  "url": "https://typedoc.org/api/",
+  "framework": "typedoc"
+ },
+ {
+  "url": "https://www.jetbrains.com/help/writerside/discover-writerside.html",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://kotlinlang.org/docs/home.html",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.readme.com/main/docs/getting-started",
+  "framework": "readme"
+ },
+ {
+  "url": "https://docs.moderntreasury.com/",
+  "framework": "readme"
+ },
+ {
+  "url": "https://docs.alpaca.markets/",
+  "framework": "readme"
+ },
+ {
+  "url": "https://intercom.help/experience-this/en/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docsify.js.org/",
+  "framework": "docsify"
+ },
+ {
+  "url": "https://petstore.swagger.io/",
+  "framework": "swagger-ui"
+ },
+ {
+  "url": "https://pradyunsg.me/furo/quickstart/",
+  "framework": "sphinx-furo"
+ },
+ {
+  "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://nodejs.org/api/fs.html",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://go.dev/doc/effective_go",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://laravel.com/docs/11.x",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.stripe.com/payments",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://tailwindcss.com/docs/installation/using-vite",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://react.dev/learn",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://www.typescriptlang.org/docs/handbook/intro.html",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://www.postgresql.org/docs/current/tutorial.html",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://dev.mysql.com/doc/refman/8.4/en/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://learn.microsoft.com/en-us/dotnet/csharp/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.github.com/en/actions",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://git-scm.com/docs/git-commit",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://www.php.net/manual/en/getting-started.php",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://developer.hashicorp.com/terraform/docs",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.docker.com/get-started/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://nginx.org/en/docs/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://httpd.apache.org/docs/2.4/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://en.cppreference.com/w/cpp",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://hexdocs.pm/elixir/introduction.html",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://ruby-doc.org/3.3.0/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.npmjs.com/about-npm",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://redis.io/docs/latest/",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://www.elastic.co/guide/index.html",
+  "framework": "unknown"
+ },
+ {
+  "url": "https://docs.cohere.com/docs/the-cohere-platform",
+  "framework": "fern"
+ },
+ {
+  "url": "https://buildwithfern.com/learn/docs/getting-started/overview",
+  "framework": "fern"
+ }
+]
