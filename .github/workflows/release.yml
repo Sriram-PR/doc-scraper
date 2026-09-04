@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
 
 jobs:
   goreleaser:
@@ -37,3 +38,24 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build MCP bundle
+        run: ./.github/scripts/build-mcpb.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Attach MCP bundle to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/mcpb/doc-scraper.mcpb
+
+      - name: Publish to MCP registry
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA256="$(cat dist/mcpb/doc-scraper.mcpb.sha256)"
+          jq --arg v "$VERSION" --arg sha "$SHA256" \
+            --arg url "https://github.com/Sriram-PR/doc-scraper/releases/download/${GITHUB_REF_NAME}/doc-scraper.mcpb" \
+            '.version = $v | .packages[0].identifier = $url | .packages[0].fileSha256 = $sha' \
+            server.json > server.publish.json
+          mv server.publish.json server.json
+          curl -sL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

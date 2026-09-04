@@ -1,0 +1,62 @@
+{
+  "manifest_version": "0.3",
+  "name": "doc-scraper",
+  "display_name": "doc-scraper",
+  "version": "2.8.1",
+  "description": "Crawl documentation sites into local Markdown/JSONL corpora and serve them to agents offline: full-text search, read, diff, and freshness with zero network access at read time.",
+  "long_description": "doc-scraper is a self-hosted documentation crawler and MCP server. It crawls documentation sites politely (robots.txt, per-host rate limits), converts pages to clean Markdown plus a JSONL corpus, and keeps crawl history in SQLite. Agents then work fully offline against the stored corpus: `search_docs` runs BM25 full-text search with stemming and section anchors, `read_page` returns a page's markdown without network access, and `diff_crawl`/`get_freshness` report what changed and how stale a corpus is. Crawls are configured in a YAML file listing the sites you want indexed; see the repository README for the config format.",
+  "author": {
+    "name": "Sriram P R",
+    "url": "https://github.com/Sriram-PR"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sriram-PR/doc-scraper"
+  },
+  "homepage": "https://github.com/Sriram-PR/doc-scraper",
+  "documentation": "https://github.com/Sriram-PR/doc-scraper#readme",
+  "support": "https://github.com/Sriram-PR/doc-scraper/issues",
+  "license": "Apache-2.0",
+  "keywords": ["documentation", "crawler", "search", "markdown", "offline", "rag", "docs"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/doc-scraper-macos",
+    "mcp_config": {
+      "command": "${__dirname}/server/doc-scraper-macos",
+      "args": ["mcp-server", "-config", "${user_config.config_path}"],
+      "env": {},
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/server/doc-scraper.exe"
+        },
+        "linux": {
+          "command": "${__dirname}/server/doc-scraper-linux"
+        }
+      }
+    }
+  },
+  "user_config": {
+    "config_path": {
+      "type": "file",
+      "title": "doc-scraper config file",
+      "description": "Path to your doc-scraper config.yaml listing the documentation sites to crawl. See https://github.com/Sriram-PR/doc-scraper#configuration-configyaml for the format.",
+      "required": true
+    }
+  },
+  "tools": [
+    { "name": "describe_server", "description": "Orientation manifest: server identity, sites, and recent jobs in one call" },
+    { "name": "list_sites", "description": "List all configured sites" },
+    { "name": "crawl_site", "description": "Start a background crawl for a site" },
+    { "name": "get_job_status", "description": "Check a background crawl job" },
+    { "name": "cancel_crawl", "description": "Cancel a running crawl job" },
+    { "name": "list_pages", "description": "Enumerate crawled pages for a site" },
+    { "name": "read_page", "description": "Read a crawled page's markdown, no network access" },
+    { "name": "search_docs", "description": "Ranked full-text search across crawled docs with snippets and section anchors" },
+    { "name": "get_freshness", "description": "Report how stale a site's latest crawl is" },
+    { "name": "diff_crawl", "description": "Report pages added, removed, or changed since a timestamp" },
+    { "name": "get_page", "description": "Fetch a single URL live over the network as markdown" }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}

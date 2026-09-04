@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Sriram-PR/doc-scraper",
+  "description": "Crawl documentation sites into local corpora agents can search, read, and diff fully offline.",
+  "title": "doc-scraper",
+  "repository": {
+    "url": "https://github.com/Sriram-PR/doc-scraper",
+    "source": "github"
+  },
+  "version": "2.8.1",
+  "websiteUrl": "https://github.com/Sriram-PR/doc-scraper",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/Sriram-PR/doc-scraper/releases/download/v2.8.1/doc-scraper.mcpb",
+      "fileSha256": "1cb7400645d0bdb5cc64ff5232c3f37e5d594fe8045be141e9e16b85ab08783e",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
