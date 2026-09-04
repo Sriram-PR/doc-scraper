@@ -64,21 +64,32 @@ func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
 
 	root := documentRoot(&doc)
 	if root == nil {
-		return []byte(strings.TrimRight(string(data), "\n") + "\nsites:\n" + indentBlock(entry, 2)), nil
+		out := []byte(strings.TrimRight(string(data), "\n") + "\nsites:\n" + indentBlock(entry, 2))
+		return out, verifySplice(out, key, nil)
 	}
 	if root.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("config root is not a YAML mapping")
 	}
+	if root.Style&yaml.FlowStyle != 0 {
+		return nil, fmt.Errorf("the config root uses YAML flow style ({...}); convert it to block style before using add")
+	}
 
+	rootIndent := 0
+	if len(root.Content) > 0 {
+		rootIndent = root.Content[0].Column - 1
+	}
 	keyNode, valNode := mappingValue(root, "sites")
 	if keyNode == nil {
-		return append(bytes.TrimRight(data, "\n"), []byte("\n\nsites:\n"+indentBlock(entry, 2))...), nil
+		pad := strings.Repeat(" ", rootIndent)
+		out := append(bytes.TrimRight(data, "\n"),
+			[]byte("\n\n"+pad+"sites:\n"+indentBlock(entry, rootIndent+2))...)
+		return out, verifySplice(out, key, nil)
 	}
 	if valNode.Kind == yaml.MappingNode && valNode.Style&yaml.FlowStyle != 0 {
 		return nil, fmt.Errorf("the sites entry uses YAML flow style ({...}); convert it to block style before using add")
 	}
 
-	indent := 2
+	indent := keyNode.Column - 1 + 2
 	insertAfter := keyNode.Line
 	if valNode.Kind == yaml.MappingNode && len(valNode.Content) > 0 {
 		for i := 0; i < len(valNode.Content); i += 2 {
@@ -100,7 +111,30 @@ func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
 	if rest := strings.Join(lines[insertAfter:], "\n"); rest != "" {
 		out += rest
 	}
-	return []byte(out), nil
+	var prior []string
+	if valNode.Kind == yaml.MappingNode {
+		for i := 0; i < len(valNode.Content); i += 2 {
+			prior = append(prior, valNode.Content[i].Value)
+		}
+	}
+	return []byte(out), verifySplice([]byte(out), key, prior)
+}
+
+// verifySplice re-parses the spliced text and confirms the new site and every
+// pre-existing one survived. Text insertion into YAML has degenerate layouts
+// (indented roots, scalar continuations) where appended lines get swallowed
+// into an existing value; this turns all of them into one clean refusal.
+func verifySplice(out []byte, key string, prior []string) error {
+	var check AppConfig
+	if err := yaml.Unmarshal(out, &check); err != nil {
+		return fmt.Errorf("this config's YAML layout prevents a clean insert; add the site entry manually: %w", err)
+	}
+	for _, k := range append(prior, key) {
+		if _, ok := check.Sites[k]; !ok {
+			return fmt.Errorf("this config's YAML layout prevents a clean insert (site %q would be lost); add the site entry manually", k)
+		}
+	}
+	return nil
 }
 
 func writeValidated(path string, content []byte, key string, perm os.FileMode) error {

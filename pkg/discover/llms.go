@@ -34,12 +34,18 @@ func (d *Discoverer) fetchLlmsTxt(ctx context.Context, finalURL *url.URL) LlmsTx
 		return info
 	}
 	info.Found = true
+	info.Links = parseLlmsLinks(text)
+	return info
+}
+
+func parseLlmsLinks(text string) []string {
+	var links []string
 	sc := bufio.NewScanner(strings.NewReader(text))
 	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for sc.Scan() {
 		for _, m := range mdLinkRe.FindAllStringSubmatch(sc.Text(), -1) {
-			info.Links = append(info.Links, m[1])
+			links = append(links, m[1])
 		}
 	}
-	return info
+	return links
 }
