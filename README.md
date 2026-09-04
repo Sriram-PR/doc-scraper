@@ -6,6 +6,8 @@
 
 > A configurable, concurrent, and resumable web crawler written in Go. Specifically designed to scrape technical documentation websites, extract core content, convert it cleanly to Markdown format suitable for ingestion by Large Language Models (LLMs), and save the results locally.
 
+![doc-scraper crawling a docs site and answering search queries offline](demo/demo.gif)
+
 ## Overview
 
 This project provides a powerful command-line tool to crawl documentation sites based on settings defined in a `config.yaml` file. It navigates the site structure, extracts content from specified HTML sections using CSS selectors, and converts it into clean Markdown files.
@@ -260,6 +262,7 @@ Execute the compiled binary from the project root directory:
 | `config validate` | Validate configuration file without crawling |
 | `config list` | List available site keys from config |
 | `mcp-server` | Start MCP server for AI tool integration |
+| `search` | Ranked full-text search over the crawled corpus (BM25, stemming, section anchors) |
 | `watch` | Watch sites and re-crawl on schedule |
 | `version` | Show version information |
 | `run` | Read a JSON task spec from stdin and dispatch a crawl or watch (for orchestration/automation) |

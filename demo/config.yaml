@@ -1,0 +1,19 @@
+# Config used by demo.tape to record the README demo GIF.
+default_delay_per_host: 200ms
+num_workers: 4
+num_image_workers: 1
+max_requests: 8
+max_requests_per_host: 4
+output_base_dir: "./demo-output"
+state_dir: "./demo-state"
+skip_images: true
+enable_jsonl_output: true
+jsonl_output_filename: "pages.jsonl"
+
+sites:
+  click_docs:
+    start_urls: ["https://click.palletsprojects.com/en/stable/"]
+    allowed_domain: "click.palletsprojects.com"
+    allowed_path_prefix: "/en/stable"
+    content_selector: "auto"
+    max_depth: 2

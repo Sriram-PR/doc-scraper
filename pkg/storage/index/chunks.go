@@ -146,9 +146,75 @@ func (i *Index) SearchChunks(ctx context.Context, query, siteKey string, limit i
 
 	results, err := i.searchChunksRaw(ctx, query, siteKey, limit)
 	if err != nil && looksLikeFTSSyntaxError(err) {
-		return i.searchChunksRaw(ctx, quoteFTSTerms(query), siteKey, limit)
+		results, err = i.searchChunksRaw(ctx, quoteFTSTerms(query), siteKey, limit)
 	}
-	return results, err
+	if err != nil {
+		return nil, err
+	}
+	// FTS5 ANDs plain terms, so a natural-language query ("how do I group
+	// commands") often matches nothing even when its meaningful words are all
+	// over the corpus. Relax progressively: AND of the content words first
+	// (stopwords stripped, since on a docs corpus "how do I" is rare enough
+	// that BM25 would rank literal question phrasings over the real answer),
+	// then OR as the last resort.
+	if len(results) == 0 {
+		for _, relaxed := range relaxedFTSQueries(query) {
+			results, err = i.searchChunksRaw(ctx, relaxed, siteKey, limit)
+			if err != nil || len(results) > 0 {
+				return results, err
+			}
+		}
+	}
+	return results, nil
+}
+
+var ftsStopwords = map[string]struct{}{}
+
+func init() {
+	for _, w := range strings.Fields(
+		"a an and are as at be but by can could do does for from get has have how i in is it its me my of on or " +
+			"our should that the their there these this to use using want was we what when where which who why will with you your") {
+		ftsStopwords[w] = struct{}{}
+	}
+}
+
+// relaxedFTSQueries returns fallback query rewrites for a plain multi-word
+// query, in decreasing precision. Queries using explicit FTS5 syntax (quotes,
+// prefixes, grouping, operators) are taken as intentional and never rewritten.
+func relaxedFTSQueries(query string) []string {
+	if strings.ContainsAny(query, `"*()`) {
+		return nil
+	}
+	terms := strings.Fields(query)
+	if len(terms) < 2 {
+		return nil
+	}
+	var content []string
+	for _, t := range terms {
+		switch t {
+		case "OR", "AND", "NOT", "NEAR":
+			return nil
+		}
+		if _, stop := ftsStopwords[strings.ToLower(t)]; !stop {
+			content = append(content, `"`+t+`"`)
+		}
+	}
+
+	var out []string
+	if n := len(content); n > 0 && n < len(terms) {
+		out = append(out, strings.Join(content, " "))
+	}
+	if len(content) >= 2 {
+		out = append(out, strings.Join(content, " OR "))
+	}
+	if len(content) == 0 {
+		all := make([]string, 0, len(terms))
+		for _, t := range terms {
+			all = append(all, `"`+t+`"`)
+		}
+		out = append(out, strings.Join(all, " OR "))
+	}
+	return out
 }
 
 func (i *Index) searchChunksRaw(ctx context.Context, match, siteKey string, limit int) ([]SearchResult, error) {

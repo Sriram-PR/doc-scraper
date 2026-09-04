@@ -63,3 +63,8 @@ coverage.html
 .env
 # goreleaser build output
 dist/
+
+# demo recording working artifacts
+demo/demo-output/
+demo/demo-state/
+demo/doc-scraper

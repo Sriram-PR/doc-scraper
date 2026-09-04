@@ -79,6 +79,8 @@ func main() {
 		runConfig(os.Args[2:])
 	case "mcp-server":
 		runMcpServer(os.Args[2:])
+	case "search":
+		runSearch(os.Args[2:])
 	case "version":
 		fmt.Printf("doc-scraper %s\n", version)
 	case "-h", "--help", "help":
@@ -106,6 +108,7 @@ Commands:
   run         Read a JSON task spec from stdin and execute it (for agents driving doc-scraper as a subprocess)
   config      Inspect configuration: 'config validate' or 'config list'
   mcp-server  Start MCP server for AI tool integration
+  search      Search the crawled corpus from the command line (BM25 over the local index)
   version     Show version info
 
 Run 'doc-scraper <command> -h' for command-specific help.`)

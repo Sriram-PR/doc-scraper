@@ -150,3 +150,18 @@ func TestSearchChunksMatchesCamelCaseViaIdentifiers(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results, "fused query must still match")
 }
+
+func TestSearchChunksNaturalLanguageRelaxesToOR(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	seedPage(t, idx, "s", "https://e/groups", "Groups", "h",
+		"# Groups\n\nCommands nest under a group for subcommand dispatch. "+strings.Repeat("filler ", 40))
+
+	results, err := idx.SearchChunks(context.Background(), "how do I group commands", "", 5)
+	require.NoError(t, err)
+	require.NotEmpty(t, results, "OR relaxation must rescue natural-language queries")
+	assert.Equal(t, "https://e/groups", results[0].URL)
+
+	results, err = idx.SearchChunks(context.Background(), `"group commands nowhere literal"`, "", 5)
+	require.NoError(t, err)
+	assert.Empty(t, results, "explicit phrase syntax must NOT be relaxed")
+}
