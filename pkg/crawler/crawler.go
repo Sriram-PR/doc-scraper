@@ -64,6 +64,7 @@ type Crawler struct {
 
 	wg               sync.WaitGroup // Main WaitGroup for all active tasks (pages, sitemaps)
 	processedCounter atomic.Int64
+	succeededCounter atomic.Int64
 	crawlCtx         context.Context
 	cancelCrawl      context.CancelFunc
 
@@ -284,6 +285,14 @@ func (c *Crawler) Run(resume bool) error {
 	}
 
 	c.logRunSummary(overallStart, runLog)
+	// A drained queue is not success if every attempted page failed: without
+	// this, a fully unreachable site produces an empty corpus and exit code 0.
+	// Scoped to fresh crawls only; resume/incremental runs keep a prior corpus,
+	// where individual failures (a page now 404ing, a transient outage during a
+	// scheduled re-crawl) intentionally degrade instead of failing the run.
+	if !resume && c.crawlCtx.Err() == nil && c.processedCounter.Load() > 0 && c.succeededCounter.Load() == 0 {
+		return fmt.Errorf("crawl completed with zero successful pages: all %d attempted page tasks failed", c.processedCounter.Load())
+	}
 	return c.crawlCtx.Err()
 }
 
@@ -718,6 +727,9 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 
 		if !skipped {
 			c.processedCounter.Add(1)
+			if finalStatus == models.PageStatusSuccess {
+				c.succeededCounter.Add(1)
+			}
 		}
 		c.wg.Done()
 	}()
