@@ -3,6 +3,7 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Sriram-PR/doc-scraper)](https://golang.org/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Sriram-PR/doc-scraper/v2.svg)](https://pkg.go.dev/github.com/Sriram-PR/doc-scraper/v2)
 [![License](https://img.shields.io/github/license/Sriram-PR/doc-scraper)](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE)
+[![Glama score](https://glama.ai/mcp/servers/Sriram-PR/doc-scraper/badges/score.svg)](https://glama.ai/mcp/servers/Sriram-PR/doc-scraper)
 
 > A configurable, concurrent, and resumable web crawler written in Go. Specifically designed to scrape technical documentation websites, extract core content, convert it cleanly to Markdown format suitable for ingestion by Large Language Models (LLMs), and save the results locally.
 
