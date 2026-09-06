@@ -87,6 +87,8 @@ func (s *Server) registerTools() {
 	listSitesTool := mcp.NewTool("list_sites",
 		mcp.WithTitleAnnotation("List configured sites"),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("List all configured sites available for crawling"),
 	)
@@ -95,6 +97,8 @@ func (s *Server) registerTools() {
 	getPageTool := mcp.NewTool("get_page",
 		mcp.WithTitleAnnotation("Fetch a page live"),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(true),
 		mcp.WithDescription("Fetch a URL live over the network and return its content as markdown. "+
 			"This is an on-demand fetch independent of any crawl: it does not read the stored crawl "+
@@ -128,6 +132,8 @@ func (s *Server) registerTools() {
 	getJobStatusTool := mcp.NewTool("get_job_status",
 		mcp.WithTitleAnnotation("Check a crawl job"),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("Get the status of a crawl job"),
 		mcp.WithString("job_id",
@@ -151,9 +157,18 @@ func (s *Server) registerTools() {
 	)
 	addTool(cancelCrawlTool, s.handleCancelCrawl)
 
+	s.registerCorpusTools(addTool)
+	s.log.Info(fmt.Sprintf("Registered %d MCP tools", toolCount))
+}
+
+// registerCorpusTools adds the read-side tools that serve the stored crawl
+// output and history index.
+func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFunc)) {
 	describeServerTool := mcp.NewTool("describe_server",
 		mcp.WithTitleAnnotation("Describe this server"),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription(
 			"Returns server identity, configured sites, and recent crawl jobs in one call. "+
@@ -167,6 +182,8 @@ func (s *Server) registerTools() {
 	listPagesTool := mcp.NewTool("list_pages",
 		mcp.WithTitleAnnotation("List crawled pages"),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("List crawled pages for a site, paginated and sorted by URL. Returns "+
 			"metadata only (URL, title, depth, crawled_at, content_length). Pass any URL returned here "+
@@ -188,6 +205,8 @@ func (s *Server) registerTools() {
 	readPageTool := mcp.NewTool("read_page",
 		mcp.WithTitleAnnotation("Read a crawled page"),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("Return a page's markdown from the stored crawl output, without any "+
 			"network access. This is the counterpart to get_page: read_page serves the crawled copy "+
@@ -214,6 +233,8 @@ func (s *Server) registerTools() {
 	searchDocsTool := mcp.NewTool("search_docs",
 		mcp.WithTitleAnnotation("Search crawled docs"),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("Full-text search across all crawled documentation, ranked by relevance "+
 			"(BM25 with stemming), with zero network access. Results carry the page URL, its section "+
@@ -236,6 +257,8 @@ func (s *Server) registerTools() {
 	getFreshnessTool := mcp.NewTool("get_freshness",
 		mcp.WithTitleAnnotation("Check crawl freshness"),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("Return the most recent crawl summary for a site "+
 			"(last_crawl_started_at/ended_at, total_pages, mode, age_seconds) plus output/state "+
@@ -251,6 +274,8 @@ func (s *Server) registerTools() {
 	diffCrawlTool := mcp.NewTool("diff_crawl",
 		mcp.WithTitleAnnotation("Diff crawls over time"),
 		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("Return added/removed/changed pages between the latest crawl and "+
 			"the most recent crawl whose crawl_ended_at <= since. Hash-based verdicts from the "+
@@ -272,8 +297,6 @@ func (s *Server) registerTools() {
 		),
 	)
 	addTool(diffCrawlTool, s.handleDiffCrawl)
-
-	s.log.Info(fmt.Sprintf("Registered %d MCP tools", toolCount))
 }
 
 // Run serves the MCP stdio transport until ctx is cancelled or stdin closes.
