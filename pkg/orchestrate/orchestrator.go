@@ -12,7 +12,6 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
-	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
@@ -114,7 +113,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	siteCtx, siteCancel := context.WithCancel(o.ctx)
 	defer siteCancel()
 
-	store, err := storage.NewBadgerStore(siteCtx, o.appCfg.StateDir, siteKey, o.resume, o.log)
+	stage, store, err := crawler.OpenStagedStore(siteCtx, o.appCfg, siteKey, o.resume, o.log)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create store for '%s': %w", siteKey, err)
 		result.Success = false
@@ -127,6 +126,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	opts := &crawler.CrawlerOptions{
 		SharedSemaphore: o.globalSemaphore,
 		Index:           o.idx,
+		Stage:           stage,
 	}
 
 	c, err := crawler.NewCrawlerWithOptions(

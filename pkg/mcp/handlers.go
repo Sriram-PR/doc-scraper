@@ -473,7 +473,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 	fetcher, rateLimiter := fetch.NewStack(s.cfg.AppConfig, s.log)
 
 	// MCP jobs always start fresh, never resume.
-	store, err := storage.NewBadgerStore(jobCtx, s.cfg.AppConfig.StateDir, siteKey, false, s.log)
+	stage, store, err := crawler.OpenStagedStore(jobCtx, s.cfg.AppConfig, siteKey, false, s.log)
 	if err != nil {
 		s.jobManager.UpdateStatus(job.ID, JobStatusFailed, fmt.Sprintf("failed to open store: %v", err))
 		return
@@ -510,6 +510,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 				s.jobManager.UpdateProgress(jobID, processed, queued)
 			},
 			Index: s.idx,
+			Stage: stage,
 		},
 	)
 	if err != nil {

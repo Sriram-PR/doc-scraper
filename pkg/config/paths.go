@@ -12,3 +12,8 @@ import (
 func (c *AppConfig) SiteOutputDir(siteKey string) string {
 	return filepath.Join(c.OutputBaseDir, utils.SanitizeFilename(siteKey))
 }
+
+// SiteStagingOutputDir is where a fresh crawl writes before replacing SiteOutputDir.
+func (c *AppConfig) SiteStagingOutputDir(siteKey string) string {
+	return c.SiteOutputDir(siteKey) + utils.StagingSuffix
+}

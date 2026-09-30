@@ -30,3 +30,6 @@ func SanitizeFilename(name string) string {
 	}
 	return sanitized
 }
+
+// StagingSuffix names the sibling a fresh crawl builds into before replacing the live path.
+const StagingSuffix = ".staging"

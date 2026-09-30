@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,7 +25,6 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	pkglog "github.com/Sriram-PR/doc-scraper/v2/pkg/log"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/orchestrate"
-	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/taskspec"
 	versionpkg "github.com/Sriram-PR/doc-scraper/v2/pkg/version"
@@ -61,6 +61,9 @@ func logFormatFor(jsonOut bool) string {
 }
 
 var version = versionpkg.Version
+
+// exitInterrupted is the conventional 128+SIGINT status for a crawl stopped by a signal.
+const exitInterrupted = 130
 
 func main() {
 	if len(os.Args) < 2 {
@@ -766,8 +769,11 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	defer signal.Stop(sigChan)
+	var interrupted atomic.Bool
 	go func() {
 		sig := <-sigChan
+		interrupted.Store(true)
 		log.Warn(fmt.Sprintf("Received signal %v, initiating graceful shutdown...", sig))
 		orch.Cancel()
 	}()
@@ -776,6 +782,9 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 
 	for _, r := range results {
 		if !r.Success {
+			if interrupted.Load() {
+				return exitInterrupted
+			}
 			return 1
 		}
 	}
@@ -848,7 +857,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	log.Info("Initializing components...")
 	logEntry := log.With("component", "crawl")
 
-	store, err := storage.NewBadgerStore(crawlCtx, appCfg.StateDir, siteKey, isResume, logEntry)
+	stage, store, err := crawler.OpenStagedStore(crawlCtx, appCfg, siteKey, isResume, logEntry)
 	if err != nil {
 		fatal(log, "Failed to initialize visited DB: %v", err)
 	}
@@ -875,7 +884,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 		crawlCtx,
 		cancelCrawl,
 		isResume,
-		&crawler.CrawlerOptions{Index: idx},
+		&crawler.CrawlerOptions{Index: idx, Stage: stage},
 	)
 	if err != nil {
 		fatal(log, "Failed to initialize crawler: %v", err)
@@ -886,8 +895,8 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	if err != nil {
 		switch {
 		case errors.Is(err, context.Canceled):
-			log.Warn("Crawl cancelled gracefully.")
-			return 0
+			log.Warn("Crawl interrupted; it is incomplete.")
+			return exitInterrupted
 		case errors.Is(err, context.DeadlineExceeded):
 			log.Error("Crawl timed out (global timeout).")
 			return 1

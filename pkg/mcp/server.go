@@ -118,7 +118,9 @@ func (s *Server) registerTools() {
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithOpenWorldHintAnnotation(true),
-		mcp.WithDescription("Start a background crawl for a configured site. Returns immediately with a job ID."),
+		mcp.WithDescription("Start a background crawl for a configured site. Returns immediately with a job ID. "+
+			"The crawl builds in a staging area and replaces the stored corpus only when it completes, "+
+			"so a cancelled or failed crawl leaves the previous corpus intact."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config file (e.g., 'langchain_py', 'rust_docs')"),
@@ -149,7 +151,7 @@ func (s *Server) registerTools() {
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
-		mcp.WithDescription("Cancel a running or pending crawl job by job ID. Has no effect on jobs already in a terminal state."),
+		mcp.WithDescription("Cancel a running or pending crawl job by job ID. The previously stored corpus and crawl history are left untouched. Has no effect on jobs already in a terminal state."),
 		mcp.WithString("job_id",
 			mcp.Required(),
 			mcp.Description("The job ID returned by crawl_site"),

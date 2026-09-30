@@ -149,16 +149,31 @@ func countPriorPageRecords(path string) (int64, error) {
 	return pages, nil
 }
 
-// Close closes the streamed JSONL handle, rewrites the file into its canonical
-// deduped/sorted form with a single crawl_meta, writes llms.txt/llms-full.txt
-// from that JSONL, and records the crawl in the history index (if attached).
+// Close finalizes the output and records the crawl as completed in the history
+// index and search index (if attached).
 func (om *OutputManager) Close() error {
-	om.closeJSONLFile()
-	om.finalizeJSONL()
-	om.writeLLMsTxtFiles()
+	om.Finalize()
 	om.writeToIndex()
 	om.writeChunks()
 	return nil
+}
+
+// Finalize closes the streamed JSONL handle, rewrites the file into its
+// canonical deduped/sorted form with a single crawl_meta, and writes
+// llms.txt/llms-full.txt from it.
+func (om *OutputManager) Finalize() {
+	om.closeJSONLFile()
+	om.finalizeJSONL()
+	om.writeLLMsTxtFiles()
+}
+
+// Relocate repoints the manager at dir after a staged output dir was swapped
+// into place, so the index is fed from the live corpus.
+func (om *OutputManager) Relocate(dir string) {
+	om.siteOutputDir = dir
+	if om.jsonlFilePath != "" {
+		om.jsonlFilePath = filepath.Join(dir, om.resolved.JSONLOutputFilename)
+	}
 }
 
 // writeChunks refreshes the full-text chunk index from the finalized JSONL.

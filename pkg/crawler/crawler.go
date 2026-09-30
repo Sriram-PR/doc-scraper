@@ -79,6 +79,9 @@ type Crawler struct {
 	// Optional crawl-history index handle; passed to OutputManager in Run.
 	idx *index.Index
 
+	// nil means work directly in the live output dir and visited DB.
+	stage *Stage
+
 	// Optional periodic progress reporter (e.g. MCP job status updates).
 	// Invoked from the progress reporter goroutine, never per-page, so it
 	// is safe to do a small amount of work (lock + write) inside.
@@ -99,6 +102,11 @@ type CrawlerOptions struct {
 	// Index, if non-nil, receives a crawl-history record at end of crawl.
 	// nil disables history capture (useful for tests and the get_page MCP path).
 	Index *index.Index
+
+	// Stage, if non-nil, selects the output dir to write into and is committed
+	// over the live corpus when a staged crawl completes. The store passed to
+	// the crawler must live at Stage.DBPath(); a successful staged Run closes it.
+	Stage *Stage
 }
 
 // NewCrawlerWithOptions wires a Crawler and its components; opts may be nil to use defaults.
@@ -127,6 +135,9 @@ func NewCrawlerWithOptions(
 	}
 
 	siteOutputDir := appCfg.SiteOutputDir(siteKey)
+	if opts != nil && opts.Stage != nil {
+		siteOutputDir = opts.Stage.OutputDir()
+	}
 
 	var globalSem *semaphore.Weighted
 	if opts != nil && opts.SharedSemaphore != nil {
@@ -163,6 +174,7 @@ func NewCrawlerWithOptions(
 	if opts != nil {
 		c.progressCallback = opts.ProgressCallback
 		c.idx = opts.Index
+		c.stage = opts.Stage
 	}
 
 	c.output = NewOutputManager(logger, resolved, siteCfg, siteKey, siteOutputDir)
@@ -222,18 +234,14 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 }
 
 // Run starts the crawling process for the configured site and blocks until completion or cancellation.
-func (c *Crawler) Run(resume bool) error {
+func (c *Crawler) Run(resume bool) (err error) {
 	c.output.crawlStartTime = time.Now()
 	c.output.SetIndex(c.idx, deriveMode(resume, c.appCfg.EnableIncremental))
 	runLog := c.log.With("domain", c.siteCfg.AllowedDomain, "resume", resume)
 	runLog.Info(fmt.Sprintf("Crawl starting with %d worker(s)...", c.appCfg.NumWorkers))
 	overallStart := time.Now()
 
-	defer func() {
-		if err := c.output.Close(); err != nil {
-			runLog.Error(fmt.Sprintf("Error finalizing output files: %v", err))
-		}
-	}()
+	defer func() { err = c.finish(err, runLog) }()
 
 	validStartURLs, firstValidParsedURL, err := c.validateStartURLs(runLog)
 	if err != nil {
@@ -295,10 +303,46 @@ func (c *Crawler) Run(resume bool) error {
 	// Scoped to fresh crawls only; resume/incremental runs keep a prior corpus,
 	// where individual failures (a page now 404ing, a transient outage during a
 	// scheduled re-crawl) intentionally degrade instead of failing the run.
-	if !resume && c.crawlCtx.Err() == nil && c.processedCounter.Load() > 0 && c.succeededCounter.Load() == 0 {
+	// A continued staged crawl counts pages saved by earlier runs, so it fails
+	// only when staging would be swapped in empty.
+	noPages := !resume || (c.stage != nil && c.stage.Staged && c.output.PagesSaved() == 0)
+	if noPages && c.crawlCtx.Err() == nil && c.processedCounter.Load() > 0 && c.succeededCounter.Load() == 0 {
 		return fmt.Errorf("crawl completed with zero successful pages: all %d attempted page tasks failed", c.processedCounter.Load())
 	}
 	return c.crawlCtx.Err()
+}
+
+// finish finalizes the output files and publishes the result. Only a completed
+// run is recorded in crawl history and, when staged, swapped over the live
+// corpus; the search index follows whatever corpus is live.
+func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
+	c.output.Finalize()
+	completed := runErr == nil
+	staged := c.stage != nil && c.stage.Staged
+
+	if staged {
+		if !completed {
+			runLog.Warn("Crawl incomplete; live corpus left untouched, staging kept so --resume can continue it", "staging", c.stage.OutputDir())
+			return runErr
+		}
+		if err := c.commitStage(); err != nil {
+			runLog.Error(fmt.Sprintf("Failed to swap staged crawl into place; previous corpus kept: %v", err))
+			return fmt.Errorf("swapping staged crawl into place: %w", err)
+		}
+		c.output.Relocate(c.stage.liveOut)
+	}
+	if completed {
+		c.output.writeToIndex()
+	}
+	c.output.writeChunks()
+	return runErr
+}
+
+func (c *Crawler) commitStage() error {
+	if err := c.store.Close(); err != nil {
+		return fmt.Errorf("closing visited DB: %w", err)
+	}
+	return c.stage.Commit()
 }
 
 // validateStartURLs keeps only the configured start URLs that parse, match the
@@ -351,7 +395,7 @@ func (c *Crawler) validateStartURLs(runLog *slog.Logger) ([]string, *url.URL, er
 // directory and its image subdirectory exist.
 func (c *Crawler) prepareOutputDir(resume bool, runLog *slog.Logger) error {
 	runLog.Info(fmt.Sprintf("Site output target directory: %s", c.siteOutputDir))
-	if !resume {
+	if !resume && c.stage == nil {
 		if err := c.cleanSiteOutputDir(); err != nil {
 			runLog.Error(fmt.Sprintf("Failed to clean site output directory, attempting to continue: %v", err))
 		}

@@ -30,6 +30,11 @@ func VisitedDBPath(stateDir, siteKey string) string {
 	return filepath.Join(stateDir, utils.SanitizeFilename(siteKey)+"_"+visitedDBDir)
 }
 
+// StagingVisitedDBPath is where a fresh crawl builds its visited DB until it is swapped in.
+func StagingVisitedDBPath(stateDir, siteKey string) string {
+	return VisitedDBPath(stateDir, siteKey) + utils.StagingSuffix
+}
+
 // BadgerStore implements the VisitedStore interface using BadgerDB.
 type BadgerStore struct {
 	db       *badger.DB
@@ -42,12 +47,15 @@ type BadgerStore struct {
 // rather than domain keeps two site configs that target the same domain isolated.
 // resume=false wipes any existing directory first; resume=true reuses it and seeds the key count from existing data.
 func NewBadgerStore(ctx context.Context, stateDir, siteKey string, resume bool, logger *slog.Logger) (*BadgerStore, error) {
+	return NewBadgerStoreAt(ctx, VisitedDBPath(stateDir, siteKey), resume, logger)
+}
+
+// NewBadgerStoreAt is NewBadgerStore for an explicit database directory.
+func NewBadgerStoreAt(ctx context.Context, dbPath string, resume bool, logger *slog.Logger) (*BadgerStore, error) {
 	store := &BadgerStore{
 		log: logger,
 		ctx: ctx,
 	}
-
-	dbPath := VisitedDBPath(stateDir, siteKey)
 
 	if !resume {
 		logger.Warn("Resume flag is false. REMOVING existing state directory", "path", dbPath)
