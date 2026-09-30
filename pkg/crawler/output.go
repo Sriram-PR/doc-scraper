@@ -248,7 +248,7 @@ func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte,
 	om.pagesRecorded.Add(1)
 	crawledAtStr := time.Now().Format(time.RFC3339)
 
-	if om.resolved.EnableJSONLOutput && om.jsonlFile != nil && markdownBytes != nil {
+	if om.resolved.EnableJSONLOutput && markdownBytes != nil {
 		var contentHash string
 		if len(markdownBytes) > 0 {
 			contentHash = utils.CalculateStringSHA256(string(markdownBytes))

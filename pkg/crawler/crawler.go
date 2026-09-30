@@ -63,6 +63,7 @@ type Crawler struct {
 	hostSemPool     *fetch.HostSemaphorePool
 
 	wg               sync.WaitGroup // Main WaitGroup for all active tasks (pages, sitemaps)
+	workersWg        sync.WaitGroup
 	processedCounter atomic.Int64
 	succeededCounter atomic.Int64
 	crawlCtx         context.Context
@@ -283,6 +284,10 @@ func (c *Crawler) Run(resume bool) error {
 		<-waiterDone // Still wait for waiter to finish its cleanup (closing queues, etc.)
 		runLog.Info("Main: Waiter finished after context cancellation.")
 	}
+	// On cancellation the waiter stops waiting on tasks, so a worker can still be
+	// saving a page; finalizing before it exits would drop that page's JSONL
+	// record while the visited DB already marks it done.
+	c.workersWg.Wait()
 
 	c.logRunSummary(overallStart, runLog)
 	// A drained queue is not success if every attempted page failed: without
@@ -400,7 +405,11 @@ func (c *Crawler) startWorkers(runLog *slog.Logger) {
 	runLog.Info(fmt.Sprintf("Starting %d workers...", c.appCfg.NumWorkers))
 	for i := 1; i <= c.appCfg.NumWorkers; i++ {
 		workerLog := c.log.With("worker_id", i)
-		go c.worker(workerLog)
+		c.workersWg.Add(1)
+		go func() {
+			defer c.workersWg.Done()
+			c.worker(workerLog)
+		}()
 	}
 	runLog.Info(fmt.Sprintf("%d workers started.", c.appCfg.NumWorkers))
 }
