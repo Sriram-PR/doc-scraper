@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -442,5 +443,50 @@ func TestFetchWithRetry_ZeroRetries(t *testing.T) {
 	}
 	if attempts.Load() != 1 {
 		t.Errorf("expected 1 attempt (no retries), got %d", attempts.Load())
+	}
+}
+
+type errTransport struct {
+	calls atomic.Int32
+	err   error
+}
+
+func (e *errTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	e.calls.Add(1)
+	return nil, e.err
+}
+
+func TestFetchWithRetry_DNSNotFound_FailsFast(t *testing.T) {
+	tr := &errTransport{err: &net.DNSError{Err: "no such host", Name: "nope.invalid", IsNotFound: true}}
+	fetcher := NewFetcher(&http.Client{Transport: tr}, testConfig(3), testLogger())
+	req, _ := http.NewRequest(http.MethodGet, "http://nope.invalid/", nil)
+
+	resp, err := fetcher.FetchWithRetry(req, context.Background())
+	if resp != nil {
+		resp.Body.Close()
+	}
+	var dnsErr *net.DNSError
+	if !errors.As(err, &dnsErr) || !dnsErr.IsNotFound {
+		t.Fatalf("expected DNS not-found error, got %v", err)
+	}
+	if got := tr.calls.Load(); got != 1 {
+		t.Errorf("expected 1 attempt for NXDOMAIN, got %d", got)
+	}
+}
+
+func TestFetchWithRetry_DNSTemporary_Retries(t *testing.T) {
+	tr := &errTransport{err: &net.DNSError{Err: "server misbehaving", Name: "flaky.test", IsTemporary: true}}
+	fetcher := NewFetcher(&http.Client{Transport: tr}, testConfig(2), testLogger())
+	req, _ := http.NewRequest(http.MethodGet, "http://flaky.test/", nil)
+
+	resp, err := fetcher.FetchWithRetry(req, context.Background())
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if !errors.Is(err, utils.ErrRetryFailed) {
+		t.Fatalf("expected ErrRetryFailed, got %v", err)
+	}
+	if got := tr.calls.Load(); got != 3 {
+		t.Errorf("expected 3 attempts for temporary DNS error, got %d", got)
 	}
 }

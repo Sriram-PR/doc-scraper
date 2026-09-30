@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"time"
 
@@ -101,6 +102,15 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 			// of burning the whole retry/backoff schedule on it.
 			if errors.Is(lastErr, utils.ErrBlockedAddress) {
 				reqLog.Warn(fmt.Sprintf("Address blocked by SSRF guard, not retrying: %v", lastErr))
+				drainAndClose(currentResp)
+				return nil, lastErr
+			}
+
+			// NXDOMAIN will not resolve on a retry either; temporary and
+			// timeout DNS failures still fall through to the backoff schedule.
+			var dnsErr *net.DNSError
+			if errors.As(lastErr, &dnsErr) && dnsErr.IsNotFound && !dnsErr.IsTemporary && !dnsErr.IsTimeout {
+				reqLog.Warn(fmt.Sprintf("Host does not resolve, not retrying: %v", lastErr))
 				drainAndClose(currentResp)
 				return nil, lastErr
 			}

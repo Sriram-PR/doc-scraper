@@ -173,3 +173,34 @@ func TestParse_RejectsMalformedJSON(t *testing.T) {
 	_, err := Parse(strings.NewReader(`{"command": "crawl"`))
 	require.Error(t, err)
 }
+
+func TestValidate_CrawlRejectsInterval(t *testing.T) {
+	for _, iv := range []string{"abc", "24h"} {
+		spec, err := Parse(strings.NewReader(`{"command":"crawl","site":"a","interval":"` + iv + `"}`))
+		require.NoError(t, err)
+		err = spec.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "interval only applies to watch")
+	}
+}
+
+func TestValidate_WhitespaceOnlySite(t *testing.T) {
+	for _, in := range []string{
+		`{"command":"crawl","site":"   "}`,
+		`{"command":"watch","site":"\t"}`,
+		`{"command":"crawl","sites":["a","  "]}`,
+	} {
+		spec, err := Parse(strings.NewReader(in))
+		require.NoError(t, err)
+		err = spec.Validate()
+		require.Error(t, err, in)
+		assert.Contains(t, err.Error(), "empty")
+	}
+}
+
+func TestSiteKeys_TrimsSite(t *testing.T) {
+	spec, err := Parse(strings.NewReader(`{"command":"crawl","site":" a "}`))
+	require.NoError(t, err)
+	require.NoError(t, spec.Validate())
+	assert.Equal(t, []string{"a"}, spec.SiteKeys())
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,29 +14,73 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
-func runSearch(args []string) {
-	fs := flag.NewFlagSet("search", flag.ExitOnError)
-	configFile := fs.String("config", "config.yaml", "Path to config file")
-	siteKey := fs.String("site", "", "Limit results to one site key (optional)")
-	limit := fs.Int("limit", 10, "Maximum results to return")
-	jsonOut := fs.Bool("json", false, "Emit results as a JSON array instead of human-readable text")
+type searchArgs struct {
+	configFile string
+	siteKey    string
+	limit      int
+	jsonOut    bool
+	query      string
+}
+
+// parseSearchArgs accepts flags before, between, or after the query words; a
+// literal "--" ends flag parsing so queries may start with a dash.
+func parseSearchArgs(args []string, out io.Writer) (searchArgs, error) {
+	fs := flag.NewFlagSet("search", flag.ContinueOnError)
+	fs.SetOutput(out)
+	var a searchArgs
+	fs.StringVar(&a.configFile, "config", "config.yaml", "Path to config file")
+	fs.StringVar(&a.siteKey, "site", "", "Limit results to one site key (optional)")
+	fs.IntVar(&a.limit, "limit", 10, "Maximum results to return (must be positive)")
+	fs.BoolVar(&a.jsonOut, "json", false, "Emit results as a JSON array instead of human-readable text")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: doc-scraper search [options] <query>\n\n"+
-			"Ranked full-text search over the crawled corpus (BM25, stemming, FTS5 syntax).\n\nOptions:\n")
+		fmt.Fprintf(out, "Usage: doc-scraper search [options] <query>\n\n"+
+			"Ranked full-text search over the crawled corpus (BM25, stemming, FTS5 syntax).\n"+
+			"Options may appear before or after the query; use -- to end option parsing.\n\nOptions:\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
+
+	var words []string
+	rest := args
+	for len(rest) > 0 {
+		if err := fs.Parse(rest); err != nil {
+			return a, err
+		}
+		consumed := len(rest) - fs.NArg()
+		rest = fs.Args()
+		if consumed > 0 && args[len(args)-len(rest)-1] == "--" {
+			words = append(words, rest...)
+			break
+		}
+		if len(rest) > 0 {
+			words = append(words, rest[0])
+			rest = rest[1:]
+		}
 	}
-	query := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if query == "" {
+	a.query = strings.TrimSpace(strings.Join(words, " "))
+	if a.query == "" {
 		fs.Usage()
+		return a, errors.New("a query is required")
+	}
+	return a, nil
+}
+
+func runSearch(args []string) {
+	a, err := parseSearchArgs(args, os.Stderr)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	os.Exit(doSearch(*configFile, query, *siteKey, *limit, *jsonOut, os.Stdout, os.Stderr))
+	os.Exit(doSearch(a.configFile, a.query, a.siteKey, a.limit, a.jsonOut, os.Stdout, os.Stderr))
 }
 
 func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout, stderr io.Writer) int {
+	if limit <= 0 {
+		fmt.Fprintf(stderr, "Error: -limit must be a positive integer, got %d\n", limit)
+		return 1
+	}
 	appCfg, err := loadConfig(configPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)

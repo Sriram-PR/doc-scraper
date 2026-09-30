@@ -79,6 +79,10 @@ func (s *TaskSpec) Validate() error {
 		return fmt.Errorf("unknown command %q (expected one of: crawl, watch)", s.Command)
 	}
 
+	if s.Site != "" && strings.TrimSpace(s.Site) == "" {
+		return fmt.Errorf("site is empty")
+	}
+
 	selectorCount := 0
 	if s.Site != "" {
 		selectorCount++
@@ -104,6 +108,9 @@ func (s *TaskSpec) Validate() error {
 	}
 
 	if s.Command == CommandCrawl {
+		if s.Interval != "" {
+			return fmt.Errorf("interval only applies to watch")
+		}
 		if s.Incremental && s.Full {
 			return fmt.Errorf("incremental and full are mutually exclusive")
 		}
@@ -137,5 +144,5 @@ func (s *TaskSpec) SiteKeys() []string {
 		}
 		return out
 	}
-	return []string{s.Site}
+	return []string{strings.TrimSpace(s.Site)}
 }

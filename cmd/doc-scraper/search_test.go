@@ -81,3 +81,42 @@ func TestDoSearch_NoMatchesAndErrors(t *testing.T) {
 	assert.Equal(t, 1, doSearch(filepath.Join(t.TempDir(), "missing.yaml"), "x", "", 5, false, &stdout, &stderr))
 	assert.Contains(t, stderr.String(), "read config")
 }
+
+func TestParseSearchArgs(t *testing.T) {
+	cases := []struct {
+		name  string
+		args  []string
+		query string
+		limit int
+		json  bool
+	}{
+		{"flags first", []string{"-limit", "3", "clap", "derive"}, "clap derive", 3, false},
+		{"flags after query", []string{"clap", "-limit", "1"}, "clap", 1, false},
+		{"flags between words", []string{"clap", "-json", "derive", "-limit=2"}, "clap derive", 2, true},
+		{"double dash ends flags", []string{"-limit", "4", "--", "-limit", "x"}, "-limit x", 4, false},
+		{"flag after double dash is text", []string{"clap", "--", "-json"}, "clap -json", 10, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := parseSearchArgs(tc.args, io.Discard)
+			require.NoError(t, err)
+			assert.Equal(t, tc.query, a.query)
+			assert.Equal(t, tc.limit, a.limit)
+			assert.Equal(t, tc.json, a.jsonOut)
+		})
+	}
+
+	_, err := parseSearchArgs([]string{"-limit", "2"}, io.Discard)
+	require.Error(t, err)
+	_, err = parseSearchArgs([]string{"x", "-bogus"}, io.Discard)
+	require.Error(t, err)
+}
+
+func TestDoSearch_RejectsNonPositiveLimit(t *testing.T) {
+	cfg := writeSearchFixture(t)
+	for _, l := range []int{0, -1} {
+		var stdout, stderr bytes.Buffer
+		assert.Equal(t, 1, doSearch(cfg, "auth", "", l, false, &stdout, &stderr))
+		assert.Contains(t, stderr.String(), "-limit must be a positive integer")
+	}
+}

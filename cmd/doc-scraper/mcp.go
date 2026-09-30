@@ -49,6 +49,7 @@ Available MCP Tools:
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
+	rejectExtraArgs(fs)
 
 	exitCode := doMcpServer(*configFile, *logLevel, os.Stdout, os.Stderr)
 	os.Exit(exitCode)
@@ -63,9 +64,13 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 		log.Warn(fmt.Sprintf("Invalid log level '%s', using default 'info'. Error: %v", logLevel, parseErr))
 	}
 
-	appCfg, err := loadConfig(configPath)
+	appCfg, unknownKeys, err := loadConfigChecked(configPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error loading config: %v\n", err)
+		return 1
+	}
+	if len(appCfg.Sites) == 0 {
+		fmt.Fprintf(stderr, "Error: %v in %s; run 'doc-scraper add <url>' to add one\n", errNoSites, configPath)
 		return 1
 	}
 	// Validate applies the same defaults (e.g. max_requests) the crawl/watch
@@ -76,7 +81,7 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Error validating config: %v\n", err)
 		return 1
 	}
-	for _, w := range appWarnings {
+	for _, w := range append(appWarnings, unknownKeys...) {
 		log.Warn(w)
 	}
 

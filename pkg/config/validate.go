@@ -42,12 +42,15 @@ func (c *AppConfig) Validate() (warnings []string, err error) {
 		c.StateDir = "./crawler_state"
 	}
 
-	if c.MaxRetries < 0 {
-		warnings = append(warnings, "max_retries cannot be negative, setting to 0")
+	negativeRetries := c.MaxRetries < 0
+	if negativeRetries {
 		c.MaxRetries = 0
 	}
 	if c.MaxRetries == 0 && c.InitialRetryDelay == 0 {
 		c.MaxRetries = 3
+	}
+	if negativeRetries {
+		warnings = append(warnings, fmt.Sprintf("max_retries cannot be negative, using %d", c.MaxRetries))
 	}
 
 	if c.MaxRetries > 0 {

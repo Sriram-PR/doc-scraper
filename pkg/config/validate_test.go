@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -300,4 +302,28 @@ func containsWarning(warnings []string, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestAppConfigValidate_NegativeMaxRetriesWarnsEffectiveValue(t *testing.T) {
+	cases := []struct {
+		name  string
+		delay time.Duration
+		want  int
+	}{
+		{"delay unset falls back to default", 0, 3},
+		{"delay set disables retries", time.Second, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &AppConfig{MaxRetries: -1, InitialRetryDelay: tc.delay}
+			warnings, _ := cfg.Validate()
+			if cfg.MaxRetries != tc.want {
+				t.Fatalf("MaxRetries = %d, want %d", cfg.MaxRetries, tc.want)
+			}
+			wantMsg := fmt.Sprintf("max_retries cannot be negative, using %d", tc.want)
+			if !slices.Contains(warnings, wantMsg) {
+				t.Fatalf("warnings %q missing %q", warnings, wantMsg)
+			}
+		})
+	}
 }

@@ -84,6 +84,10 @@ func main() {
 	case "add":
 		runAdd(os.Args[2:])
 	case "version":
+		if len(os.Args) > 2 {
+			fmt.Fprintf(os.Stderr, "Error: version takes no arguments\n")
+			os.Exit(1)
+		}
 		fmt.Printf("doc-scraper %s\n", version)
 	case "-h", "--help", "help":
 		printUsage()
@@ -118,17 +122,43 @@ Run 'doc-scraper <command> -h' for command-specific help.`)
 }
 
 func loadConfig(path string) (*config.AppConfig, error) {
+	cfg, _, err := loadConfigChecked(path)
+	return cfg, err
+}
+
+// loadConfigChecked also returns a warning per YAML key that maps to no
+// config field; loading itself stays lenient so existing configs keep working.
+func loadConfigChecked(path string) (*config.AppConfig, []string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+		return nil, nil, fmt.Errorf("read config: %w", err)
 	}
 
 	var cfg config.AppConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+		return nil, nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	return &cfg, nil
+	return &cfg, config.UnknownKeys(data), nil
+}
+
+var errNoSites = errors.New("no sites configured")
+
+// rejectExtraArgs exits 1 when a flag-only subcommand received positional
+// arguments, which the flag package would otherwise leave silently ignored.
+func rejectExtraArgs(fs *flag.FlagSet) {
+	if err := extraArgsError(fs); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
+		fs.Usage()
+		os.Exit(1)
+	}
+}
+
+func extraArgsError(fs *flag.FlagSet) error {
+	if fs.NArg() == 0 {
+		return nil
+	}
+	return fmt.Errorf("unexpected argument(s): %s", strings.Join(fs.Args(), " "))
 }
 
 // resolveSiteKeys picks the crawl target in precedence --all-sites > -sites >
@@ -187,6 +217,7 @@ func runCrawl(args []string) {
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
+	rejectExtraArgs(fs)
 
 	if *incrementalMode && *fullMode {
 		fmt.Fprintln(os.Stderr, "Error: --incremental and --full are mutually exclusive")
@@ -243,6 +274,7 @@ func runConfig(args []string) {
 		if err := fs.Parse(rest); err != nil {
 			os.Exit(1)
 		}
+		rejectExtraArgs(fs)
 		os.Exit(doValidate(*configFile, *siteKey, *jsonOut, os.Stdout, os.Stderr))
 	case "list":
 		fs := flag.NewFlagSet("config list", flag.ExitOnError)
@@ -255,6 +287,7 @@ func runConfig(args []string) {
 		if err := fs.Parse(rest); err != nil {
 			os.Exit(1)
 		}
+		rejectExtraArgs(fs)
 		os.Exit(doListSites(*configFile, *jsonOut, os.Stdout, os.Stderr))
 	case "-h", "--help", "help":
 		printConfigUsage(os.Stdout)
@@ -267,7 +300,7 @@ func runConfig(args []string) {
 // doValidate returns exit code 0 on success, 1 on error. jsonOut writes a
 // single JSON object to stdout and leaves stderr empty on the success path.
 func doValidate(configPath, siteKey string, jsonOut bool, stdout, stderr io.Writer) int {
-	appCfg, err := loadConfig(configPath)
+	appCfg, unknownKeys, err := loadConfigChecked(configPath)
 	if err != nil {
 		if jsonOut {
 			emitValidateJSON(stdout, configPath, false, nil, []string{err.Error()}, nil)
@@ -278,6 +311,19 @@ func doValidate(configPath, siteKey string, jsonOut bool, stdout, stderr io.Writ
 	}
 
 	globalWarnings, _ := appCfg.Validate()
+	globalWarnings = append(globalWarnings, unknownKeys...)
+
+	if len(appCfg.Sites) == 0 {
+		if jsonOut {
+			emitValidateJSON(stdout, configPath, false, globalWarnings, []string{errNoSites.Error()}, nil)
+			return 1
+		}
+		for _, w := range globalWarnings {
+			fmt.Fprintf(stdout, "WARN: %s\n", w)
+		}
+		fmt.Fprintf(stderr, "Error: %v in %s\n", errNoSites, configPath)
+		return 1
+	}
 
 	type siteResult struct {
 		Key      string   `json:"key"`
@@ -495,6 +541,7 @@ func runWatch(args []string) {
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
+	rejectExtraArgs(fs)
 
 	siteKeys, warning, ok := resolveSiteKeys(*siteKey, *sites, *allSites)
 	if !ok {
@@ -518,22 +565,16 @@ func executeWatch(configFile string, siteKeys []string, allSites bool, intervalS
 	}
 	log.Info(fmt.Sprintf("Watch interval: %v", interval))
 
-	log.Info(fmt.Sprintf("Loading configuration from %s", configFile))
-	appCfg, err := loadConfig(configFile)
-	if err != nil {
-		fatal(log, "Config error: %v", err)
-	}
-
-	appWarnings, _ := appCfg.Validate()
-	for _, w := range appWarnings {
-		log.Warn(w)
-	}
+	appCfg := loadAndValidateConfig(configFile, log)
 
 	appCfg.EnableIncremental = true
 	log.Info("Incremental mode enabled for watch")
 
 	if allSites {
 		siteKeys = config.GetAllSiteKeys(appCfg)
+		if len(siteKeys) == 0 {
+			fatal(log, "%v in %s", errNoSites, configFile)
+		}
 		log.Info(fmt.Sprintf("All sites mode: found %d sites", len(siteKeys)))
 	}
 
@@ -631,6 +672,9 @@ func doListSites(configPath string, jsonOut bool, stdout, stderr io.Writer) int 
 	}
 
 	fmt.Fprintf(stdout, "Sites in %s:\n\n", configPath)
+	if len(keys) == 0 {
+		fmt.Fprintln(stdout, "  (no sites configured)")
+	}
 	for _, key := range keys {
 		site := appCfg.Sites[key]
 		fmt.Fprintf(stdout, "  %s\n", key)
@@ -647,13 +691,13 @@ func doListSites(configPath string, jsonOut bool, stdout, stderr io.Writer) int 
 // loadAndValidateConfig loads the config file, validates it, and logs warnings.
 func loadAndValidateConfig(configFile string, log *slog.Logger) *config.AppConfig {
 	log.Info(fmt.Sprintf("Loading configuration from %s", configFile))
-	appCfg, err := loadConfig(configFile)
+	appCfg, unknownKeys, err := loadConfigChecked(configFile)
 	if err != nil {
 		fatal(log, "Config error: %v", err)
 	}
 
 	appWarnings, _ := appCfg.Validate()
-	for _, w := range appWarnings {
+	for _, w := range append(appWarnings, unknownKeys...) {
 		log.Warn(w)
 	}
 
@@ -697,6 +741,9 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 
 	if allSites {
 		siteKeys = config.GetAllSiteKeys(appCfg)
+		if len(siteKeys) == 0 {
+			fatal(log, "%v in %s", errNoSites, configFile)
+		}
 		log.Info(fmt.Sprintf("All sites mode: found %d sites", len(siteKeys)))
 	}
 

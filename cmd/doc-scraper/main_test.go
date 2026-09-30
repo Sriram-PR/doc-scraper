@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -294,4 +296,93 @@ func TestPrintRunUsage(t *testing.T) {
 	assert.Contains(t, out, "site")
 	assert.Contains(t, out, "all_sites")
 	assert.Contains(t, out, "interval")
+}
+
+func writeTempConfig(t *testing.T, content string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	return p
+}
+
+func TestDoValidate_NoSitesIsInvalid(t *testing.T) {
+	for name, content := range map[string]string{
+		"empty file":    "",
+		"no sites key":  "num_workers: 2\n",
+		"empty mapping": "sites: {}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfgPath := writeTempConfig(t, content)
+
+			var stdout, stderr bytes.Buffer
+			assert.Equal(t, 1, doValidate(cfgPath, "", false, &stdout, &stderr))
+			assert.Contains(t, stderr.String(), "no sites configured")
+			assert.NotContains(t, stdout.String(), "Configuration valid")
+
+			stdout.Reset()
+			assert.Equal(t, 1, doValidate(cfgPath, "", true, &stdout, new(bytes.Buffer)))
+			var payload map[string]any
+			require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+			assert.Equal(t, false, payload["valid"])
+			assert.Contains(t, payload["errors"], "no sites configured")
+		})
+	}
+}
+
+func TestDoListSites_NoSites(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	assert.Equal(t, 0, doListSites(writeTempConfig(t, "sites: {}\n"), false, &stdout, &stderr))
+	assert.Contains(t, stdout.String(), "no sites configured")
+}
+
+func TestDoValidate_UnknownKeysWarn(t *testing.T) {
+	cfgPath := writeTempConfig(t, `
+num_workerz: 9
+sites:
+  a:
+    start_urls: ["http://a.com"]
+    allowed_domain: "a.com"
+    content_selector: "main"
+    max_dept: 2
+`)
+	var stdout, stderr bytes.Buffer
+	assert.Equal(t, 0, doValidate(cfgPath, "", false, &stdout, &stderr))
+	assert.Contains(t, stdout.String(), `WARN: line 2: unknown key "num_workerz"`)
+	assert.Contains(t, stdout.String(), `unknown key "sites.a.max_dept"`)
+
+	stdout.Reset()
+	assert.Equal(t, 0, doValidate(cfgPath, "", true, &stdout, &stderr))
+	var payload struct {
+		Valid    bool     `json:"valid"`
+		Warnings []string `json:"global_warnings"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &payload))
+	assert.True(t, payload.Valid)
+	assert.Contains(t, strings.Join(payload.Warnings, "\n"), `unknown key "num_workerz"`)
+}
+
+func TestLoadConfigForAdd_NoSitesStillWorks(t *testing.T) {
+	for _, content := range []string{"", "sites: {}\n", "num_workers: 2\n"} {
+		cfg, err := loadConfigForAdd(writeTempConfig(t, content))
+		require.NoError(t, err)
+		assert.Empty(t, cfg.Sites)
+	}
+}
+
+func TestDoMcpServer_NoSitesRefused(t *testing.T) {
+	var stderr bytes.Buffer
+	assert.Equal(t, 1, doMcpServer(writeTempConfig(t, "sites: {}\n"), "info", nil, &stderr))
+	assert.Contains(t, stderr.String(), "no sites configured")
+}
+
+func TestExtraArgsError(t *testing.T) {
+	fs := flag.NewFlagSet("crawl", flag.ContinueOnError)
+	fs.String("site", "", "")
+	require.NoError(t, fs.Parse([]string{"-site", "x"}))
+	assert.NoError(t, extraArgsError(fs))
+
+	fs = flag.NewFlagSet("crawl", flag.ContinueOnError)
+	fs.String("site", "", "")
+	require.NoError(t, fs.Parse([]string{"-site", "x", "extra", "more"}))
+	assert.ErrorContains(t, extraArgsError(fs), "extra more")
 }
