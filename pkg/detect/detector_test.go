@@ -4,6 +4,8 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -231,4 +233,48 @@ func TestSelectorCache(t *testing.T) {
 	got, ok := cache.Get("example.com")
 	assert.True(t, ok)
 	assert.Equal(t, FrameworkDocusaurus, got.Framework)
+}
+
+func readFixture(t *testing.T, name string) *goquery.Document {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	require.NoError(t, err)
+	return parseDoc(t, string(b))
+}
+
+func TestDetectPage_StaticStubIsNotAShell(t *testing.T) {
+	r := DetectPage(readFixture(t, "example.com.html"))
+	assert.Equal(t, FrameworkUnknown, r.Framework)
+	assert.NotEqual(t, ConfidenceJSRendered, r.Confidence)
+	assert.True(t, r.Fallback)
+}
+
+func TestDetectPage_ScriptFreeStubIsNotAShell(t *testing.T) {
+	r := DetectPage(parseDoc(t, `<html><head><title>Example Domain</title></head><body><div><h1>Example Domain</h1>`+
+		`<p>This domain is for use in illustrative examples in documents. You may use this domain in literature `+
+		`without prior coordination or asking for permission.</p>`+
+		`<p><a href="https://www.iana.org/domains/example">More information...</a></p></div></body></html>`))
+	assert.Equal(t, FrameworkUnknown, r.Framework)
+	assert.Equal(t, ConfidenceFallback, r.Confidence)
+}
+
+func TestDetectPage_ShortPageWithScriptsIsAShell(t *testing.T) {
+	r := DetectPage(parseDoc(t, `<html><body><p>Loading</p><script>boot()</script></body></html>`))
+	assert.Equal(t, FrameworkJSShell, r.Framework)
+	r = DetectPage(parseDoc(t, `<html><body><noscript>Enable JavaScript</noscript></body></html>`))
+	assert.Equal(t, FrameworkJSShell, r.Framework)
+}
+
+func TestDetectPage_EmptyFrameworkContainerFallsBack(t *testing.T) {
+	r := DetectPage(readFixture(t, "mkdocs-material-landing.html"))
+	assert.Equal(t, FrameworkMkDocsMaterial, r.Framework)
+	assert.True(t, r.Fallback, "validation must reject the empty container extraction would pick")
+	assert.Empty(t, r.Selector)
+	assert.Equal(t, ConfidenceUnvalidated, r.Confidence)
+}
+
+func TestSelectByPriority_PrefersEarlierAlternative(t *testing.T) {
+	doc := parseDoc(t, `<div class="wrap"><p>outer</p><article class="inner">inner</article></div>`)
+	assert.Equal(t, "inner", SelectByPriority(doc, "article.inner, .wrap").Text())
+	assert.Equal(t, 0, SelectByPriority(doc, ".missing").Length())
 }

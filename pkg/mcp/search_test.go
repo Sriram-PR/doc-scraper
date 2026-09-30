@@ -98,3 +98,36 @@ func TestHandleSearchDocs_MalformedQueryDoesNotError(t *testing.T) {
 	require.False(t, res.IsError)
 	assert.EqualValues(t, 0, got["count"])
 }
+
+func TestHandleSearchDocs_UnusualQueries(t *testing.T) {
+	s := newTestServerWithIndex(t, "docs")
+	md := "# Retries\n\nRetry limits are configured with max_retries. " + strings.Repeat("filler ", 40)
+	require.NoError(t, s.idx.ReplaceChunks(context.Background(),
+		"docs", "https://docs.example.com/retries", "Retries", "h1", chunk.Split(md)))
+
+	for _, q := range []string{"AND", "OR", "NOT", "NEAR(", "retry\x00limits", "retry\x01 limits", "-retry", "retry:", "^retry", "retry*", "col:retry", "{retry}"} {
+		_, res := callSearchDocs(t, s, map[string]any{"query": q})
+		assert.False(t, res.IsError, "query %q", q)
+	}
+	got, _ := callSearchDocs(t, s, map[string]any{"query": "retry\x00limits"})
+	assert.EqualValues(t, 1, got["count"])
+
+	for _, q := range []string{"*", "**", "\x00", "()", "(", "\"\"", "- ^ :"} {
+		_, res := callSearchDocs(t, s, map[string]any{"query": q})
+		require.True(t, res.IsError, "query %q", q)
+		assert.Contains(t, res.Content[0].(mcpgo.TextContent).Text, "no searchable terms", "query %q", q)
+	}
+}
+
+func TestHandleSearchDocs_EmptyResultsIsArray(t *testing.T) {
+	s := newTestServerWithIndex(t, "docs")
+	got, _ := callSearchDocs(t, s, map[string]any{"query": "nothingmatches"})
+	assert.Equal(t, []any{}, got["results"])
+}
+
+func TestHandleSearchDocs_QueryTooLong(t *testing.T) {
+	s := newTestServerWithIndex(t, "docs")
+	_, res := callSearchDocs(t, s, map[string]any{"query": strings.Repeat("a ", 600)})
+	require.True(t, res.IsError)
+	assert.Contains(t, res.Content[0].(mcpgo.TextContent).Text, "query too long")
+}

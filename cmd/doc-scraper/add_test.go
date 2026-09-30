@@ -168,6 +168,7 @@ func TestDoAdd_JSONDryRun(t *testing.T) {
 	assert.Equal(t, 12, result.PageCount)
 	assert.Contains(t, result.Config.ContentSelector, ".vp-doc")
 	assert.Equal(t, 1, result.Preview.CodeBlocksKept)
+	assert.NotContains(t, stdout.String(), "null", "empty lists must serialize as []")
 }
 
 func TestDoAdd_DuplicateKeyRejected(t *testing.T) {

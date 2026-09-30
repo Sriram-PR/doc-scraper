@@ -114,7 +114,7 @@ func (cp *ContentProcessor) SelectMainContent(
 			actualSelector = result.Selector
 			taskLog.Debug(fmt.Sprintf("Auto-detected selector for %s: %s", result.Framework, actualSelector))
 
-			mainContentSelection := selectByPriority(doc, actualSelector)
+			mainContentSelection := detect.SelectByPriority(doc, actualSelector)
 			if !hasExtractableContent(mainContentSelection) {
 				taskLog.Warn(fmt.Sprintf(
 					"Detected selector '%s' yielded no content (%d element(s) matched), falling back to readability",
@@ -140,7 +140,7 @@ func (cp *ContentProcessor) SelectMainContent(
 			}
 		}
 	} else {
-		mainContentSelection := selectByPriority(doc, siteCfg.ContentSelector)
+		mainContentSelection := detect.SelectByPriority(doc, siteCfg.ContentSelector)
 		if !hasExtractableContent(mainContentSelection) {
 			err = fmt.Errorf("%w: selector '%s' yielded no content on page '%s' (%d element(s) matched)",
 				utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String(), mainContentSelection.Length())
@@ -152,22 +152,6 @@ func (cp *ContentProcessor) SelectMainContent(
 	}
 
 	return mainContent, pageTitle, nil
-}
-
-// selectByPriority returns the first element matching selector, trying each
-// comma-separated alternative in order. Unlike Find("a, b").First() (DOM order),
-// this lets a specific selector win over an ancestor -- e.g. Sphinx's div.body
-// over its div.document wrapper, which would otherwise drag in the sidebar.
-func selectByPriority(doc *goquery.Document, selector string) *goquery.Selection {
-	for _, sel := range strings.Split(selector, ",") {
-		if sel = strings.TrimSpace(sel); sel == "" {
-			continue
-		}
-		if s := doc.Find(sel).First(); s.Length() > 0 {
-			return s
-		}
-	}
-	return doc.Find(selector)
 }
 
 // ProcessAndSaveContent processes images and internal links on the already-selected

@@ -20,6 +20,7 @@ import (
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/JohannesKaufmann/html-to-markdown/plugin"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/andybalholm/cascadia"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
@@ -71,6 +72,9 @@ func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolReques
 // get_job_status) and cancelled=false with a status field for jobs already
 // in a terminal state.
 func (s *Server) handleCancelCrawl(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if errResult := checkArgTypes(request, map[string]argKind{"job_id": argString}); errResult != nil {
+		return errResult, nil
+	}
 	jobID := request.GetString("job_id", "")
 	if jobID == "" {
 		return mcp.NewToolResultError("job_id parameter is required"), nil
@@ -159,7 +163,8 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 			"full site config, list_pages to enumerate crawled pages, crawl_site to start a " +
 			"crawl, get_job_status to check a job, get_page to fetch a single URL, " +
 			"get_freshness to check how stale a site's crawl is, diff_crawl to see what " +
-			"changed since a given timestamp.",
+			"changed since a given timestamp, read_page to read a crawled page's stored " +
+			"markdown, cancel_crawl to stop a running job.",
 	}
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }
@@ -194,6 +199,9 @@ const jsonlDisabledHint = "JSONL output is disabled for site '%s', so no stored 
 	"Set enable_jsonl_output: true globally or for the site and re-run crawl_site."
 
 func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString, "max_results": argInteger, "offset": argInteger}); errResult != nil {
+		return errResult, nil
+	}
 	siteKey := request.GetString("site_key", "")
 	if siteKey == "" {
 		return mcp.NewToolResultError("site_key parameter is required"), nil
@@ -295,12 +303,19 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 }
 
 func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if errResult := checkArgTypes(request, map[string]argKind{"url": argString, "content_selector": argString}); errResult != nil {
+		return errResult, nil
+	}
 	urlStr := request.GetString("url", "")
 	if urlStr == "" {
 		return mcp.NewToolResultError("url parameter is required"), nil
 	}
 
 	contentSelector := request.GetString("content_selector", "body")
+	selector, err := cascadia.Compile(contentSelector)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid CSS selector %q: %v", contentSelector, err)), nil
+	}
 
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
@@ -347,7 +362,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		title = "Untitled"
 	}
 
-	contentSelection := doc.Find(contentSelector)
+	contentSelection := doc.FindMatcher(selector)
 	if contentSelection.Length() == 0 {
 		return mcp.NewToolResultError(fmt.Sprintf("content selector '%s' not found on page", contentSelector)), nil
 	}
@@ -370,6 +385,9 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 }
 
 func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString, "incremental": argBool}); errResult != nil {
+		return errResult, nil
+	}
 	siteKey := request.GetString("site_key", "")
 	if siteKey == "" {
 		return mcp.NewToolResultError("site_key parameter is required"), nil
@@ -412,6 +430,9 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 }
 
 func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if errResult := checkArgTypes(request, map[string]argKind{"job_id": argString}); errResult != nil {
+		return errResult, nil
+	}
 	jobID := request.GetString("job_id", "")
 	if jobID == "" {
 		return mcp.NewToolResultError("job_id parameter is required"), nil
@@ -556,6 +577,9 @@ func (s *Server) resolveSiteOrError(siteKey string) (*config.SiteConfig, *mcp.Ca
 // should I run crawl_site first?" Pulls the latest crawl from the history
 // index, derives age, reports running-job presence.
 func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString}); errResult != nil {
+		return errResult, nil
+	}
 	siteKey := request.GetString("site_key", "")
 	if siteKey == "" {
 		return mcp.NewToolResultError("site_key parameter is required"), nil
@@ -620,6 +644,9 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 // and the most recent crawl whose crawl_ended_at <= since. Hash-based verdicts
 // from the SQLite history index.
 func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString, "since": argString, "max_results": argInteger, "offset": argInteger}); errResult != nil {
+		return errResult, nil
+	}
 	siteKey := request.GetString("site_key", "")
 	if siteKey == "" {
 		return mcp.NewToolResultError("site_key parameter is required"), nil
@@ -641,7 +668,13 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 	}
 
 	maxResults := request.GetInt("max_results", 100)
-	offset := request.GetInt("offset", 0)
+	if maxResults <= 0 {
+		maxResults = 100
+	}
+	if maxResults > 1000 {
+		maxResults = 1000
+	}
+	offset := max(request.GetInt("offset", 0), 0)
 
 	res, err := s.idx.DiffSince(ctx, siteKey, since, maxResults, offset)
 	if err != nil {
@@ -793,6 +826,9 @@ func sliceAtRuneBoundary(s string, offset, maxBytes int) (chunk string, start in
 // handleReadPage serves a page's markdown out of the stored crawl. This is the
 // counterpart to get_page, which always re-fetches over the network.
 func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString, "url": argString, "max_bytes": argInteger, "offset": argInteger}); errResult != nil {
+		return errResult, nil
+	}
 	siteKey := request.GetString("site_key", "")
 	if siteKey == "" {
 		return mcp.NewToolResultError("site_key parameter is required"), nil
@@ -836,6 +872,10 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 
 	chunk, start := sliceAtRuneBoundary(record.Content, offset, maxBytes)
 	end := start + len(chunk)
+	headings := record.Headings
+	if headings == nil {
+		headings = []string{}
+	}
 
 	result := map[string]interface{}{
 		"site_key":       siteKey,
@@ -849,7 +889,7 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		"depth":          record.Depth,
 		"crawled_at":     record.CrawledAt,
 		"content_hash":   record.ContentHash,
-		"headings":       record.Headings,
+		"headings":       headings,
 		"source":         "stored_crawl",
 	}
 	if end < len(record.Content) {
@@ -859,12 +899,22 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 	return mcp.NewToolResultText(formatJSON(result)), nil
 }
 
-const maxSearchResults = 50
+const (
+	maxSearchResults = 50
+	// Generous for a natural-language question; bounds FTS5 parse and relaxation work.
+	maxSearchQueryBytes = 1024
+)
 
 func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if errResult := checkArgTypes(request, map[string]argKind{"query": argString, "site_key": argString, "limit": argInteger}); errResult != nil {
+		return errResult, nil
+	}
 	query := strings.TrimSpace(request.GetString("query", ""))
 	if query == "" {
 		return mcp.NewToolResultError("query parameter is required"), nil
+	}
+	if len(query) > maxSearchQueryBytes {
+		return mcp.NewToolResultError(fmt.Sprintf("query too long (%d bytes, max %d)", len(query), maxSearchQueryBytes)), nil
 	}
 	siteKey := request.GetString("site_key", "")
 	if siteKey != "" {
@@ -884,6 +934,9 @@ func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolReque
 	}
 
 	results, err := s.idx.SearchChunks(ctx, query, siteKey, limit)
+	if errors.Is(err, index.ErrNoSearchableTerms) {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("search failed: %v", err)), nil
 	}

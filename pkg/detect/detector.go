@@ -95,6 +95,12 @@ type DetectionResult struct {
 // capture on the sampled page to count as validated.
 const minContentChars = 200
 
+// shellMaxChars is the visible text below which a scripted page counts as an
+// empty shell even without a recognizable mount point.
+const shellMaxChars = 50
+
+const spaMountSelector = "#root, #app, #__next, #___gatsby, #__nuxt, #app-root, app-root, [data-reactroot]"
+
 type ContentDetector struct {
 	cache *SelectorCache
 	log   *slog.Logger
@@ -148,8 +154,9 @@ func DetectPage(doc *goquery.Document) DetectionResult {
 	if best == nil {
 		// The generic empty-body probe runs only when no signature matched: a
 		// page declaring an SSG generator is server-rendered even when it is a
-		// near-empty landing page.
-		if facts.bodyChars < minContentChars {
+		// near-empty landing page. A short page with real prose and no mount
+		// point or noscript fallback (a static stub like example.com) is not a shell.
+		if facts.bodyChars < minContentChars && facts.hasShellEvidence {
 			return DetectionResult{Framework: FrameworkJSShell, Fallback: true, Confidence: ConfidenceJSRendered, Source: SourceShell}
 		}
 		return DetectionResult{Framework: FrameworkUnknown, Fallback: true, Confidence: ConfidenceFallback, Source: SourceNone}
@@ -181,6 +188,9 @@ type pageFacts struct {
 	generators []string
 	assets     []string
 	bodyChars  int
+	// hasShellEvidence marks a page that could be rendering client-side: a
+	// noscript fallback, an SPA mount point, or scripts on an almost textless body.
+	hasShellEvidence bool
 }
 
 func collectPageFacts(doc *goquery.Document) pageFacts {
@@ -201,6 +211,8 @@ func collectPageFacts(doc *goquery.Document) pageFacts {
 		}
 	})
 	f.bodyChars = len(visibleText(doc.Find("body")))
+	f.hasShellEvidence = doc.Find("noscript, "+spaMountSelector).Length() > 0 ||
+		(f.bodyChars < shellMaxChars && doc.Find("script").Length() > 0)
 	return f
 }
 
@@ -294,21 +306,29 @@ func generatorVersion(sig *FrameworkSignature, facts pageFacts) string {
 	return ""
 }
 
-// validateSelector accepts a comma-separated selector list when any
-// alternative matches at least one element holding minContentChars of visible
-// text. A recognized framework whose selectors all come up empty is treated as
-// a fallback case rather than trusted blindly.
-func validateSelector(doc *goquery.Document, selector string) bool {
+// SelectByPriority returns the first element matching selector, trying each
+// comma-separated alternative in order. Unlike Find("a, b").First() (DOM order),
+// this lets a specific selector win over an ancestor -- e.g. Sphinx's div.body
+// over its div.document wrapper, which would otherwise drag in the sidebar.
+func SelectByPriority(doc *goquery.Document, selector string) *goquery.Selection {
 	for _, sel := range strings.Split(selector, ",") {
 		if sel = strings.TrimSpace(sel); sel == "" {
 			continue
 		}
-		found := doc.Find(sel)
-		if found.Length() > 0 && len(visibleText(found.First())) >= minContentChars {
-			return true
+		if s := doc.Find(sel).First(); s.Length() > 0 {
+			return s
 		}
 	}
-	return false
+	return doc.Find(selector)
+}
+
+// validateSelector checks the element extraction will actually pick (see
+// SelectByPriority) for minContentChars of visible text, so a recognized
+// framework whose chosen container is empty falls back instead of being
+// trusted blindly.
+func validateSelector(doc *goquery.Document, selector string) bool {
+	found := SelectByPriority(doc, selector)
+	return found.Length() > 0 && len(visibleText(found.First())) >= minContentChars
 }
 
 func detectShell(doc *goquery.Document, facts pageFacts) Framework {

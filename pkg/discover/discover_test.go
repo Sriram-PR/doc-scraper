@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -181,4 +182,39 @@ func newGzip(sb *strings.Builder) []byte {
 	_, _ = gz.Write([]byte(sb.String()))
 	_ = gz.Close()
 	return buf.Bytes()
+}
+
+func fileServer(t *testing.T, routes map[string]string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	for route, file := range routes {
+		b, err := os.ReadFile(file)
+		require.NoError(t, err)
+		mux.HandleFunc(route, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(b) })
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestDiscoverer_StaticStubIsNotReportedAsJSRendered(t *testing.T) {
+	srv := fileServer(t, map[string]string{"/stub/": "../detect/testdata/example.com.html"})
+	r, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/stub/")
+	require.NoError(t, err)
+
+	assert.Equal(t, detect.FrameworkUnknown, r.Detection.Framework)
+	joined := strings.Join(r.Warnings, "\n")
+	assert.NotContains(t, joined, "JavaScript-rendered")
+	assert.Contains(t, joined, "very little content")
+}
+
+func TestDiscoverer_EmptyContainerIsNotReportedAsValidated(t *testing.T) {
+	srv := fileServer(t, map[string]string{"/mkdocs-material/": "../detect/testdata/mkdocs-material-landing.html"})
+	r, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/mkdocs-material/")
+	require.NoError(t, err)
+
+	draft := BuildDraft(r, "")
+	assert.Equal(t, "auto", draft.Site.ContentSelector)
+	assert.NotContains(t, strings.Join(draft.Evidence, "\n"), "validated on the fetched page")
+	assert.Contains(t, strings.Join(draft.Warnings, "\n"), "readability")
 }

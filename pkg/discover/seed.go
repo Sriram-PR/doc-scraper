@@ -88,10 +88,13 @@ func analyzeSeedPage(r *Report) {
 	bodyText := r.Doc.Find("body").Clone()
 	bodyText.Find("script, style, noscript").Remove()
 	tinyBody := len(strings.Join(strings.Fields(bodyText.Text()), " ")) < 200
-	if r.Detection.Confidence == detect.ConfidenceJSRendered ||
-		(r.Detection.Fallback && tinyBody) {
+	switch {
+	case r.Detection.Confidence == detect.ConfidenceJSRendered:
 		r.Warnings = append(r.Warnings,
 			"the page appears to be JavaScript-rendered ("+string(r.Detection.Framework)+"); a static crawl will likely capture little or no content")
+	case r.Detection.Fallback && tinyBody:
+		r.Warnings = append(r.Warnings,
+			"the page has very little content; a crawl of it may capture little or nothing")
 	}
 }
 

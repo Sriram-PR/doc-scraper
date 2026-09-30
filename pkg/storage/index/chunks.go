@@ -3,8 +3,10 @@ package index
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 )
@@ -131,6 +133,9 @@ func (i *Index) SiteHasChunks(ctx context.Context, siteKey string) (bool, error)
 	return true, nil
 }
 
+// ErrNoSearchableTerms is returned for queries containing no letters or digits.
+var ErrNoSearchableTerms = errors.New("query has no searchable terms")
+
 // SearchChunks runs a ranked full-text query. siteKey narrows to one site when
 // non-empty. The query is tried verbatim first so phrase and prefix syntax
 // work; if FTS5 rejects it (unbalanced quotes and similar), it is retried with
@@ -139,6 +144,15 @@ func (i *Index) SearchChunks(ctx context.Context, query, siteKey string, limit i
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
+	}
+	query = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, query))
+	if !strings.ContainsFunc(query, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
+		return nil, ErrNoSearchableTerms
 	}
 	if limit <= 0 {
 		limit = 10
@@ -241,7 +255,7 @@ func (i *Index) searchChunksRaw(ctx context.Context, match, siteKey string, limi
 	}
 	defer func() { _ = rows.Close() }()
 
-	var out []SearchResult
+	out := []SearchResult{}
 	for rows.Next() {
 		var r SearchResult
 		if err := rows.Scan(&r.SiteKey, &r.URL, &r.Title, &r.HeadingPath, &r.Anchor, &r.Snippet, &r.Rank); err != nil {

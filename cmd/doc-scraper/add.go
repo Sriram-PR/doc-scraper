@@ -284,6 +284,13 @@ type addJSONSite struct {
 	DisallowedPathPatterns []string `json:"disallowed_path_patterns,omitempty"`
 }
 
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
 func finishAddJSON(opts addOptions, draft *discover.Draft, preview addPreview, stdin io.Reader, stdout, stderr io.Writer) int {
 	result := addJSONResult{
 		SiteKey:    draft.SiteKey,
@@ -301,8 +308,8 @@ func finishAddJSON(opts addOptions, draft *discover.Draft, preview addPreview, s
 			DisallowedPathPatterns: draft.Site.DisallowedPathPatterns,
 		},
 		Preview:  preview,
-		Evidence: draft.Evidence,
-		Warnings: draft.Warnings,
+		Evidence: nonNil(draft.Evidence),
+		Warnings: nonNil(draft.Warnings),
 	}
 	result.Preview.Markdown = firstLines(result.Preview.Markdown, 40)
 

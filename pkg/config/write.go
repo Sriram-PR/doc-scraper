@@ -61,10 +61,11 @@ func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	lines := strings.Split(string(data), "\n")
+	eol := detectEOL(data)
 
 	root := documentRoot(&doc)
 	if root == nil {
-		out := []byte(strings.TrimRight(string(data), "\n") + "\nsites:\n" + indentBlock(entry, 2))
+		out := []byte(strings.TrimRight(string(data), "\r\n") + eol + "sites:" + eol + withEOL(indentBlock(entry, 2), eol))
 		return out, verifySplice(out, key, nil)
 	}
 	if root.Kind != yaml.MappingNode {
@@ -81,8 +82,8 @@ func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
 	keyNode, valNode := mappingValue(root, "sites")
 	if keyNode == nil {
 		pad := strings.Repeat(" ", rootIndent)
-		out := append(bytes.TrimRight(data, "\n"),
-			[]byte("\n\n"+pad+"sites:\n"+indentBlock(entry, rootIndent+2))...)
+		out := append(bytes.TrimRight(data, "\r\n"),
+			[]byte(eol+eol+pad+"sites:"+eol+withEOL(indentBlock(entry, rootIndent+2), eol))...)
 		return out, verifySplice(out, key, nil)
 	}
 	if valNode.Kind == yaml.MappingNode && valNode.Style&yaml.FlowStyle != 0 {
@@ -106,8 +107,8 @@ func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
 	if insertAfter > len(lines) {
 		insertAfter = len(lines)
 	}
-	block := indentBlock(entry, indent)
-	out := strings.Join(lines[:insertAfter], "\n") + "\n" + block
+	block := withEOL(indentBlock(entry, indent), eol)
+	out := strings.TrimSuffix(strings.Join(lines[:insertAfter], "\n"), "\r") + eol + block
 	if rest := strings.Join(lines[insertAfter:], "\n"); rest != "" {
 		out += rest
 	}
@@ -150,6 +151,9 @@ func writeValidated(path string, content []byte, key string, perm os.FileMode) e
 	}
 
 	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
 	tmp, err := os.CreateTemp(dir, ".config-*.yaml")
 	if err != nil {
 		return fmt.Errorf("write config: %w", err)
@@ -173,6 +177,22 @@ func writeValidated(path string, content []byte, key string, perm os.FileMode) e
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil
+}
+
+// detectEOL returns the file's dominant line ending so inserted lines match it.
+func detectEOL(data []byte) string {
+	crlf := bytes.Count(data, []byte("\r\n"))
+	if crlf > bytes.Count(data, []byte("\n"))-crlf {
+		return "\r\n"
+	}
+	return "\n"
+}
+
+func withEOL(block, eol string) string {
+	if eol == "\n" {
+		return block
+	}
+	return strings.ReplaceAll(block, "\n", eol)
 }
 
 func documentRoot(doc *yaml.Node) *yaml.Node {

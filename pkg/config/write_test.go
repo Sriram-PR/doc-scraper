@@ -132,3 +132,42 @@ func TestRenderSiteEntry(t *testing.T) {
 	assert.NotContains(t, out, "skip_images", "zero-valued optional fields stay out of the draft")
 	assert.NotContains(t, out, "user_agent")
 }
+
+func TestInsertSite_CreatesMissingParentDirs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sub", "deeper", "config.yaml")
+	require.NoError(t, InsertSite(path, "example_docs", testSite()))
+	_, cfg := readBack(t, path)
+	require.Len(t, cfg.Sites, 1)
+}
+
+func TestInsertSite_CRLFConfigStaysCRLF(t *testing.T) {
+	const existing = "sites:\r\n  existing:\r\n    start_urls: [\"https://old.example.com/docs/\"]\r\n    allowed_domain: \"old.example.com\"\r\n    allowed_path_prefix: /docs/\r\n    max_depth: 3\r\n"
+	cases := map[string]string{
+		"sites in middle": "# header\r\n" + existing + "\r\nenable_incremental: true\r\n",
+		"sites at end":    "# header\r\n" + existing,
+		"no trailing eol": "# header\r\n" + strings.TrimSuffix(existing, "\r\n"),
+		"no sites key":    "num_workers: 8\r\n",
+	}
+	for name, original := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := writeTempConfig(t, original)
+			require.NoError(t, InsertSite(path, "example_docs", testSite()))
+
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			got := string(data)
+			assert.Equal(t, strings.Count(got, "\n"), strings.Count(got, "\r\n"), "every line ending must be CRLF:\n%q", got)
+			assert.True(t, strings.HasPrefix(got, strings.TrimRight(strings.SplitN(original, "sites:", 2)[0], "\r\n")), "content before the insertion is untouched")
+			_, cfg := readBack(t, path)
+			assert.NotNil(t, cfg.Sites["example_docs"])
+		})
+	}
+}
+
+func TestInsertSite_LFConfigUnchangedStyle(t *testing.T) {
+	path := writeTempConfig(t, "sites:\n  a:\n    start_urls: [\"https://a.example.com/\"]\n    allowed_domain: a.example.com\n    allowed_path_prefix: /\n")
+	require.NoError(t, InsertSite(path, "example_docs", testSite()))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "\r")
+}

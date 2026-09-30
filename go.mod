@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/andybalholm/cascadia v1.3.3
 	github.com/dgraph-io/badger/v4 v4.7.0
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
 	github.com/google/uuid v1.6.0
@@ -17,7 +18,6 @@ require (
 )
 
 require (
-	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
