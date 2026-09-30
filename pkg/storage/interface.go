@@ -9,9 +9,9 @@ import (
 
 // PageStore handles page visitation state
 type PageStore interface {
-	// MarkPageVisited marks a page URL as visited (pending state)
+	// MarkPageVisited marks a page URL as visited (pending state) at the depth it was enqueued
 	// Returns true if the URL was newly added, false if it already existed
-	MarkPageVisited(normalizedPageURL string) (bool, error)
+	MarkPageVisited(normalizedPageURL string, depth int) (bool, error)
 
 	// CheckPageStatus retrieves the status and details of a page URL
 	// Returns status (PageStatusSuccess, PageStatusFailure, PageStatusPending, PageStatusNotFound, PageStatusDBError),

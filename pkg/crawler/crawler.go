@@ -545,7 +545,7 @@ func (c *Crawler) seedStartURLs(validStartURLs []string, runLog *slog.Logger) in
 		// the seed body cannot enqueue a duplicate WorkItem during link
 		// extraction (MarkPageVisited would otherwise return added=true since
 		// the seed has no DB entry until the deferred UpdatePageStatus runs).
-		added, markErr := c.store.MarkPageVisited(normalizedSeed)
+		added, markErr := c.store.MarkPageVisited(normalizedSeed, 0)
 		if markErr != nil {
 			runLog.Error(fmt.Sprintf("Skipping start URL '%s': MarkPageVisited failed: %v", startURLStr, markErr))
 			continue

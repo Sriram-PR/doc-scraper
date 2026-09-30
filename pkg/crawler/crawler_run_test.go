@@ -642,3 +642,103 @@ func TestCrawlerRun_IncrementalDedupesJSONL(t *testing.T) {
 	assert.Contains(t, string(full), "A-UPDATED")
 	assert.NotContains(t, string(full), "A-ORIGINAL", "llms-full.txt must not carry stale content")
 }
+
+// TestCrawlerRun_ResumeKeepsEnqueuedDepth interrupts a crawl while discovered
+// pages are still queued, then resumes and checks the requeued pages keep their
+// link-graph depth so max_depth still bounds the crawl.
+func TestCrawlerRun_ResumeKeepsEnqueuedDepth(t *testing.T) {
+	page := func(links ...string) string {
+		var b strings.Builder
+		b.WriteString("<html><head><title>T</title></head><body>")
+		for _, l := range links {
+			b.WriteString(`<a href="` + l + `">x</a>`)
+		}
+		b.WriteString("</body></html>")
+		return b.String()
+	}
+	pages := map[string]string{
+		"/docs/index.html": page("/docs/a1.html", "/docs/a2.html", "/docs/a3.html"),
+		"/docs/a1.html":    page("/docs/b1.html"),
+		"/docs/a2.html":    page("/docs/b2.html"),
+		"/docs/a3.html":    page("/docs/b3.html"),
+		"/docs/b1.html":    page("/docs/c1.html"),
+		"/docs/b2.html":    page("/docs/c2.html"),
+		"/docs/b3.html":    page("/docs/c3.html"),
+		"/docs/c1.html":    page("/docs/d1.html"),
+		"/docs/c2.html":    page("/docs/d2.html"),
+		"/docs/c3.html":    page("/docs/d3.html"),
+		"/docs/d1.html":    page(),
+		"/docs/d2.html":    page(),
+		"/docs/d3.html":    page(),
+	}
+
+	depths := func(appCfg *config.AppConfig, siteCfg *config.SiteConfig) map[string]int {
+		out := map[string]int{}
+		lines := readJSONLLines(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "pages.jsonl"))
+		for _, line := range lines {
+			var p models.PageJSONL
+			require.NoError(t, json.Unmarshal([]byte(line), &p))
+			if p.RecordType == models.RecordTypePage {
+				out[p.URL] = p.Depth
+			}
+		}
+		return out
+	}
+
+	newCfgs := func(server *httptest.Server) (*config.AppConfig, *config.SiteConfig) {
+		appCfg := newTestAppConfig(t)
+		appCfg.NumWorkers = 1
+		appCfg.MaxRequests = 1
+		appCfg.MaxRequestsPerHost = 1
+		siteCfg := baseSiteConfig(server, "/docs/index.html")
+		siteCfg.MaxDepth = 3
+		return appCfg, siteCfg
+	}
+
+	baseServer, _ := newDocServer(t, pages)
+	baseApp, baseSite := newCfgs(baseServer)
+	require.NoError(t, runCrawl(t, baseApp, baseSite))
+	want := map[string]int{}
+	for u, d := range depths(baseApp, baseSite) {
+		want[strings.TrimPrefix(u, baseServer.URL)] = d
+	}
+	require.Equal(t, 1, want["/docs/a1.html"])
+	require.Equal(t, 2, want["/docs/b1.html"])
+	require.NotContains(t, want, "/docs/c1.html", "max_depth=3 bounds the crawl to depths 0-2")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var interrupted sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := pages[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, body)
+		if r.URL.Path == "/docs/a1.html" {
+			interrupted.Do(cancel)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	appCfg, siteCfg := newCfgs(server)
+	logger := silentLogger()
+	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, false, logger)
+	require.NoError(t, err)
+	client := fetch.NewClient(appCfg.HTTPClientSettings, logger)
+	c, err := NewCrawlerWithOptions(appCfg, siteCfg, testSiteKey, logger, store, fetch.NewFetcher(client, appCfg, logger),
+		fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logger), ctx, cancel, false, nil)
+	require.NoError(t, err)
+	_ = c.Run(false)
+	require.NoError(t, store.Close())
+
+	runResumableCrawl(t, appCfg, siteCfg, true)
+
+	got := map[string]int{}
+	for u, d := range depths(appCfg, siteCfg) {
+		got[strings.TrimPrefix(u, server.URL)] = d
+	}
+	assert.Equal(t, want, got, "resumed crawl must match the uninterrupted baseline, depths included")
+}

@@ -379,7 +379,7 @@ func (sp *SitemapProcessor) handleURLSet(sitemapBytes []byte, errIndex error, si
 			continue
 		}
 
-		added, visitErr := sp.store.MarkPageVisited(normalizedPageURL)
+		added, visitErr := sp.store.MarkPageVisited(normalizedPageURL, 1)
 		if visitErr != nil {
 			sitemapLog.Error(fmt.Sprintf("Sitemap URL DB mark error: %v", visitErr))
 			dbErrorCount++

@@ -154,7 +154,7 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 	if len(foundLinks) > 0 {
 		taskLog.Debug(fmt.Sprintf("Found %d unique, valid, in-scope links across all specified selectors.", len(foundLinks)))
 		for normalizedLink := range foundLinks {
-			added, visitErr := lp.store.MarkPageVisited(normalizedLink)
+			added, visitErr := lp.store.MarkPageVisited(normalizedLink, nextDepth)
 			if visitErr != nil {
 				dbErr := fmt.Errorf("%w: checking/marking link '%s' visited: %w", utils.ErrDatabase, normalizedLink, visitErr)
 				taskLog.Error(dbErr.Error())

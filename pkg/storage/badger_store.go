@@ -119,17 +119,27 @@ func (s *BadgerStore) dbUpdate(fn func(txn *badger.Txn) error) error {
 	return fmt.Errorf("%w: transaction conflict not resolved after %d retries", utils.ErrDatabase, maxConflictRetries)
 }
 
-func (s *BadgerStore) MarkPageVisited(normalizedPageURL string) (bool, error) {
+// MarkPageVisited records a newly enqueued URL as pending at depth so an interrupted
+// crawl can requeue it at the right depth on resume.
+func (s *BadgerStore) MarkPageVisited(normalizedPageURL string, depth int) (bool, error) {
 	if s.db == nil {
 		return false, errors.New("visitedDB not initialized")
 	}
 	added := false
 	key := []byte(pageKeyPrefix + normalizedPageURL)
+	pending, errJson := json.Marshal(models.PageDBEntry{
+		Status:      models.PageStatusPending,
+		LastAttempt: time.Now(),
+		Depth:       depth,
+	})
+	if errJson != nil {
+		return false, fmt.Errorf("%w: failed to marshal pending entry for key '%s': %w", utils.ErrParsing, string(key), errJson)
+	}
 
 	err := s.dbUpdate(func(txn *badger.Txn) error {
 		_, errGet := txn.Get(key)
 		if errors.Is(errGet, badger.ErrKeyNotFound) {
-			e := badger.NewEntry(key, []byte{})
+			e := badger.NewEntry(key, pending)
 			errSet := txn.SetEntry(e)
 			if errSet == nil {
 				added = true
@@ -167,7 +177,7 @@ func (s *BadgerStore) CheckPageStatus(normalizedPageURL string) (models.PageStat
 
 		return item.Value(func(val []byte) error {
 			if len(val) == 0 {
-				status = models.PageStatusPending // key exists but has no data yet
+				status = models.PageStatusPending // legacy enqueue marker without an entry
 				return nil
 			}
 
@@ -401,7 +411,7 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 				requeueDepth := 0
 
 				if len(valCopy) == 0 {
-					s.log.Debug("Resume scan: empty value, requeueing", "url", urlToRequeue, "depth", 0)
+					s.log.Debug("Resume scan: legacy empty value has no recorded depth, requeueing at depth 0", "url", urlToRequeue)
 					shouldRequeue = true
 					requeueDepth = 0
 				} else {
