@@ -51,7 +51,7 @@ The main objective of this tool is to automate the often tedious process of gath
 | **CLI Utilities** | Built-in `config validate` and `config list` commands for configuration management |
 | **MCP Server Mode** | Expose as Model Context Protocol server for Claude Code/Cursor integration |
 | **Full-Text Search** | Offline BM25 search over crawled docs (SQLite FTS5) via the `search_docs` MCP tool |
-| **Auto Content Detection** | Automatic framework detection (Docusaurus, MkDocs, Sphinx, GitBook, ReadTheDocs) with readability fallback |
+| **Auto Content Detection** | Automatic detection of 30+ documentation frameworks (Docusaurus, MkDocs, Sphinx, VitePress, GitBook, and more) with readability fallback |
 | **Parallel Site Crawling** | Crawl multiple sites concurrently with shared resource management |
 | **Watch Mode** | Scheduled periodic re-crawling with state persistence |
 
@@ -65,7 +65,29 @@ The main objective of this tool is to automate the often tedious process of gath
 
 ### Installation
 
-**Option 1: Direct Installation (Recommended)**
+**Option 1: Release Binaries**
+
+Download the archive for your OS and architecture (Linux, macOS, Windows; amd64 and arm64) from the [Releases page](https://github.com/Sriram-PR/doc-scraper/releases/latest). Each release includes a `checksums.txt` to verify the download:
+
+```bash
+sha256sum --check --ignore-missing checksums.txt
+```
+
+Extract the archive and put `doc-scraper` on your `PATH`. The archive also ships a sample `config.yaml`.
+
+**Option 2: Docker**
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD":/data ghcr.io/sriram-pr/doc-scraper:latest crawl -site rust_cli_book
+```
+
+The image (linux/amd64 and linux/arm64) uses `/data` as its working directory and `doc-scraper` as its entrypoint, so the arguments after the image name are the subcommand. Mount a directory containing `config.yaml` at `/data` and point `output_base_dir` and `state_dir` at relative paths so crawl output lands in the mounted directory. The image runs as a non-root user, so `--user` makes the bind mount writable. Versioned tags (for example `2.9.2`) are published alongside `latest`.
+
+**Option 3: Claude Desktop Extension**
+
+Download `doc-scraper.mcpb` from the [latest release](https://github.com/Sriram-PR/doc-scraper/releases/latest) and open it in Claude Desktop. It prompts for the path to your `config.yaml` and runs the bundled binary as an MCP server (see [MCP Server Mode](#mcp-server-mode)).
+
+**Option 4: Go Install**
 
 Install the latest version directly from GitHub:
 
@@ -75,7 +97,7 @@ go install github.com/Sriram-PR/doc-scraper/v2/cmd/doc-scraper@latest
 
 This installs the `doc-scraper` binary to your `GOPATH/bin` directory (usually `~/go/bin` or `%USERPROFILE%\go\bin`). Make sure this directory is in your `PATH`.
 
-**Option 2: Clone and Build**
+**Option 5: Clone and Build**
 
 1. **Clone the repository:**
 
@@ -176,7 +198,7 @@ sites:
     skip_images: false # Opt in to downloading images for this site
     disallowed_path_patterns:
       - "/docs/stable/.*/_modules/.*"
-      - "/docs/stable/.*\.html#.*"
+      - '/docs/stable/.*\.html#.*'
 
   tensorflow_docs:
     start_urls:
@@ -343,6 +365,21 @@ Exit codes: `0` written, `1` error, `2` drafted but not written. For agents and 
 | `-json` | Emit logs as JSON (one record per line) instead of text | `false` |
 
 **Note:** One of `-site`, `-sites`, or `--all-sites` is required.
+
+**search:**
+
+```bash
+doc-scraper search -site rust_cli_book -limit 5 "error handling"
+```
+
+Searches the crawled corpus offline, with no network access. The non-flag arguments form the query (FTS5 query syntax is supported).
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-config <path>` | Path to config file | `config.yaml` |
+| `-site <key>` | Limit results to one site key | - (all sites) |
+| `-limit <n>` | Maximum results to return | `10` |
+| `-json` | Emit results as a JSON array instead of human-readable text | `false` |
 
 ### Example Usage Scenarios
 
@@ -563,19 +600,21 @@ Each site still maintains its own:
 
 ### Results Summary
 
-After all sites complete, the orchestrator outputs a summary:
+After all sites complete, the orchestrator logs a summary at `info` level (shown here with the timestamp and `component=parallel_crawl` attributes trimmed from each line):
+
 ```
-===========================================
-Parallel crawl completed in 2m30s
-Site Results:
-  pytorch_docs: SUCCESS - 1500 pages in 1m20s
-  tensorflow_docs: SUCCESS - 2000 pages in 2m15s
-  langchain_docs: FAILED - 0 pages in 3s
-    Error: initial fetch failed for start URL (see logs)
--------------------------------------------
-Total: 3 sites (2 success, 1 failed), 3500 pages processed
-===========================================
+level=INFO msg="============================================"
+level=INFO msg="Parallel crawl completed in 14.775572588s"
+level=INFO msg="Site Results:"
+level=INFO msg="  rust_cli_book: SUCCESS - 18 pages in 647.885849ms"
+level=INFO msg="  broken_docs: FAILED - 1 pages in 14.723297247s"
+level=INFO msg="    Error: crawl completed with zero successful pages: all 1 attempted page tasks failed"
+level=INFO msg="--------------------------------------------"
+level=INFO msg="Total: 2 sites (1 success, 1 failed), 19 pages processed"
+level=INFO msg="============================================"
 ```
+
+The failing site here is one whose start URL host does not resolve. The per-site page count is the number of page tasks processed, so a failed site can still report a nonzero count. The process exits non-zero when any site fails.
 
 Unknown or misspelled site keys are rejected **before** the crawl starts, so they never appear as a `FAILED` row in this summary. For example, `crawl -sites pytorch_docs,typo_key` exits immediately (non-zero) with:
 
@@ -639,7 +678,7 @@ Watch mode handles SIGINT/SIGTERM gracefully: it stops the scheduler and cancels
 
 ## Run (JSON Task Spec)
 
-The `run` command reads a single JSON object from stdin and dispatches the equivalent `crawl` or `watch`. It is meant for orchestration agents that would rather build a JSON payload than assemble shell flags. Unknown fields are rejected so typos surface immediately; logs go to stderr and the exit code matches the equivalent flag-driven subcommand.
+The `run` command reads a single JSON object from stdin and dispatches the equivalent `crawl` or `watch`. It is meant for orchestration agents that would rather build a JSON payload than assemble shell flags. Unknown fields are rejected so typos surface immediately; logs go to stderr and the exit code matches the equivalent flag-driven subcommand. Validation is stricter than the flags: a spec that sets more than one of `site`, `sites`, and `all_sites` is rejected with exit code 1, whereas `crawl -site a -sites b` only warns and uses `-sites`.
 
 ```json
 {
@@ -675,7 +714,7 @@ The crawler can run as a [Model Context Protocol (MCP)](https://modelcontextprot
 | Tool | Description |
 |------|-------------|
 | `describe_server` | Orientation manifest: server identity + sites + recent jobs in one call (call this first) |
-| `list_sites` | List all configured sites from config file |
+| `list_sites` | List all configured sites (key, domain, path prefix, depth, last crawled time, and a running flag) |
 | `get_page` | Fetch a single URL live over the network and return content as markdown |
 | `crawl_site` | Start a background crawl for a site (returns job ID) |
 | `get_job_status` | Check the status of a background crawl job |
@@ -696,7 +735,13 @@ The MCP server uses the stdio transport, compatible with Claude Desktop, Claude 
 
 ### Claude Code Integration
 
-Add to your Claude Code configuration (`claude_code_config.json`):
+Register the server with the `claude mcp add` command (everything after `--` is the server command):
+
+```bash
+claude mcp add --transport stdio doc-scraper -- /path/to/doc-scraper mcp-server -config /path/to/config.yaml
+```
+
+Or share it with your team by committing a `.mcp.json` at the project root (add `--scope project` to the command above to have Claude Code write it for you):
 
 ```json
 {
@@ -709,13 +754,15 @@ Add to your Claude Code configuration (`claude_code_config.json`):
 }
 ```
 
+Run `claude mcp get doc-scraper` to check the connection. See the [Claude Code MCP docs](https://code.claude.com/docs/en/mcp) for scopes and approval of project servers.
+
 ### Tool Examples
 
 **List available sites:**
 
 ```
 Tool: list_sites
-Result: Returns all configured sites with their domains and crawl status
+Result: Returns each configured site's key, domain, path prefix, max depth, last crawled time, and a running status while a crawl is active
 ```
 
 **Fetch a single page:**
@@ -788,3 +835,7 @@ This project is licensed under the [Apache-2.0 License](https://github.com/Srira
 - [mcp-go](https://github.com/mark3labs/mcp-go) for MCP server implementation
 - [go-readability](https://github.com/go-shiori/go-readability) for content extraction fallback
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) for the pure-Go crawl-history index
+- [robotstxt](https://github.com/temoto/robotstxt) for `robots.txt` parsing
+- [yaml.v3](https://github.com/go-yaml/yaml) for configuration parsing
+- [google/uuid](https://github.com/google/uuid) for crawl job IDs
+- [x/sync](https://pkg.go.dev/golang.org/x/sync) for the weighted semaphores that cap concurrency
