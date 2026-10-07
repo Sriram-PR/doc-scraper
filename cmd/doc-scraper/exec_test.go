@@ -164,6 +164,17 @@ func TestResolveSiteKeys(t *testing.T) {
 
 	_, _, ok = resolveSiteKeys("", "", false)
 	assert.False(t, ok)
+
+	// A -sites list with no keys selects nothing, so it is not a selector.
+	for _, sites := range []string{",", " , ,", " "} {
+		_, _, ok = resolveSiteKeys("", sites, false)
+		assert.False(t, ok, "-sites %q", sites)
+	}
+
+	keys, warning, ok = resolveSiteKeys("a", ",", false)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"a"}, keys)
+	assert.Empty(t, warning)
 }
 
 func TestLogHelpers(t *testing.T) {
