@@ -5,9 +5,18 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly: picks up newly published vulnerabilities and runs the fuzzers.
+    # Off the hour because scheduled runs are delayed or dropped at :00.
+    - cron: "17 4 * * 1"
 
 permissions:
   contents: read
+
+concurrency:
+  # head_ref is only set on pull_request, so pushes to main never cancel each other.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -19,28 +28,116 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
+      - name: Download modules
+        run: go mod download
       - name: Build
         run: go build ./...
       - name: Vet
         run: go vet ./...
       - name: Test
+        if: runner.os != 'Linux'
         run: go test ./... -race -timeout=300s
+      # Tests must not depend on the internet, so on Linux they run in a network
+      # namespace with only loopback. Ubuntu 24.04's AppArmor policy blocks
+      # unprivileged user namespaces until the sysctl is relaxed.
+      - name: Test (no network)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare --user --map-root-user --net sh -c 'ip link set lo up && exec go test ./... -race -timeout=300s -cover' 2>&1 | tee test.log
+      - name: Coverage summary
+        if: always() && runner.os == 'Linux'
+        run: |
+          {
+            echo "### Coverage"
+            echo
+            echo "| Package | Coverage |"
+            echo "| --- | --- |"
+            awk '$1 == "ok" && /coverage:/ { for (i = 1; i <= NF; i++) if ($i == "coverage:") print "| " $2 " | " $(i+1) " |" }' test.log
+          } >> "$GITHUB_STEP_SUMMARY"
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
-      - uses: golangci/golangci-lint-action@v9
+      - name: go.mod is tidy
+        run: go mod tidy -diff
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12.2
           args: --timeout=5m
+
+  vulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # check-latest so standard-library findings reflect the newest 1.26 patch,
+      # not whichever patch the runner image has cached.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
+  # Runs the release pipeline in snapshot mode so goreleaser config, the
+  # release actions, the mcpb bundle and server.json break here, not at a tag.
+  release-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - name: Build MCP bundle
+        run: ./.github/scripts/build-mcpb.sh "$(jq -r .version dist/metadata.json)"
+      - name: Validate server.json against the MCP registry
+        run: ./.github/scripts/mcp-registry.sh validate "$(jq -r .version dist/metadata.json)"
+
+  fuzz:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Fuzz each target
+        run: |
+          failed=0
+          while read -r file target; do
+            echo "::group::$target ($(dirname "$file"))"
+            go test "./$(dirname "$file")" -run='^$' -fuzz="^${target}\$" -fuzztime=30s || failed=1
+            echo "::endgroup::"
+          done < <(grep -rEo --include='*_test.go' '^func Fuzz[A-Za-z0-9_]+' pkg cmd | sed -E 's/:func / /')
+          exit $failed
+      - name: Upload failing inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-failures
+          path: "**/testdata/fuzz/"

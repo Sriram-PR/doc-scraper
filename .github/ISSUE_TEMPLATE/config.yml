@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Sriram-PR/doc-scraper/security/advisories/new
+    about: Report privately. Please don't open a public issue for security problems.
