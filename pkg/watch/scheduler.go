@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -187,27 +189,40 @@ func (s *Scheduler) logNextRun() {
 	}
 }
 
-// ParseInterval parses a duration string with added support for day suffixes (e.g. "7d", "1d12h").
+// ParseInterval parses a positive duration with added support for whole-day
+// suffixes (e.g. "7d", "1d12h").
 func ParseInterval(s string) (time.Duration, error) {
 	d, err := time.ParseDuration(s)
 	if err == nil {
-		return d, nil
-	}
-
-	var days int
-	var remaining string
-	n, _ := fmt.Sscanf(s, "%dd%s", &days, &remaining)
-	if n >= 1 {
-		d = time.Duration(days) * 24 * time.Hour
-		if remaining != "" {
-			extra, err := time.ParseDuration(remaining)
-			if err != nil {
-				return 0, fmt.Errorf("invalid interval format: %s", s)
-			}
-			d += extra
+		if d <= 0 {
+			return 0, fmt.Errorf("interval must be greater than zero: %s", s)
 		}
 		return d, nil
 	}
 
-	return 0, fmt.Errorf("invalid interval format: %s (examples: 30m, 1h, 24h, 7d)", s)
+	dayPart, remaining, ok := strings.Cut(s, "d")
+	if !ok || dayPart == "" || strings.Contains(remaining, "d") {
+		return 0, fmt.Errorf("invalid interval format: %s (examples: 30m, 1h, 24h, 7d)", s)
+	}
+
+	days, err := strconv.ParseInt(dayPart, 10, 64)
+	maxDuration := time.Duration(1<<63 - 1)
+	maxDays := int64(maxDuration / (24 * time.Hour))
+	if err != nil || days <= 0 || days > maxDays {
+		return 0, fmt.Errorf("invalid interval format: %s (examples: 30m, 1h, 24h, 7d)", s)
+	}
+
+	d = time.Duration(days) * 24 * time.Hour
+	if remaining != "" {
+		extra, err := time.ParseDuration(remaining)
+		if err != nil || extra < 0 || extra > maxDuration-d {
+			return 0, fmt.Errorf("invalid interval format: %s (examples: 30m, 1h, 24h, 7d)", s)
+		}
+		d += extra
+	}
+
+	if d <= 0 {
+		return 0, fmt.Errorf("interval must be greater than zero: %s", s)
+	}
+	return d, nil
 }
