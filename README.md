@@ -249,7 +249,7 @@ sites:
 
 - `timeout`: Overall request timeout (default `45s`)
 - `max_idle_conns_per_host`: Idle connections per host (default `2`)
-- `allow_private_networks`: Disables the SSRF guard that blocks dials to loopback / private / link-local / CGNAT / multicast addresses. Default `false`. Set to `true` only if you intentionally crawl internal documentation servers reachable via private IPs.
+- `allow_private_networks`: Disables the SSRF guard that blocks dials to loopback / private / link-local / CGNAT / multicast addresses. Default `false`. Set to `true` only if you intentionally crawl internal documentation servers reachable via private IPs. The guard also works behind a proxy set with `HTTP_PROXY` / `HTTPS_PROXY`: the proxy itself may be on a private address, and each target is checked before it is sent to the proxy. If a target's hostname cannot be resolved locally, the request is refused.
 
 **Site-Specific Configuration Options:**
 
