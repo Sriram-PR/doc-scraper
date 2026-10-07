@@ -174,7 +174,7 @@ func TestResolveSiteKeys(t *testing.T) {
 	keys, warning, ok = resolveSiteKeys("a", ",", false)
 	assert.True(t, ok)
 	assert.Equal(t, []string{"a"}, keys)
-	assert.Empty(t, warning)
+	assert.Equal(t, "-sites has no site keys; using -site", warning)
 }
 
 func TestLogHelpers(t *testing.T) {
