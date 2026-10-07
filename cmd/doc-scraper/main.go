@@ -65,6 +65,11 @@ var version = versionpkg.Version
 // exitInterrupted is the conventional 128+SIGINT status for a crawl stopped by a signal.
 const exitInterrupted = 130
 
+var (
+	shutdownGrace = 30 * time.Second
+	forceExit     = os.Exit
+)
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -832,6 +837,8 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	done := make(chan struct{})
+	grace, exit := shutdownGrace, forceExit
 
 	go func() {
 		defer func() {
@@ -839,19 +846,26 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 				log.Error(fmt.Sprintf("PANIC in signal handler: %v", r))
 			}
 		}()
-		sig := <-sigChan
+		var sig os.Signal
+		select {
+		case sig = <-sigChan:
+		case <-done:
+			return
+		}
 		log.Warn(fmt.Sprintf("Received signal: %v. Initiating graceful shutdown...", sig))
 		cancelCrawl()
 
 		select {
 		case sig = <-sigChan:
 			log.Warn(fmt.Sprintf("Received second signal: %v. Forcing exit.", sig))
-			os.Exit(1)
-		case <-time.After(30 * time.Second):
+			exit(1)
+		case <-time.After(grace):
 			log.Warn("Graceful shutdown period exceeded after signal. Forcing exit.")
-			os.Exit(1)
+			exit(1)
+		case <-done:
 		}
 	}()
+	defer close(done)
 	defer signal.Stop(sigChan)
 
 	log.Info("Initializing components...")
