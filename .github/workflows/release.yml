@@ -18,12 +18,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # check-latest so release binaries ship the newest 1.26 patch, not
-      # whichever patch the runner image has cached.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          check-latest: true
+      - uses: ./.github/actions/setup-go
 
       - name: Tag matches source version
         run: ./.github/scripts/check-version.sh "${GITHUB_REF_NAME#v}"
