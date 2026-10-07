@@ -1,5 +1,6 @@
 # LLM Documentation Scraper (`doc-scraper`)
 
+[![CI](https://github.com/Sriram-PR/doc-scraper/actions/workflows/ci.yml/badge.svg)](https://github.com/Sriram-PR/doc-scraper/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Sriram-PR/doc-scraper)](https://golang.org/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Sriram-PR/doc-scraper/v2.svg)](https://pkg.go.dev/github.com/Sriram-PR/doc-scraper/v2)
 [![License](https://img.shields.io/github/license/Sriram-PR/doc-scraper)](https://github.com/Sriram-PR/doc-scraper/blob/main/LICENSE)
@@ -106,10 +107,10 @@ This installs the `doc-scraper` binary to your `GOPATH/bin` directory (usually `
    cd doc-scraper
    ```
 
-2. **Install Dependencies:**
+2. **Download Dependencies:**
 
    ```bash
-   go mod tidy
+   go mod download
    ```
 
 3. **Build the Binary:**
@@ -809,17 +810,9 @@ Result: Returns cancelled: true/false and the job's current status. Has no effec
 
 ## Contributing
 
-Contributions are welcome! Please feel free to open an issue to discuss bugs, suggest features, or propose changes.
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before starting: it covers setup, the testing rules CI enforces, how to claim an issue, and the policy on AI-assisted contributions. Issues labeled [`good first issue`](https://github.com/Sriram-PR/doc-scraper/labels/good%20first%20issue) are a good place to begin.
 
-**Pull Request Process:**
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-Please ensure code adheres to Go best practices and includes appropriate documentation.
+Report security problems privately as described in [SECURITY.md](SECURITY.md). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Privacy Policy
 
