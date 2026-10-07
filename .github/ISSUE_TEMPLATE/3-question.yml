@@ -1,0 +1,15 @@
+name: Question
+description: Ask how to do something with doc-scraper.
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [README](https://github.com/Sriram-PR/doc-scraper#readme) first; it covers configuration, every command, and the MCP tools.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: Include what you've tried and your `doc-scraper version`.
+    validations:
+      required: true
