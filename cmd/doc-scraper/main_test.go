@@ -386,3 +386,89 @@ func TestExtraArgsError(t *testing.T) {
 	require.NoError(t, fs.Parse([]string{"-site", "x", "extra", "more"}))
 	assert.ErrorContains(t, extraArgsError(fs), "extra more")
 }
+
+func TestDoValidate_DisallowedPathPatterns(t *testing.T) {
+	content := `
+sites:
+  good:
+    start_urls: ["https://example.com"]
+    allowed_domain: "example.com"
+    content_selector: "main"
+    disallowed_path_patterns: ["^/private/"]
+  bad:
+    start_urls: ["https://example.com"]
+    allowed_domain: "example.com"
+    content_selector: "main"
+    disallowed_path_patterns: ["([unclosed"]
+`
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0600))
+
+	tests := []struct {
+		name     string
+		site     string
+		jsonOut  bool
+		wantCode int
+	}{
+		{"all text", "", false, 1},
+		{"all json", "", true, 1},
+		{"bad text", "bad", false, 1},
+		{"bad json", "bad", true, 1},
+		{"good text", "good", false, 0},
+		{"good json", "good", true, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := doValidate(cfgPath, tt.site, tt.jsonOut, &stdout, &stderr)
+			assert.Equal(t, tt.wantCode, code)
+
+			if tt.jsonOut {
+				var result struct {
+					Valid bool `json:"valid"`
+					Sites []struct {
+						Key   string `json:"key"`
+						Valid bool   `json:"valid"`
+						Error string `json:"error"`
+					} `json:"sites"`
+				}
+				require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+				assert.Empty(t, stderr.String())
+				assert.Equal(t, tt.wantCode == 0, result.Valid)
+
+				wantKeys := []string{tt.site}
+				if tt.site == "" {
+					wantKeys = []string{"bad", "good"}
+				}
+				gotKeys := make([]string, 0, len(result.Sites))
+				for _, site := range result.Sites {
+					gotKeys = append(gotKeys, site.Key)
+					assert.Equal(t, site.Key == "good", site.Valid)
+					if site.Key == "bad" {
+						assert.Contains(t, site.Error, "invalid regex pattern #1")
+						assert.Contains(t, site.Error, "([unclosed")
+					} else {
+						assert.Empty(t, site.Error)
+					}
+				}
+				assert.ElementsMatch(t, wantKeys, gotKeys)
+				return
+			}
+
+			if tt.wantCode == 1 {
+				assert.Contains(t, stderr.String(), "ERROR: [bad]")
+				assert.Contains(t, stderr.String(), "invalid regex pattern #1")
+				assert.Contains(t, stderr.String(), "([unclosed")
+				assert.NotContains(t, stdout.String(), "Configuration valid.")
+				if tt.site == "" {
+					assert.Contains(t, stdout.String(), "OK: [good]")
+				}
+			} else {
+				assert.Empty(t, stderr.String())
+				assert.Contains(t, stdout.String(), "OK: Site 'good'")
+				assert.Contains(t, stdout.String(), "Configuration valid.")
+			}
+		})
+	}
+}

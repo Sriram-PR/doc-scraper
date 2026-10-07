@@ -131,5 +131,9 @@ func (c *SiteConfig) Validate() (warnings []string, err error) {
 		c.MaxImageSizeBytes = &zero
 	}
 
+	if _, err := utils.CompileRegexPatterns(c.DisallowedPathPatterns); err != nil {
+		return warnings, err
+	}
+
 	return warnings, nil
 }
