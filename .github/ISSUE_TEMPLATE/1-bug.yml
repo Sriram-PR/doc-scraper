@@ -1,0 +1,61 @@
+name: Bug report
+description: Something doesn't work the way the docs say it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search [existing issues](https://github.com/Sriram-PR/doc-scraper/issues?q=is%3Aissue) first. Security problems go through [private reporting](https://github.com/Sriram-PR/doc-scraper/security/advisories/new), not here. Please write the report yourself; see the [AI policy](https://github.com/Sriram-PR/doc-scraper/blob/main/CONTRIBUTING.md#ai-assisted-contributions).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `doc-scraper version`.
+      placeholder: doc-scraper 2.10.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Release binary
+        - Docker image
+        - Claude Desktop extension (.mcpb)
+        - go install
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Ubuntu 24.04, macOS 15, Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The exact command (or MCP tool call) and the site it ran against.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Config
+      description: The relevant part of your `config.yaml`. Remove anything private.
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output with `-loglevel debug` if you can.
+      render: text

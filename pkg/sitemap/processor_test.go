@@ -119,7 +119,7 @@ func defaultAppCfg() *config.AppConfig {
 // newTestProcessor creates a SitemapProcessor wired for testing.
 func newTestProcessor(
 	t *testing.T,
-	f *mockFetcher,
+	f fetch.HTTPFetcher,
 	store *mockPageStore,
 	siteCfg *config.SiteConfig,
 	disallowed []*regexp.Regexp,
@@ -331,20 +331,35 @@ func TestProcessSitemapInvalidXML(t *testing.T) {
 	}
 }
 
+// blockingFetcher reports when a fetch starts and holds it until the request
+// context is cancelled.
+type blockingFetcher struct {
+	started chan struct{}
+	once    sync.Once
+}
+
+func (f *blockingFetcher) FetchWithRetry(_ *http.Request, ctx context.Context) (*http.Response, error) {
+	f.once.Do(func() { close(f.started) })
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func TestProcessSitemapContextCancellation(t *testing.T) {
 	store := newMockPageStore()
-	f := newMockFetcher("<urlset></urlset>")
+	f := &blockingFetcher{started: make(chan struct{})}
 	sp, sitemapQueue, _, wg := newTestProcessor(t, f, store, defaultSiteCfg(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sp.Start(ctx)
 
-	// Send a URL so the processor has something in-flight, then cancel
 	wg.Add(1)
 	sitemapQueue <- "https://example.com/sitemap.xml"
 
-	// Give the processor a moment to pick up the item, then cancel
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case <-f.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sitemap fetch never started")
+	}
 	cancel()
 
 	done := make(chan struct{})
