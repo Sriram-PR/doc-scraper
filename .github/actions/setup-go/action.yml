@@ -1,0 +1,30 @@
+name: Set up Go
+description: Installs the newest patch release of the Go line named in go.mod.
+
+# go.mod's go line is a minimum, and dependency updates rewrite it to a full
+# patch version (go 1.26 becomes go 1.26.0). setup-go treats a patch version as
+# exact, which would pin CI and release builds to an old patch, so only the
+# major.minor is passed on and check-latest resolves the newest patch.
+
+inputs:
+  cache:
+    description: Whether setup-go caches modules and the build cache.
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - id: version
+      shell: bash
+      run: |
+        version="$(sed -nE 's/^go ([0-9]+\.[0-9]+)(\.[0-9]+)?$/\1/p' go.mod)"
+        if [ -z "$version" ]; then
+          echo "::error file=go.mod::could not read the go version line"
+          exit 1
+        fi
+        echo "go=$version" >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: ${{ steps.version.outputs.go }}
+        check-latest: true
+        cache: ${{ inputs.cache }}
