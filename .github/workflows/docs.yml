@@ -1,0 +1,75 @@
+name: Docs
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "demo/**"
+      - "pkg/detect/**"
+      - "pkg/discover/**"
+      - ".github/workflows/docs.yml"
+      - ".github/scripts/docs-dogfood.sh"
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "demo/**"
+      - "pkg/detect/**"
+      - "pkg/discover/**"
+      - ".github/workflows/docs.yml"
+      - ".github/scripts/docs-dogfood.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - name: Install
+        working-directory: docs
+        run: npm ci
+      # starlight-links-validator fails this step on any broken internal link.
+      - name: Build
+        working-directory: docs
+        run: npm run build
+      - uses: ./.github/actions/setup-go
+      - name: Build doc-scraper
+        run: go build -o "$RUNNER_TEMP/doc-scraper" ./cmd/doc-scraper
+      - name: Dogfood check
+        run: .github/scripts/docs-dogfood.sh "$RUNNER_TEMP/doc-scraper" docs/dist
+      - if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/dist
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
