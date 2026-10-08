@@ -819,6 +819,12 @@ func sliceAtRuneBoundary(s string, offset, maxBytes int) (chunk string, start in
 		for cut > 0 && !utf8.RuneStart(chunk[cut]) {
 			cut--
 		}
+		if cut == 0 {
+			// maxBytes is smaller than the rune starting at offset. Return that
+			// whole rune anyway: an empty chunk would leave offset unchanged and
+			// loop a client that follows next_offset forever.
+			_, cut = utf8.DecodeRuneInString(chunk)
+		}
 		chunk = chunk[:cut]
 	}
 	return chunk, offset

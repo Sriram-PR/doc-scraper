@@ -327,3 +327,58 @@ func TestAppConfigValidate_NegativeMaxRetriesWarnsEffectiveValue(t *testing.T) {
 		})
 	}
 }
+
+func TestSiteConfig_Validate_DisallowedPathPatterns(t *testing.T) {
+	tests := []struct {
+		name     string
+		patterns []string
+		wantErr  string
+	}{
+		{
+			name: "no patterns",
+		},
+		{
+			name:     "empty list",
+			patterns: []string{},
+		},
+		{
+			name:     "valid patterns",
+			patterns: []string{`^/private/`, `\.pdf$`},
+		},
+		{
+			name:     "empty strings are skipped",
+			patterns: []string{"", `^/private/`, ""},
+		},
+		{
+			name:     "invalid first pattern",
+			patterns: []string{"([unclosed"},
+			wantErr:  "invalid regex pattern #1 ('([unclosed')",
+		},
+		{
+			name:     "invalid later pattern",
+			patterns: []string{`^/private/`, "["},
+			wantErr:  "invalid regex pattern #2 ('[')",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := SiteConfig{
+				StartURLs:              []string{"https://example.com"},
+				AllowedDomain:          "example.com",
+				ContentSelector:        "main",
+				DisallowedPathPatterns: tt.patterns,
+			}
+
+			_, err := cfg.Validate()
+
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+
+			require.ErrorIs(t, err, utils.ErrConfigValidation)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}

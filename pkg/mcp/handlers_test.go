@@ -664,6 +664,45 @@ func TestHandleReadPage_TruncationKeepsValidUTF8(t *testing.T) {
 	assert.Equal(t, body, content+rest["content"].(string))
 }
 
+// A max_bytes smaller than the multi-byte rune at offset must still return a
+// non-empty chunk with a strictly increasing next_offset, so a client that
+// follows next_offset terminates instead of looping forever.
+func TestHandleReadPage_SmallMaxBytesMakesProgress(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	body := strings.Repeat("\u2019", 20) // U+2019 RIGHT SINGLE QUOTATION MARK: 3 bytes per rune
+	writeJSONLRecords(t, jsonlPath, []interface{}{
+		models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://docs.example.com/quote", Content: body},
+	})
+
+	for _, maxBytes := range []int{1, 2} {
+		args := map[string]any{
+			"site_key": "docs", "url": "https://docs.example.com/quote", "max_bytes": maxBytes,
+		}
+		var reassembled strings.Builder
+		prevOffset := 0
+		truncated := true
+		for i := 0; truncated && i < 100; i++ {
+			got := callReadPage(t, s, args)
+			content := got["content"].(string)
+			assert.True(t, utf8.ValidString(content), "max_bytes=%d: chunk must be valid UTF-8", maxBytes)
+			assert.NotEmpty(t, content, "max_bytes=%d: a truncated chunk must make progress", maxBytes)
+			reassembled.WriteString(content)
+
+			truncated = got["truncated"] == true
+			if !truncated {
+				break
+			}
+			next, ok := got["next_offset"]
+			require.True(t, ok, "max_bytes=%d: truncated response must carry next_offset", maxBytes)
+			assert.Greater(t, int(next.(float64)), prevOffset, "max_bytes=%d: next_offset must strictly advance", maxBytes)
+			prevOffset = int(next.(float64))
+			args["offset"] = next
+		}
+		assert.False(t, truncated, "max_bytes=%d: paging must terminate", maxBytes)
+		assert.Equal(t, body, reassembled.String(), "max_bytes=%d: following next_offset must reassemble the page", maxBytes)
+	}
+}
+
 func TestHandleReadPage_UnknownURL(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
 	seedCorpus(t, jsonlPath)

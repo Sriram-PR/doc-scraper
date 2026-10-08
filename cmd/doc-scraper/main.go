@@ -65,6 +65,11 @@ var version = versionpkg.Version
 // exitInterrupted is the conventional 128+SIGINT status for a crawl stopped by a signal.
 const exitInterrupted = 130
 
+var (
+	shutdownGrace = 30 * time.Second
+	forceExit     = os.Exit
+)
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -167,6 +172,8 @@ func extraArgsError(fs *flag.FlagSet) error {
 // resolveSiteKeys picks the crawl target in precedence --all-sites > -sites >
 // -site. warning is non-empty when a lower-precedence selector was also set and
 // silently ignored, so a typo'd -site next to a valid -sites is not missed.
+// A -sites list with no keys in it (e.g. ",") counts as not given; if -site
+// is also set it is used, with a warning.
 func resolveSiteKeys(siteKey, sites string, allSites bool) (siteKeys []string, warning string, ok bool) {
 	if allSites {
 		if sites != "" || siteKey != "" {
@@ -174,20 +181,23 @@ func resolveSiteKeys(siteKey, sites string, allSites bool) (siteKeys []string, w
 		}
 		return nil, warning, true
 	}
-	if sites != "" {
+	for _, s := range strings.Split(sites, ",") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			siteKeys = append(siteKeys, s)
+		}
+	}
+	if len(siteKeys) > 0 {
 		if siteKey != "" {
 			warning = "both -site and -sites given; using -sites and ignoring -site"
-		}
-		for _, s := range strings.Split(sites, ",") {
-			s = strings.TrimSpace(s)
-			if s != "" {
-				siteKeys = append(siteKeys, s)
-			}
 		}
 		return siteKeys, warning, true
 	}
 	if siteKey != "" {
-		return []string{siteKey}, "", true
+		if sites != "" {
+			warning = "-sites has no site keys; using -site"
+		}
+		return []string{siteKey}, warning, true
 	}
 	return nil, "", false
 }
@@ -832,6 +842,8 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	done := make(chan struct{})
+	grace, exit := shutdownGrace, forceExit
 
 	go func() {
 		defer func() {
@@ -839,19 +851,26 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 				log.Error(fmt.Sprintf("PANIC in signal handler: %v", r))
 			}
 		}()
-		sig := <-sigChan
+		var sig os.Signal
+		select {
+		case sig = <-sigChan:
+		case <-done:
+			return
+		}
 		log.Warn(fmt.Sprintf("Received signal: %v. Initiating graceful shutdown...", sig))
 		cancelCrawl()
 
 		select {
 		case sig = <-sigChan:
 			log.Warn(fmt.Sprintf("Received second signal: %v. Forcing exit.", sig))
-			os.Exit(1)
-		case <-time.After(30 * time.Second):
+			exit(1)
+		case <-time.After(grace):
 			log.Warn("Graceful shutdown period exceeded after signal. Forcing exit.")
-			os.Exit(1)
+			exit(1)
+		case <-done:
 		}
 	}()
+	defer close(done)
 	defer signal.Stop(sigChan)
 
 	log.Info("Initializing components...")

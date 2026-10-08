@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -81,4 +82,20 @@ func TestExecuteParallelCrawl_InterruptedExitsNonzeroAndKeepsCorpus(t *testing.T
 	code := executeParallelCrawl(cfgPath, keys, false, "error", pkglog.FormatText, "", false, false, false)
 	assert.Equal(t, 130, code)
 	assert.Equal(t, before, liveCorpusFiles(t, outDir))
+}
+
+func TestExecuteCrawl_NoForcedExitAfterInterruptedCrawlReturns(t *testing.T) {
+	srv, arm := signalServer(t)
+	cfgPath, _, _ := writeCrawlConfig(t, srv.URL, "")
+
+	var exits atomic.Int32
+	origGrace, origExit := shutdownGrace, forceExit
+	shutdownGrace, forceExit = time.Second, func(int) { exits.Add(1) }
+	t.Cleanup(func() { shutdownGrace, forceExit = origGrace, origExit })
+
+	arm()
+	require.Equal(t, 130, executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false))
+
+	time.Sleep(1500 * time.Millisecond)
+	assert.Zero(t, exits.Load(), "grace-period watchdog must not outlive the crawl")
 }
