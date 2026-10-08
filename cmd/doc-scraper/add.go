@@ -88,9 +88,7 @@ Examples:
 }
 
 // stdinIsTerminal reports whether f is an interactive terminal.
-// ModeCharDevice is not enough: /dev/null is a character device, so a cron job
-// or agent harness that redirects stdin from /dev/null would otherwise be
-// treated as a terminal and exit 0 after a prompt that cannot be answered.
+// ModeCharDevice is not enough: /dev/null is a character device.
 func stdinIsTerminal(f *os.File) bool {
 	if f == nil {
 		return false
