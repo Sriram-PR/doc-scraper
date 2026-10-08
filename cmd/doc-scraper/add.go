@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/JohannesKaufmann/html-to-markdown/plugin"
 
@@ -71,7 +73,6 @@ Examples:
 		fs.Usage()
 		os.Exit(addExitError)
 	}
-	stat, _ := os.Stdin.Stat()
 	opts := addOptions{
 		configPath: *configPath,
 		rawURL:     fs.Arg(0),
@@ -81,9 +82,18 @@ Examples:
 		yes:        *yes,
 		dryRun:     *dryRun,
 		jsonOut:    *jsonOut,
-		isTTY:      stat != nil && stat.Mode()&os.ModeCharDevice != 0,
+		isTTY:      stdinIsTerminal(os.Stdin),
 	}
 	os.Exit(doAdd(opts, os.Stdin, os.Stdout, os.Stderr))
+}
+
+// stdinIsTerminal reports whether f is an interactive terminal.
+// ModeCharDevice is not enough: /dev/null is a character device.
+func stdinIsTerminal(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+	return term.IsTerminal(int(f.Fd()))
 }
 
 func doAdd(opts addOptions, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -249,7 +259,7 @@ func finishAdd(opts addOptions, draft *discover.Draft, stdin io.Reader, stdout, 
 		answer := strings.ToLower(strings.TrimSpace(line))
 		if answer != "y" && answer != "yes" {
 			fmt.Fprintln(stdout, "Not written.")
-			return addExitWritten
+			return addExitDrafted
 		}
 	}
 	if err := config.InsertSite(opts.configPath, draft.SiteKey, &draft.Site); err != nil {
