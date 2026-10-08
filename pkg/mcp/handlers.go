@@ -472,8 +472,12 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 
 	fetcher, rateLimiter := fetch.NewStack(s.cfg.AppConfig, s.log)
 
-	// MCP jobs always start fresh, never resume.
-	stage, store, err := crawler.OpenStagedStore(jobCtx, s.cfg.AppConfig, siteKey, false, s.log)
+	// A full crawl starts fresh. An incremental crawl resumes against the
+	// previous crawl's visited DB (like `crawl -incremental` on the CLI, where
+	// incremental implies resume); change detection compares each page to the
+	// hash stored there, so a fresh DB would reprocess every page.
+	resume := job.Incremental
+	stage, store, err := crawler.OpenStagedStore(jobCtx, s.cfg.AppConfig, siteKey, resume, s.log)
 	if err != nil {
 		s.jobManager.UpdateStatus(job.ID, JobStatusFailed, fmt.Sprintf("failed to open store: %v", err))
 		return
@@ -504,7 +508,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 		rateLimiter,
 		crawlerCtx,
 		cancelCrawl,
-		false,
+		resume,
 		&crawler.CrawlerOptions{
 			ProgressCallback: func(processed, queued int64) {
 				s.jobManager.UpdateProgress(jobID, processed, queued)
@@ -518,7 +522,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 		return
 	}
 
-	if err := crawlerInstance.Run(false); err != nil {
+	if err := crawlerInstance.Run(resume); err != nil {
 		if errors.Is(err, context.Canceled) {
 			s.jobManager.UpdateStatus(job.ID, JobStatusCancelled, "")
 		} else {
