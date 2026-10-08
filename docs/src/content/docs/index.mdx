@@ -1,0 +1,26 @@
+---
+title: doc-scraper
+description: Turn documentation sites into an offline, searchable corpus for coding agents over MCP.
+template: splash
+hero:
+  tagline: Crawl any docs site into clean Markdown, then let your agent search it offline over MCP.
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+![doc-scraper crawling a docs site and answering search queries offline](/doc-scraper/demo.gif)
+
+<CardGrid>
+	<Card title="Offline for agents" icon="laptop">
+		The MCP server answers from the stored corpus: `search_docs` (BM25 full-text) and `read_page` need no network.
+	</Card>
+	<Card title="Detects the docs framework" icon="magnifier">
+		`doc-scraper add <url>` recognizes Docusaurus, Starlight, Sphinx, VitePress, MkDocs Material, mdBook and more, and validates the content selector before writing config.
+	</Card>
+	<Card title="Clean output" icon="document">
+		Markdown per page plus `pages.jsonl`, `llms.txt`, and `llms-full.txt`.
+	</Card>
+	<Card title="Stays fresh" icon="random">
+		Incremental re-crawls, watch mode, and crawl history with `get_freshness` and `diff_crawl`.
+	</Card>
+</CardGrid>
