@@ -9,8 +9,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,6 +135,41 @@ func TestExecuteParallelCrawl_EndToEnd(t *testing.T) {
 	require.Equal(t, 0, code)
 	assert.DirExists(t, filepath.Join(outDir, "fixture"))
 	assert.DirExists(t, filepath.Join(outDir, "second"))
+}
+
+func goroutinesIn(fn string) int {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return strings.Count(string(buf[:n]), "doc-scraper."+fn+".func")
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+}
+
+func TestExecuteCrawl_SignalGoroutinesStopOnReturn(t *testing.T) {
+	srv := crawlFixtureServer(t)
+	cfgPath, _, _ := writeCrawlConfig(t, srv.URL, "")
+
+	for _, tc := range []struct {
+		fn  string
+		run func() int
+	}{
+		{"executeCrawl", func() int {
+			return executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false)
+		}},
+		{"executeParallelCrawl", func() int {
+			return executeParallelCrawl(cfgPath, []string{"fixture"}, false, "error", pkglog.FormatText, "", false, false, false)
+		}},
+	} {
+		t.Run(tc.fn, func(t *testing.T) {
+			before := goroutinesIn(tc.fn)
+			require.Equal(t, 0, tc.run())
+			assert.Eventually(t, func() bool { return goroutinesIn(tc.fn) <= before },
+				2*time.Second, 10*time.Millisecond, "signal goroutine outlived %s", tc.fn)
+		})
+	}
 }
 
 func TestDispatchTaskSpec_Crawl(t *testing.T) {

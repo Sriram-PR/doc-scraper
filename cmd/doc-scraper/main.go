@@ -779,10 +779,17 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	done := make(chan struct{})
+	defer close(done)
 	defer signal.Stop(sigChan)
 	var interrupted atomic.Bool
 	go func() {
-		sig := <-sigChan
+		var sig os.Signal
+		select {
+		case sig = <-sigChan:
+		case <-done:
+			return
+		}
 		interrupted.Store(true)
 		log.Warn(fmt.Sprintf("Received signal %v, initiating graceful shutdown...", sig))
 		orch.Cancel()
