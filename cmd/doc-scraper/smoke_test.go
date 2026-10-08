@@ -113,6 +113,7 @@ sites:
 	sort.Strings(tools)
 	assert.Equal(t, tools, helpToolNames(t, bin), "mcp-server -h tool list is out of sync with tools/list")
 	assert.Equal(t, tools, readmeToolNames(t), "README MCP tool table is out of sync with tools/list")
+	assert.Equal(t, tools, docsToolNames(t), "docs mcp/tools.md tool table is out of sync with tools/list")
 }
 
 func helpToolNames(t *testing.T, bin string) []string {
