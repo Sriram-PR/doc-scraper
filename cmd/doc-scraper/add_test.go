@@ -114,7 +114,7 @@ func TestDoAdd_InteractiveDecline(t *testing.T) {
 		configPath: cfgPath, rawURL: srv.URL + "/guide/", isTTY: true,
 	}, strings.NewReader("n\n"), &stdout, &stderr)
 
-	assert.Equal(t, addExitWritten, code)
+	assert.Equal(t, addExitDrafted, code)
 	assert.Contains(t, stdout.String(), "Not written.")
 	cfg, err := loadConfig(cfgPath)
 	require.NoError(t, err)
@@ -221,4 +221,11 @@ func TestDoAdd_SiteConfigValidates(t *testing.T) {
 		_, verr := site.Validate()
 		assert.NoError(t, verr, "written entry passes SiteConfig.Validate")
 	}
+}
+
+func TestStdinIsTerminal_DevNull(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+	assert.False(t, stdinIsTerminal(f), "/dev/null must not count as a confirmation terminal")
 }
