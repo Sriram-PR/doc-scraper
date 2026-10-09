@@ -8,7 +8,7 @@
     "source": "github"
   },
   "version": "2.9.2",
-  "websiteUrl": "https://github.com/Sriram-PR/doc-scraper",
+  "websiteUrl": "https://sriram-pr.github.io/doc-scraper/",
   "packages": [
     {
       "registryType": "mcpb",

@@ -112,7 +112,6 @@ sites:
 	require.NotEmpty(t, tools)
 	sort.Strings(tools)
 	assert.Equal(t, tools, helpToolNames(t, bin), "mcp-server -h tool list is out of sync with tools/list")
-	assert.Equal(t, tools, readmeToolNames(t), "README MCP tool table is out of sync with tools/list")
 	assert.Equal(t, tools, docsToolNames(t), "docs mcp/tools.md tool table is out of sync with tools/list")
 }
 
@@ -128,22 +127,6 @@ func helpToolNames(t *testing.T, bin string) []string {
 			break
 		}
 		names = append(names, strings.Fields(line)[0])
-	}
-	sort.Strings(names)
-	return names
-}
-
-func readmeToolNames(t *testing.T) []string {
-	t.Helper()
-	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
-	require.NoError(t, err)
-	_, after, ok := strings.Cut(strings.ReplaceAll(string(readme), "\r\n", "\n"), "### Available MCP Tools\n")
-	require.True(t, ok, "README has no Available MCP Tools section")
-	section, _, _ := strings.Cut(after, "\n#")
-	rows := regexp.MustCompile("(?m)^\\| `([a-z_]+)` \\|").FindAllStringSubmatch(section, -1)
-	names := make([]string, 0, len(rows))
-	for _, m := range rows {
-		names = append(names, m[1])
 	}
 	sort.Strings(names)
 	return names

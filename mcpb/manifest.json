@@ -4,7 +4,7 @@
   "display_name": "doc-scraper",
   "version": "2.10.1",
   "description": "Crawl documentation sites into local Markdown/JSONL corpora and serve them to agents offline: full-text search, read, diff, and freshness with zero network access at read time.",
-  "long_description": "doc-scraper is a self-hosted documentation crawler and MCP server. It crawls documentation sites politely (robots.txt, per-host rate limits), converts pages to clean Markdown plus a JSONL corpus, and keeps crawl history in SQLite. Agents then work fully offline against the stored corpus: `search_docs` runs BM25 full-text search with stemming and section anchors, `read_page` returns a page's markdown without network access, and `diff_crawl`/`get_freshness` report what changed and how stale a corpus is. Crawls are configured in a YAML file listing the sites you want indexed; see the repository README for the config format.",
+  "long_description": "doc-scraper is a self-hosted documentation crawler and MCP server. It crawls documentation sites politely (robots.txt, per-host rate limits), converts pages to clean Markdown plus a JSONL corpus, and keeps crawl history in SQLite. Agents then work fully offline against the stored corpus: `search_docs` runs BM25 full-text search with stemming and section anchors, `read_page` returns a page's markdown without network access, and `diff_crawl`/`get_freshness` report what changed and how stale a corpus is. Crawls are configured in a YAML file listing the sites you want indexed; see https://sriram-pr.github.io/doc-scraper/reference/configuration/ for the config format.",
   "author": {
     "name": "Sriram P R",
     "url": "https://github.com/Sriram-PR"
@@ -14,7 +14,7 @@
     "url": "https://github.com/Sriram-PR/doc-scraper"
   },
   "homepage": "https://github.com/Sriram-PR/doc-scraper",
-  "documentation": "https://github.com/Sriram-PR/doc-scraper#readme",
+  "documentation": "https://sriram-pr.github.io/doc-scraper/",
   "support": "https://github.com/Sriram-PR/doc-scraper/issues",
   "license": "Apache-2.0",
   "privacy_policies": ["https://github.com/Sriram-PR/doc-scraper/blob/main/PRIVACY.md"],
@@ -40,7 +40,7 @@
     "config_path": {
       "type": "file",
       "title": "doc-scraper config file",
-      "description": "Path to your doc-scraper config.yaml listing the documentation sites to crawl. See https://github.com/Sriram-PR/doc-scraper#configuration-configyaml for the format.",
+      "description": "Path to your doc-scraper config.yaml listing the documentation sites to crawl. See https://sriram-pr.github.io/doc-scraper/reference/configuration/ for the format.",
       "required": true
     }
   },

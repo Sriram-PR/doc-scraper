@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Check the [README](https://github.com/Sriram-PR/doc-scraper#readme) first; it covers configuration, every command, and the MCP tools.
+        Check the [documentation](https://sriram-pr.github.io/doc-scraper/) first; it covers configuration, every command, and the MCP tools.
   - type: textarea
     id: question
     attributes:
