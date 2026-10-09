@@ -1,12 +1,16 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -110,4 +114,42 @@ func TestDocs_CLIReferenceMatchesHelp(t *testing.T) {
 func docsToolNames(t *testing.T) []string {
 	t.Helper()
 	return tableKeys(docsSection(t, readDocsPage(t, "mcp/tools.md"), "## Tools"))
+}
+
+// detectFrameworks lists the Framework constants declared in pkg/detect, minus "unknown".
+func detectFrameworks(t *testing.T) []string {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "..", "pkg", "detect", "detector.go"), nil, 0)
+	require.NoError(t, err)
+	names := []string{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		vs, ok := n.(*ast.ValueSpec)
+		if !ok {
+			return true
+		}
+		if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != "Framework" {
+			return true
+		}
+		for _, v := range vs.Values {
+			lit, ok := v.(*ast.BasicLit)
+			if !ok {
+				continue
+			}
+			s, err := strconv.Unquote(lit.Value)
+			require.NoError(t, err)
+			if s != "unknown" {
+				names = append(names, s)
+			}
+		}
+		return true
+	})
+	sort.Strings(names)
+	require.NotEmpty(t, names, "no Framework constants found in pkg/detect/detector.go")
+	return names
+}
+
+func TestDocs_FrameworksOverviewListsEveryDetectedFramework(t *testing.T) {
+	page := readDocsPage(t, "frameworks/overview.md")
+	assert.Equal(t, detectFrameworks(t), tableKeys(docsSection(t, page, "## Detected frameworks")),
+		"docs frameworks/overview.md table is out of sync with the Framework constants in pkg/detect/detector.go")
 }

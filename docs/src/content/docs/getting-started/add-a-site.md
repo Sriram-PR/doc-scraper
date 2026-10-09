@@ -15,7 +15,7 @@ doc-scraper add https://vitepress.dev/guide/what-is-vitepress
 
 `add` makes a handful of polite requests: the page itself, `robots.txt`, `llms.txt`, and the sitemap. From those it reports:
 
-- the detected framework and content selector, validated against the fetched page;
+- the detected framework and content selector, validated against the fetched page (see [how detection works](/doc-scraper/frameworks/overview/));
 - a crawl scope clustered from the sitemap, with page counts as evidence;
 - sibling version or locale trees, proposed as exclusions;
 - a Markdown preview of the extracted page with code-block fidelity numbers.
