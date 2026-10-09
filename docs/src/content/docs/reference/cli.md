@@ -119,7 +119,7 @@ List the site keys in the configuration file.
 
 ## `run`
 
-Reads a single JSON task spec from stdin and dispatches a crawl or watch. It takes no flags.
+Reads a single JSON task spec from stdin and dispatches a crawl or watch. It takes no flags; see [task specs](/doc-scraper/guides/task-specs/).
 
 ## Examples
 
