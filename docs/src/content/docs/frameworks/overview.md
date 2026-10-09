@@ -43,7 +43,7 @@ Client-rendered shells (Docsify, Swagger UI, Redoc, Scalar, Document360, and gen
 
 If no framework matches, or the matched selector fails validation, doc-scraper uses Mozilla's Readability algorithm to find the main content. This works well on classic server-rendered docs but can drop code blocks on some modern sites, which is why `add` reports code-block fidelity in its preview before you commit a config.
 
-How well this works across real sites is measured by the detection benchmark.
+How well this works across real sites is measured by the [detection benchmark](/doc-scraper/benchmark/).
 
 ## Detected frameworks
 

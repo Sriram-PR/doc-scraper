@@ -19,6 +19,7 @@ export default defineConfig({
 				{ label: 'Docs frameworks', items: [{ autogenerate: { directory: 'frameworks' } }] },
 				{ label: 'Guides', items: [{ autogenerate: { directory: 'guides' } }] },
 				{ label: 'Reference', items: [{ autogenerate: { directory: 'reference' } }] },
+				{ label: 'Detection benchmark', slug: 'benchmark' },
 			],
 		}),
 	],
