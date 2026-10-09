@@ -1,25 +1,25 @@
 ---
 title: Detection benchmark
-description: How accurately doc-scraper recognizes docs frameworks across 232 labeled live sites, and how to rerun the benchmark.
+description: How accurately doc-scraper recognizes docs frameworks across 231 labeled live sites, and how to rerun the benchmark.
 ---
 
 ## What it measures
 
-`tools/detect-bench` runs the same detection that `content_selector: "auto"` and `doc-scraper add` use against a battery of 232 live documentation sites, each labeled with the framework it is built on. 44 of them are labeled `unknown`: sites built with no supported framework, which must **not** be claimed by any signature. The benchmark measures two things: how often a labeled site's framework family is recognized, and whether any unknown site is wrongly claimed (a false positive, which would apply the wrong content selector to every page of a crawl).
+`tools/detect-bench` runs the same detection that `content_selector: "auto"` and `doc-scraper add` use against a battery of 231 live documentation sites, each labeled with the framework it is built on. 44 of them are labeled `unknown`: sites built with no supported framework, which must **not** be claimed by any signature. The benchmark measures two things: how often a labeled site's framework family is recognized, and whether any unknown site is wrongly claimed (a false positive, which would apply the wrong content selector to every page of a crawl).
 
 Scoring is by family: any Sphinx theme counts as Sphinx, any MkDocs theme as MkDocs, and any JavaScript-shell verdict on a JavaScript-shell site is a hit. A `js-shell` verdict on an unknown-labeled site also counts as correct.
 
 ## Results
 
 ```text
-fetched 221/232 | HIT 220 (99.5%) | UNDER 1 | OVER 0 | CONFUSE 0 | SHELL 0 | fetch-fail 11
+fetched 220/231 | HIT 220 (100.0%) | UNDER 0 | OVER 0 | CONFUSE 0 | SHELL 0 | fetch-fail 11
 ```
 
 | Family | Hits | Fetched |
 |--------|------|---------|
 | `antora` | 4 | 4 |
 | `docsy` | 6 | 6 |
-| `docusaurus` | 54 | 55 |
+| `docusaurus` | 54 | 54 |
 | `doxygen` | 4 | 4 |
 | `fern` | 3 | 3 |
 | `fumadocs` | 2 | 2 |
@@ -42,7 +42,7 @@ fetched 221/232 | HIT 220 (99.5%) | UNDER 1 | OVER 0 | CONFUSE 0 | SHELL 0 | fet
 | `vitepress` | 11 | 11 |
 | `vuepress` | 2 | 2 |
 
-Run at doc-scraper commit `f96418a`, 2026-10-10.
+Run on 2026-10-10 with the detector as of doc-scraper commit `e3a5942`.
 
 - **HIT**: the detected family matches the label.
 - **UNDER**: a labeled framework was not recognized (detection fell back to Readability).
@@ -51,7 +51,7 @@ Run at doc-scraper commit `f96418a`, 2026-10-10.
 - **SHELL**: a labeled framework site was reported as JavaScript-rendered.
 - **fetch-fail**: the site could not be fetched (DNS failure, TLS error, or a non-200 status), so it is not scored.
 
-There were no false positives and no confusions. The one UNDER, homarr.dev, is labeled Docusaurus but its page is now a Next.js app with no Docusaurus markup: the site has migrated, so the label is stale rather than the detector wrong. The 11 fetch failures are sites that have gone offline or moved since the battery was assembled.
+Every fetched site was recognized correctly, with no false positives. The 11 fetch failures are sites that have gone offline or moved since the battery was assembled; they are not scored.
 
 ## Why it matters
 
