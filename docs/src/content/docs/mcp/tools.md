@@ -1,6 +1,8 @@
 ---
 title: MCP tools
 description: The tools the doc-scraper MCP server exposes, with example calls.
+sidebar:
+  order: 5
 ---
 
 `doc-scraper mcp-server` exposes these tools over stdio to any [Model Context Protocol](https://modelcontextprotocol.io/) client.
