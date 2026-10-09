@@ -93,3 +93,5 @@ doc-scraper add -yes https://docs.example.com             # exit 0, entry writte
 Without a terminal, plain `add` (no `-yes` or `-dry-run`) exits 1 with an error asking for one of them, and `add -json` prints the draft and exits 2 without writing.
 
 After the entry is written, crawl it with `doc-scraper crawl -site <key>`.
+
+`add` writes only the site entry. To search the crawled site (with `doc-scraper search` or the `search_docs` MCP tool), also set `enable_jsonl_output: true` at the top of `config.yaml`; the search index is built from the JSONL output, which is off by default.

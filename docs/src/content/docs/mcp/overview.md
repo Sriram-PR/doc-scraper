@@ -18,7 +18,7 @@ The full list is on the [MCP tools](/doc-scraper/mcp/tools/) page.
 
 ## A typical session
 
-1. You list the sites in `config.yaml` ([`doc-scraper add <url>`](/doc-scraper/getting-started/add-a-site/) drafts each entry).
+1. You list the sites in `config.yaml` ([`doc-scraper add <url>`](/doc-scraper/getting-started/add-a-site/) drafts each entry) and set `enable_jsonl_output: true`, which the search index and crawl history are built from.
 2. The agent calls `describe_server` to see the configured sites and recent jobs, then `crawl_site` for any site that has not been crawled.
 3. It polls `get_job_status` until the crawl completes.
 4. From then on it answers questions with `search_docs`, then `read_page` on the best hits.
