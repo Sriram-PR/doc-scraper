@@ -652,6 +652,18 @@
   "framework": "mdbook"
  },
  {
+  "url": "https://rust-cli.github.io/book/tutorial/cli-args.html",
+  "framework": "mdbook"
+ },
+ {
+  "url": "https://rust-lang.github.io/api-guidelines/naming.html",
+  "framework": "mdbook"
+ },
+ {
+  "url": "https://rustwasm.github.io/docs/book/game-of-life/hello-world.html",
+  "framework": "mdbook"
+ },
+ {
   "url": "https://docs.rs/serde/latest/serde/",
   "framework": "rustdoc"
  },

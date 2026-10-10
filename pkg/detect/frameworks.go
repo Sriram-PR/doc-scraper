@@ -2,7 +2,9 @@ package detect
 
 // FrameworkSignature describes how to recognize one documentation framework
 // and where its main content lives. Signals are tiered by trustworthiness:
-// generator meta values are machine-set and trusted alone, DOM selectors are
+// generator meta values and generator comments in <head> (HeadComment, for
+// tools that stamp a comment instead of a meta tag) are machine-set and
+// trusted alone, DOM selectors are
 // structural evidence, asset substrings are weak corroboration. GenGates list
 // generic generator values (Next.js, Jekyll, Hugo, Astro) that add a little
 // confidence but never confirm on their own.
@@ -10,6 +12,7 @@ type FrameworkSignature struct {
 	Framework   Framework
 	GenContains []string
 	GenGates    []string
+	HeadComment []string
 	DOMAny      []string
 	AssetSubs   []string
 	AssetVeto   []string
@@ -157,9 +160,10 @@ var frameworkSignatures = []FrameworkSignature{
 		Selector:  "#main-content main, #main-content",
 	},
 	{
-		Framework: FrameworkMdBook,
-		DOMAny:    []string{"#mdbook-content", "nav#mdbook-sidebar", "#mdbook-page-wrapper"},
-		Selector:  "#mdbook-content main, main",
+		Framework:   FrameworkMdBook,
+		HeadComment: []string{"book generated using mdbook"},
+		DOMAny:      []string{"#mdbook-content", "nav#mdbook-sidebar", "#mdbook-page-wrapper"},
+		Selector:    "#mdbook-content main, main",
 	},
 	{
 		Framework:   FrameworkRustdoc,

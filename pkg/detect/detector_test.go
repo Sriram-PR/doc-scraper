@@ -278,3 +278,16 @@ func TestSelectByPriority_PrefersEarlierAlternative(t *testing.T) {
 	assert.Equal(t, "inner", SelectByPriority(doc, "article.inner, .wrap").Text())
 	assert.Equal(t, 0, SelectByPriority(doc, ".missing").Length())
 }
+
+func TestDetectPage_MdBookGeneratorComment(t *testing.T) {
+	// Older mdBook (the Rust CLI book) has no mdbook- prefixed ids; the head
+	// comment its template writes is the one signal every version shares.
+	r := DetectPage(readFixture(t, "mdbook-legacy.html"))
+	assert.Equal(t, FrameworkMdBook, r.Framework)
+	assert.Equal(t, SourceGenerator, r.Source)
+	assert.Equal(t, ConfidenceHigh, r.Confidence)
+	assert.False(t, r.Fallback)
+
+	body := `<html><head><title>Notes</title></head><body><main><!-- Book generated using mdBook -->` + filler + `</main></body></html>`
+	assert.Equal(t, FrameworkUnknown, DetectPage(parseDoc(t, body)).Framework, "the comment only counts in <head>")
+}
