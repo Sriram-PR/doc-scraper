@@ -42,6 +42,8 @@ The interval supports standard Go duration format plus day units:
 - `7d` - 7 days
 - `1d12h` - 1 day and 12 hours
 
+Days must be whole (`1.5d` is rejected; write `1d12h`), and the interval must be positive: `0`, `0s`, and negative values exit with an error. The same rules apply to `interval` in `run` task specs.
+
 ### State Persistence
 
 Watch mode persists state to `<state_dir>/watch_state.json`, tracking:

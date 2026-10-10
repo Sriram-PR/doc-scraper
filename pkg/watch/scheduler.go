@@ -3,7 +3,10 @@ package watch
 import (
 	"context"
 	"fmt"
+	"math"
+	"regexp"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -187,27 +190,41 @@ func (s *Scheduler) logNextRun() {
 	}
 }
 
-// ParseInterval parses a duration string with added support for day suffixes (e.g. "7d", "1d12h").
+// ParseInterval parses a positive duration: a Go duration ("30m", "24h") or
+// whole days with an optional Go-duration remainder ("7d", "1d12h").
 func ParseInterval(s string) (time.Duration, error) {
-	d, err := time.ParseDuration(s)
-	if err == nil {
-		return d, nil
+	d, ok := parseIntervalValue(s)
+	if !ok {
+		return 0, fmt.Errorf("invalid interval format: %s (examples: 30m, 1h, 24h, 7d)", s)
 	}
-
-	var days int
-	var remaining string
-	n, _ := fmt.Sscanf(s, "%dd%s", &days, &remaining)
-	if n >= 1 {
-		d = time.Duration(days) * 24 * time.Hour
-		if remaining != "" {
-			extra, err := time.ParseDuration(remaining)
-			if err != nil {
-				return 0, fmt.Errorf("invalid interval format: %s", s)
-			}
-			d += extra
-		}
-		return d, nil
+	if d <= 0 {
+		return 0, fmt.Errorf("interval must be positive, got %s", s)
 	}
+	return d, nil
+}
 
-	return 0, fmt.Errorf("invalid interval format: %s (examples: 30m, 1h, 24h, 7d)", s)
+var dayIntervalRe = regexp.MustCompile(`^\+?([0-9]+)d(.*)$`)
+
+func parseIntervalValue(s string) (time.Duration, bool) {
+	if d, err := time.ParseDuration(s); err == nil {
+		return d, true
+	}
+	m := dayIntervalRe.FindStringSubmatch(s)
+	if m == nil {
+		return 0, false
+	}
+	const day = 24 * time.Hour
+	days, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil || days > int64(math.MaxInt64/day) {
+		return 0, false
+	}
+	d := time.Duration(days) * day
+	if m[2] == "" {
+		return d, true
+	}
+	extra, err := time.ParseDuration(m[2])
+	if err != nil || extra < 0 || extra > math.MaxInt64-d {
+		return 0, false
+	}
+	return d + extra, true
 }
