@@ -10,7 +10,6 @@ Create a minimal `config.yaml` in the project root:
 ```yaml
 output_base_dir: "./crawled_docs"
 state_dir: "./crawler_state"
-enable_jsonl_output: true
 sites:
   rust_cli_book:
     start_urls:

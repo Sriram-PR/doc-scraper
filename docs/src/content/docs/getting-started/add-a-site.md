@@ -94,4 +94,4 @@ Without a terminal, plain `add` (no `-yes` or `-dry-run`) exits 1 with an error 
 
 After the entry is written, crawl it with `doc-scraper crawl -site <key>`.
 
-`add` writes only the site entry. To search the crawled site (with `doc-scraper search` or the `search_docs` MCP tool), also set `enable_jsonl_output: true` at the top of `config.yaml`; the search index is built from the JSONL output, which is off by default.
+Once crawled, the site is searchable with `doc-scraper search` or the `search_docs` MCP tool. The search index is built from the JSONL output, which is on unless `enable_jsonl_output: false` is set.

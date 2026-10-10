@@ -196,7 +196,30 @@ func (s *Server) siteJSONLPath(siteKey string, siteCfg *config.SiteConfig) (stri
 }
 
 const jsonlDisabledHint = "JSONL output is disabled for site '%s', so no stored corpus is available to read. " +
-	"Set enable_jsonl_output: true globally or for the site and re-run crawl_site."
+	"Remove enable_jsonl_output: false (it defaults to true) and re-run crawl_site."
+
+const jsonlNotIndexedHint = "enable_jsonl_output is false for site '%s', so its crawls are not indexed for " +
+	"search or crawl history. Remove the setting (it defaults to true) and re-run crawl_site."
+
+func (s *Server) jsonlDisabled(siteKey string) bool {
+	siteCfg, ok := s.cfg.AppConfig.Sites[siteKey]
+	return ok && !config.GetEffectiveEnableJSONLOutput(siteCfg, s.cfg.AppConfig)
+}
+
+// unindexedOptOuts lists opted-out sites with nothing in the search index;
+// chunks indexed before a site opted out are still searched.
+func (s *Server) unindexedOptOuts(ctx context.Context) []string {
+	var off []string
+	for _, key := range config.GetAllSiteKeys(s.cfg.AppConfig) {
+		if !s.jsonlDisabled(key) {
+			continue
+		}
+		if has, err := s.idx.SiteHasChunks(ctx, key); err == nil && !has {
+			off = append(off, key)
+		}
+	}
+	return off
+}
 
 func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString, "max_results": argInteger, "offset": argInteger}); errResult != nil {
@@ -629,7 +652,9 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 		}
 	}
 
-	if _, ok := result["last_crawl_ended_at"]; !ok {
+	if s.jsonlDisabled(siteKey) {
+		result["next_actions"] = fmt.Sprintf(jsonlNotIndexedHint, siteKey)
+	} else if _, ok := result["last_crawl_ended_at"]; !ok {
 		result["next_actions"] = "No prior crawl recorded. Run crawl_site to populate the history index."
 	} else {
 		result["next_actions"] = "list_pages to enumerate what was crawled, then read_page to read any " +
@@ -722,6 +747,8 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 		out["baseline_crawl"] = summarizeCrawl(res.BaselineCrawl)
 	}
 	switch {
+	case res.CurrentCrawl == nil && s.jsonlDisabled(siteKey):
+		out["note"] = fmt.Sprintf(jsonlNotIndexedHint, siteKey)
 	case res.CurrentCrawl == nil:
 		out["note"] = "No crawl has been recorded for this site yet. Run crawl_site to seed the history."
 	case res.BaselineCrawl == nil:
@@ -958,8 +985,15 @@ func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolReque
 	}
 	if len(results) == 0 {
 		hint := "No matches. Broaden the query, or check the corpus with list_sites and list_pages."
-		if siteKey != "" {
-			if has, hasErr := s.idx.SiteHasChunks(ctx, siteKey); hasErr == nil && !has {
+		if siteKey == "" {
+			if off := s.unindexedOptOuts(ctx); len(off) > 0 {
+				hint += " Not searched, enable_jsonl_output is false: " + strings.Join(off, ", ") +
+					". Remove the setting (it defaults to true) and re-run crawl_site for them."
+			}
+		} else if has, hasErr := s.idx.SiteHasChunks(ctx, siteKey); hasErr == nil && !has {
+			if s.jsonlDisabled(siteKey) {
+				hint = fmt.Sprintf(jsonlNotIndexedHint, siteKey)
+			} else {
 				hint = "This site has no indexed content yet. Run crawl_site to build its corpus " +
 					"(existing crawls are indexed automatically shortly after server start)."
 			}

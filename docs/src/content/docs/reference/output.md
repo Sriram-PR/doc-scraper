@@ -14,9 +14,9 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
     │   ├── image1.png
     │   └── image2.jpg
     ├── index.md                      # Markdown for the root path
-    ├── <jsonl_output_filename>       # If enable_jsonl_output: true
-    ├── llms.txt                      # Manifest of pages (auto-generated, when JSONL is enabled)
-    ├── llms-full.txt                 # Full content concatenated (auto-generated, when JSONL is enabled)
+    ├── <jsonl_output_filename>       # Unless enable_jsonl_output: false
+    ├── llms.txt                      # Manifest of pages (generated from the JSONL)
+    ├── llms-full.txt                 # Full content concatenated (generated from the JSONL)
     ├── topic_one/
     │   ├── index.md
     │   └── subtopic_a.md
@@ -56,12 +56,10 @@ depth: 2
 
 ## JSONL output
 
-When enabled, the crawler writes one JSON object per line to a JSONL file. This format is designed for ingestion into RAG pipelines and downstream indexers.
-
-**Enable it:**
+The crawler writes one JSON object per line to a JSONL file. This format is designed for ingestion into RAG pipelines and downstream indexers, and it is the stored corpus that search, crawl history, `llms.txt`, and the MCP page tools read. It is on by default:
 
 ```yaml
-enable_jsonl_output: true
+enable_jsonl_output: true             # default; false disables search and history for the site
 jsonl_output_filename: "pages.jsonl"  # default
 ```
 

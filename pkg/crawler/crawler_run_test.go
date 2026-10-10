@@ -105,7 +105,6 @@ func newTestAppConfig(t *testing.T) *config.AppConfig {
 			Timeout:              10 * time.Second,
 			AllowPrivateNetworks: true,
 		},
-		EnableJSONLOutput:   true,
 		JSONLOutputFilename: "pages.jsonl",
 	}
 }

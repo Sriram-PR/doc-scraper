@@ -131,3 +131,17 @@ func TestHandleSearchDocs_QueryTooLong(t *testing.T) {
 	require.True(t, res.IsError)
 	assert.Contains(t, res.Content[0].(mcpgo.TextContent).Text, "query too long")
 }
+
+func TestHandleSearchDocs_OptedOutSiteWithOldChunksIsSearched(t *testing.T) {
+	s := newTestServerWithIndex(t, "docs")
+	s.cfg.AppConfig.Sites["docs"].EnableJSONLOutput = new(false)
+	md := "# Page\n\nsome indexed content here. " + strings.Repeat("filler ", 40)
+	require.NoError(t, s.idx.ReplaceChunks(context.Background(),
+		"docs", "https://docs.example.com/p", "Page", "h1", chunk.Split(md)))
+
+	for _, args := range []map[string]any{{"query": "nothingmatches"}, {"query": "nothingmatches", "site_key": "docs"}} {
+		got, _ := callSearchDocs(t, s, args)
+		assert.Contains(t, got["next_actions"], "Broaden")
+		assert.NotContains(t, got["next_actions"], "enable_jsonl_output")
+	}
+}

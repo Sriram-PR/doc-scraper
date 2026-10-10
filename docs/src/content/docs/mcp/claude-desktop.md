@@ -9,7 +9,7 @@ Every release ships `doc-scraper.mcpb`, an MCP Bundle that Claude Desktop instal
 
 ## Install
 
-1. Write a `config.yaml` listing the sites you want (see the [quick start](/doc-scraper/getting-started/quick-start/) and [configuration reference](/doc-scraper/reference/configuration/)). Use absolute paths for `output_base_dir` and `state_dir`, because the server's working directory is chosen by Claude Desktop. Set `enable_jsonl_output: true` so `search_docs` has an index to search.
+1. Write a `config.yaml` listing the sites you want (see the [quick start](/doc-scraper/getting-started/quick-start/) and [configuration reference](/doc-scraper/reference/configuration/)). Use absolute paths for `output_base_dir` and `state_dir`, because the server's working directory is chosen by Claude Desktop. Leave `enable_jsonl_output` unset or `true` so `search_docs` has an index to search.
 2. Download `doc-scraper.mcpb` from the [latest release](https://github.com/Sriram-PR/doc-scraper/releases/latest).
 3. Install it in Claude Desktop by any of:
    - double-clicking the `.mcpb` file;

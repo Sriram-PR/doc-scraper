@@ -40,7 +40,6 @@ Claude Desktop users can install `doc-scraper.mcpb` from the latest release inst
 ## Quick start
 
 ```bash
-echo 'enable_jsonl_output: true' > config.yaml    # JSONL feeds the search index
 doc-scraper add -site rust_cli_book https://rust-cli.github.io/book/index.html   # detect, preview, confirm
 doc-scraper crawl -site rust_cli_book             # Markdown lands in ./crawled_docs/rust_cli_book/
 doc-scraper search -site rust_cli_book "error handling"

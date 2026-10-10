@@ -55,7 +55,6 @@ func newTestServer(t *testing.T, siteKey, allowedDomain string) (*Server, string
 	appCfg := &config.AppConfig{
 		OutputBaseDir:       outDir,
 		JSONLOutputFilename: "pages.jsonl",
-		EnableJSONLOutput:   true,
 		Sites:               map[string]*config.SiteConfig{siteKey: siteCfg},
 	}
 	s := &Server{
@@ -732,7 +731,7 @@ func TestHandleReadPage_MissingParams(t *testing.T) {
 // have succeeded and written markdown only.
 func TestHandleReadPage_JSONLDisabledIsReportedDistinctly(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
-	s.cfg.AppConfig.EnableJSONLOutput = false
+	s.cfg.AppConfig.EnableJSONLOutput = new(false)
 
 	text := readPageError(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
 	assert.Contains(t, text, "JSONL output is disabled")
@@ -745,4 +744,25 @@ func TestHandleReadPage_JSONLDisabledIsReportedDistinctly(t *testing.T) {
 	tc, ok := result.Content[0].(mcpgo.TextContent)
 	require.True(t, ok)
 	assert.Contains(t, tc.Text, "JSONL output is disabled")
+}
+
+// The index-backed tools must name the opt-out rather than imply the site was
+// never crawled, since a crawl with JSONL off is never indexed.
+func TestIndexToolsExplainJSONLDisabled(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	s.cfg.AppConfig.Sites["docs"].EnableJSONLOutput = new(false)
+	attachIndex(t, s)
+
+	_, got := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "docs"})
+	assert.Contains(t, got["next_actions"], "enable_jsonl_output is false")
+
+	_, got = callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs", "since": "2026-01-01T00:00:00Z"})
+	assert.Contains(t, got["note"], "enable_jsonl_output is false")
+
+	got, _ = callSearchDocs(t, s, map[string]any{"query": "anything", "site_key": "docs"})
+	assert.Contains(t, got["next_actions"], "enable_jsonl_output is false")
+
+	got, _ = callSearchDocs(t, s, map[string]any{"query": "anything"})
+	assert.Contains(t, got["next_actions"], "docs", "a search across all sites names the sites it skipped")
+	assert.Contains(t, got["next_actions"], "enable_jsonl_output is false")
 }

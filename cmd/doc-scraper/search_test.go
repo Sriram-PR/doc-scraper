@@ -18,7 +18,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
-func writeSearchFixture(t *testing.T) (cfgPath string) {
+func writeSearchFixture(t *testing.T, extraSites ...string) (cfgPath string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	stateDir := filepath.Join(tmpDir, "state")
@@ -33,7 +33,7 @@ sites:
     start_urls: ["https://demo.example.com/docs/"]
     allowed_domain: "demo.example.com"
     content_selector: "main"
-`
+` + strings.Join(extraSites, "")
 	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0o644))
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -118,5 +118,65 @@ func TestDoSearch_RejectsNonPositiveLimit(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		assert.Equal(t, 1, doSearch(cfg, "auth", "", l, false, &stdout, &stderr))
 		assert.Contains(t, stderr.String(), "-limit must be a positive integer")
+	}
+}
+
+func TestDoSearch_ExplainsEmptyResults(t *testing.T) {
+	cfgPath := writeSearchFixture(t,
+		"  off:\n    start_urls: [\"https://off.example.com/\"]\n    allowed_domain: off.example.com\n    content_selector: main\n    enable_jsonl_output: false\n",
+		"  fresh:\n    start_urls: [\"https://fresh.example.com/\"]\n    allowed_domain: fresh.example.com\n    content_selector: main\n",
+	)
+	search := func(siteKey string) string {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		require.Equal(t, 0, doSearch(cfgPath, "wombatless", siteKey, 5, false, &stdout, &stderr), stderr.String())
+		assert.NotContains(t, stdout.String(), "Crawl a site first")
+		return stdout.String()
+	}
+
+	out := search("off")
+	assert.Contains(t, out, "enable_jsonl_output is false")
+	assert.Contains(t, out, "doc-scraper crawl -site off")
+
+	out = search("fresh")
+	assert.Contains(t, out, "has no indexed pages")
+	assert.Contains(t, out, "doc-scraper crawl -site fresh")
+
+	out = search("demo")
+	assert.Contains(t, out, "No matches")
+	assert.NotContains(t, out, "enable_jsonl_output")
+
+	out = search("")
+	assert.Contains(t, out, "No matches")
+	assert.Contains(t, out, "enable_jsonl_output is false: off")
+	assert.Contains(t, out, "not crawled yet: fresh")
+}
+
+func TestDoSearch_NothingIndexedSaysSo(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	content := "state_dir: '" + filepath.ToSlash(filepath.Join(tmpDir, "state")) + "'\n" +
+		"sites:\n  fresh:\n    start_urls: [\"https://fresh.example.com/\"]\n    allowed_domain: fresh.example.com\n    content_selector: main\n"
+	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0o644))
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, doSearch(cfgPath, "anything", "", 5, false, &stdout, &stderr), stderr.String())
+	assert.Contains(t, stdout.String(), "No site is indexed yet")
+	assert.Contains(t, stdout.String(), "doc-scraper crawl")
+}
+
+// Chunks indexed before a site opted out stay searchable, so an empty result
+// there is a plain miss, not "not indexed".
+func TestDoSearch_OptedOutSiteWithOldChunksIsSearched(t *testing.T) {
+	cfgPath := writeSearchFixture(t)
+	data, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(cfgPath, append(data, []byte("    enable_jsonl_output: false\n")...), 0o644))
+
+	for _, siteKey := range []string{"", "demo"} {
+		var stdout, stderr bytes.Buffer
+		require.Equal(t, 0, doSearch(cfgPath, "wombatless", siteKey, 5, false, &stdout, &stderr), stderr.String())
+		assert.Contains(t, stdout.String(), "No matches")
+		assert.NotContains(t, stdout.String(), "enable_jsonl_output")
 	}
 }
