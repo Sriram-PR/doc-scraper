@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "doc-scraper",
   "display_name": "doc-scraper",
-  "version": "2.10.1",
+  "version": "2.11.0",
   "description": "Crawl documentation sites into local Markdown/JSONL corpora and serve them to agents offline: full-text search, read, diff, and freshness with zero network access at read time.",
   "long_description": "doc-scraper is a self-hosted documentation crawler and MCP server. It crawls documentation sites politely (robots.txt, per-host rate limits), converts pages to clean Markdown plus a JSONL corpus, and keeps crawl history in SQLite. Agents then work fully offline against the stored corpus: `search_docs` runs BM25 full-text search with stemming and section anchors, `read_page` returns a page's markdown without network access, and `diff_crawl`/`get_freshness` report what changed and how stale a corpus is. Crawls are configured in a YAML file listing the sites you want indexed; see https://sriram-pr.github.io/doc-scraper/reference/configuration/ for the config format.",
   "author": {

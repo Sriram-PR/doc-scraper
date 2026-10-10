@@ -38,8 +38,8 @@ printf '%s\n' \
 ```
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"logging":{},"tools":{"listChanged":true}},"serverInfo":{"name":"doc-scraper","version":"2.10.1"}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"logging":{},"tools":{"listChanged":true}},"serverInfo":{"name":"doc-scraper","version":"2.11.0"}}}
 {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\n  \"config_path\": \"/tmp/mcpdemo/config.yaml\",\n  \"sites\": [\n    {\n      \"domain\": \"example.com\",\n      \"key\": \"demo\",\n      \"max_depth\": 0,\n      \"path_prefix\": \"\",\n      \"start_urls_count\": 1\n    }\n  ],\n  \"total_sites\": 1\n}"}]}}
 ```
 
-Output from doc-scraper 2.10.1 (built from `main`), 2026-10-10. Tool results are JSON documents carried in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
+Output from doc-scraper 2.11.0, 2026-10-11. Tool results are JSON documents carried in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
