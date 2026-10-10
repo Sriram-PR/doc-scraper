@@ -55,7 +55,6 @@ Drafted entry:
 
 Preview of the fetched page:
   4609 chars of markdown, 54% of page text, code blocks 9/9, 7 headings
-  note: extracted content still contains nav/sidebar elements
   ...
 
 Dry run: nothing written.

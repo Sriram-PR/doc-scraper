@@ -18,6 +18,7 @@ import (
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/JohannesKaufmann/html-to-markdown/plugin"
+	"github.com/PuerkitoBio/goquery"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/discover"
@@ -192,7 +193,7 @@ func buildAddPreview(report *discover.Report, site *config.SiteConfig, log *slog
 		p.CodeBlocksKept++
 	}
 	p.Headings = selection.Find("h1, h2, h3, h4").Length()
-	p.NavLeak = selection.Find("nav, aside, [class*='sidebar'], [role='navigation']").Length() > 0
+	p.NavLeak = hasNavResidue(selection)
 
 	pageText := textLen(report.Doc.Find("body"))
 	conv := md.NewConverter("", true, nil)
@@ -204,6 +205,22 @@ func buildAddPreview(report *discover.Report, site *config.SiteConfig, log *slog
 		p.PageTextRatio = float64(textLen(selection)) / float64(pageText)
 	}
 	return p
+}
+
+// hasNavResidue reports navigation left in the extracted content. nav and
+// role=navigation always count; asides and sidebar-classed blocks count only
+// when mostly link text, since docs themes render callouts as <aside>.
+func hasNavResidue(sel *goquery.Selection) bool {
+	if sel.Find("nav, [role='navigation']").Length() > 0 {
+		return true
+	}
+	found := false
+	sel.Find("aside, [class*='sidebar']").EachWithBreak(func(_ int, s *goquery.Selection) bool {
+		total := textLen(s)
+		found = total > 0 && 2*textLen(s.Find("a")) >= total
+		return !found
+	})
+	return found
 }
 
 func textLen(s interface{ Text() string }) int {
