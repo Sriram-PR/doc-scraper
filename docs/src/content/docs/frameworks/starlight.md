@@ -66,4 +66,3 @@ doc-scraper crawl -site starlight_docs
 ## Caveats
 
 - **Translations sit inside the drafted prefix.** On starlight.astro.build, 576 of the 612 sitemap URLs are translations under 16 locale directories (`/de/`, `/pt-br/`, `/zh-cn/`, ...), and the drafted prefix `/` includes them all. `add` does not propose excluding locale trees nested inside the prefix, so add a pattern yourself, as in the entry above; it leaves the 36 English pages.
-- Starlight sites hosted on GitHub project pages (`user.github.io/project/`) write their sitemap under the project path; `add` looks for the sitemap at the host root, so it derives the scope from the URL path there instead.

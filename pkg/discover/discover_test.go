@@ -176,6 +176,66 @@ func TestDiscoverer_SitemapIndex(t *testing.T) {
 	assert.True(t, info.Truncated)
 }
 
+func urlsetHandler(locs ...string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `<?xml version="1.0"?><urlset>`)
+		for _, l := range locs {
+			fmt.Fprintf(w, "<url><loc>%s</loc></url>", l)
+		}
+		fmt.Fprint(w, `</urlset>`)
+	}
+}
+
+func TestDiscoverer_SitemapUnderProjectPath(t *testing.T) {
+	cases := []struct {
+		name, route, seedPath string
+	}{
+		{"mkdocs on project pages", "/proj/sitemap.xml", "/proj/guide/intro/"},
+		{"astro index on project pages", "/proj/sitemap-index.xml", "/proj/guide/"},
+		{"seed is a file", "/book/sitemap.xml", "/book/index.html"},
+		{"second level", "/group/proj/sitemap.xml", "/group/proj/docs/page/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc(tc.route, urlsetHandler("https://example.com/proj/a/"))
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			info := testDiscoverer(srv).fetchSitemap(context.Background(), mustURL(t, srv.URL+tc.seedPath), nil)
+			assert.True(t, info.Found)
+			assert.Equal(t, srv.URL+tc.route, info.SitemapURL)
+		})
+	}
+}
+
+func TestDiscoverer_RootSitemapWinsOverProjectPath(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sitemap.xml", urlsetHandler("https://example.com/root/"))
+	mux.HandleFunc("/proj/sitemap.xml", urlsetHandler("https://example.com/proj/"))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	info := testDiscoverer(srv).fetchSitemap(context.Background(), mustURL(t, srv.URL+"/proj/guide/"), nil)
+	assert.Equal(t, srv.URL+"/sitemap.xml", info.SitemapURL)
+}
+
+func TestDiscoverer_SitemapProbeIsBounded(t *testing.T) {
+	var requests []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.Path)
+		http.NotFound(w, r)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	info := testDiscoverer(srv).fetchSitemap(context.Background(), mustURL(t, srv.URL+"/a/b/c/d/e/"), nil)
+	assert.False(t, info.Found)
+	assert.Len(t, requests, 9, "root plus two ancestor directories, three names each: %v", requests)
+	assert.NotContains(t, requests, "/a/b/c/sitemap.xml")
+}
+
 func newGzip(sb *strings.Builder) []byte {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)

@@ -17,6 +17,7 @@ Content selector: `article.md-content__inner, .md-content article, .md-content`.
 $ doc-scraper add -config config.yaml -dry-run https://squidfunk.github.io/mkdocs-material/getting-started/
 Probing https://squidfunk.github.io/mkdocs-material/getting-started/ ...
 Detected: mkdocs-material (mkdocs-1.6.1, mkdocs-material-9.7.0+insiders-4.53.18) via generator, confidence high
+Corpus:   ~108 pages (sitemap)
 
 Drafted entry:
 
@@ -26,19 +27,21 @@ Drafted entry:
     allowed_domain: squidfunk.github.io
     allowed_path_prefix: /mkdocs-material/
     content_selector: article.md-content__inner, .md-content article, .md-content
-    max_depth: 5
+    max_depth: 6
 
   # content_selector: mkdocs-material detected via generator (high confidence), validated on the fetched page
-  # allowed_path_prefix: /mkdocs-material/ from the URL path (no sitemap to verify against)
+  # allowed_path_prefix: /mkdocs-material/ covers 108 of 108 sitemap URLs
+  # max_depth: 6 from sitemap path depth under the prefix
 
 Preview of the fetched page:
   6349 chars of markdown, 52% of page text, code blocks 10/10, 5 headings
+  note: extracted content still contains nav/sidebar elements
   ...
 
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.10.1 (built from `main`) against <https://squidfunk.github.io/mkdocs-material/getting-started/>, 2026-10-10. Exit code 2.
+Output from doc-scraper 2.10.1 (built from `main`) against <https://squidfunk.github.io/mkdocs-material/getting-started/>, 2026-10-11. Exit code 2.
 
 ## Crawl it
 
@@ -50,7 +53,7 @@ sites:
     allowed_domain: squidfunk.github.io
     allowed_path_prefix: /mkdocs-material/
     content_selector: article.md-content__inner, .md-content article, .md-content
-    max_depth: 5
+    max_depth: 6
 ```
 
 ```bash
@@ -59,5 +62,4 @@ doc-scraper crawl -site squidfunk_docs
 
 ## Caveats
 
-- **GitHub project pages: no sitemap found.** This site is served from `squidfunk.github.io/mkdocs-material/`, and its sitemap lives at `/mkdocs-material/sitemap.xml`. `add` looks for the sitemap at the host root, so it reports "no sitemap to verify against" and takes the prefix from the URL path. The drafted `max_depth: 5` is a default, not measured.
 - The site key is derived from the host, so this one is `squidfunk_docs`. Pass `-site mkdocs_material` to choose your own.

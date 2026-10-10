@@ -45,7 +45,8 @@ type Discoverer struct {
 }
 
 // Run probes rawURL and assembles a Report. Request budget: robots.txt, the
-// seed page, llms.txt, the sitemap, and at most two sitemap-index children.
+// seed page, llms.txt, up to nine sitemap probes, and at most two
+// sitemap-index children.
 func (d *Discoverer) Run(ctx context.Context, rawURL string) (*Report, error) {
 	seed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || seed.Host == "" || (seed.Scheme != "http" && seed.Scheme != "https") {
