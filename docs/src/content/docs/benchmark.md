@@ -1,18 +1,18 @@
 ---
 title: Detection benchmark
-description: How accurately doc-scraper recognizes docs frameworks across 234 labeled live sites, and how to rerun the benchmark.
+description: How accurately doc-scraper recognizes docs frameworks across 223 labeled live sites, and how to rerun the benchmark.
 ---
 
 ## What it measures
 
-`tools/detect-bench` runs the same detection that `content_selector: "auto"` and `doc-scraper add` use against a battery of 234 live documentation sites, each labeled with the framework it is built on. 44 of them are labeled `unknown`: sites built with no supported framework, which must **not** be claimed by any signature. The benchmark measures two things: how often a labeled site's framework family is recognized, and whether any unknown site is wrongly claimed (a false positive, which would apply the wrong content selector to every page of a crawl).
+`tools/detect-bench` runs the same detection that `content_selector: "auto"` and `doc-scraper add` use against a battery of 223 live documentation sites, each labeled with the framework it is built on. 44 of them are labeled `unknown`: sites built with no supported framework, which must **not** be claimed by any signature. The benchmark measures two things: how often a labeled site's framework family is recognized, and whether any unknown site is wrongly claimed (a false positive, which would apply the wrong content selector to every page of a crawl).
 
 Scoring is by family: any Sphinx theme counts as Sphinx, any MkDocs theme as MkDocs, and any JavaScript-shell verdict on a JavaScript-shell site is a hit. A `js-shell` verdict on an unknown-labeled site also counts as correct.
 
 ## Results
 
 ```text
-fetched 223/234 | HIT 223 (100.0%) | UNDER 0 | OVER 0 | CONFUSE 0 | SHELL 0 | fetch-fail 11
+fetched 222/223 | HIT 222 (100.0%) | UNDER 0 | OVER 0 | CONFUSE 0 | SHELL 0 | fetch-fail 1
 ```
 
 | Family | Hits | Fetched |
@@ -38,7 +38,7 @@ fetched 223/234 | HIT 223 (100.0%) | UNDER 0 | OVER 0 | CONFUSE 0 | SHELL 0 | fe
 | `sphinx` | 24 | 24 |
 | `starlight` | 37 | 37 |
 | `typedoc` | 1 | 1 |
-| `unknown` | 44 | 44 |
+| `unknown` | 43 | 43 |
 | `vitepress` | 11 | 11 |
 | `vuepress` | 2 | 2 |
 
@@ -51,7 +51,7 @@ Run on 2026-10-11 with the detector as of doc-scraper commit `9932b12`.
 - **SHELL**: a labeled framework site was reported as JavaScript-rendered.
 - **fetch-fail**: the site could not be fetched (DNS failure, TLS error, or a non-200 status), so it is not scored.
 
-Every fetched site was recognized correctly, with no false positives. The 11 fetch failures are sites that have gone offline or moved since the battery was assembled; they are not scored.
+Every fetched site was recognized correctly, with no false positives. The one fetch failure is ruby-doc.org, which is online but slow enough (about 30 seconds per request) to hit the TLS handshake timeout; it is not scored.
 
 ## Why it matters
 

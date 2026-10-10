@@ -28,19 +28,11 @@
   "framework": "docusaurus"
  },
  {
-  "url": "https://www.fast.design/docs/introduction/",
-  "framework": "docusaurus"
- },
- {
   "url": "https://www.fathym.com/blog",
   "framework": "unknown"
  },
  {
   "url": "https://buildtracker.dev",
-  "framework": "docusaurus"
- },
- {
-  "url": "https://wiki.brucesong.xyz/",
   "framework": "docusaurus"
  },
  {
@@ -64,10 +56,6 @@
   "framework": "docusaurus"
  },
  {
-  "url": "https://aventus-network-services.github.io/avn-gateway-docs/",
-  "framework": "docusaurus"
- },
- {
   "url": "https://relay.dev/",
   "framework": "docusaurus"
  },
@@ -81,10 +69,6 @@
  },
  {
   "url": "https://docs.sodaforsparc.io/",
-  "framework": "docusaurus"
- },
- {
-  "url": "https://tamalweb.com/",
   "framework": "docusaurus"
  },
  {
@@ -160,10 +144,6 @@
   "framework": "docusaurus"
  },
  {
-  "url": "https://developers.verida.io/",
-  "framework": "docusaurus"
- },
- {
   "url": "https://dinosaur.leedom.me",
   "framework": "docusaurus"
  },
@@ -173,10 +153,6 @@
  },
  {
   "url": "https://console-table.netlify.app/",
-  "framework": "docusaurus"
- },
- {
-  "url": "https://community.moja.global/",
   "framework": "docusaurus"
  },
  {
@@ -196,10 +172,6 @@
   "framework": "docusaurus"
  },
  {
-  "url": "https://dipscope.com/",
-  "framework": "docusaurus"
- },
- {
   "url": "https://developers.home-assistant.io/",
   "framework": "docusaurus"
  },
@@ -212,10 +184,6 @@
   "framework": "docusaurus"
  },
  {
-  "url": "https://tidb.net/book/",
-  "framework": "docusaurus"
- },
- {
   "url": "https://pnpm.js.org/",
   "framework": "unknown"
  },
@@ -225,10 +193,6 @@
  },
  {
   "url": "https://notes.nayanpatel.net",
-  "framework": "docusaurus"
- },
- {
-  "url": "https://docs.mixcore.org/",
   "framework": "docusaurus"
  },
  {
@@ -274,10 +238,6 @@
  {
   "url": "https://cho.sh/",
   "framework": "unknown"
- },
- {
-  "url": "https://sqlframes.com/",
-  "framework": "docusaurus"
  },
  {
   "url": "https://fullstackchronicles.io/",
@@ -609,10 +569,6 @@
  },
  {
   "url": "https://setuptools.pypa.io/en/latest/userguide/quickstart.html",
-  "framework": "sphinx"
- },
- {
-  "url": "https://virtualenv.pypa.io/en/latest/user_guide.html",
   "framework": "sphinx"
  },
  {
