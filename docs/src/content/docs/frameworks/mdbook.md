@@ -7,7 +7,7 @@ sidebar:
 
 ## How doc-scraper recognizes it
 
-doc-scraper has no generator-tag signature for mdBook, so detection is structural: `#mdbook-content`, `nav#mdbook-sidebar`, or `#mdbook-page-wrapper`. A structural match is reported as medium confidence, and the selector is still validated against the page before it is used.
+mdBook has no generator meta tag, but its page template writes a `<!-- Book generated using mdBook -->` comment in `<head>`, which doc-scraper trusts like a generator tag, so the match is high confidence. The comment is present in old and current mdBook releases alike; older books such as the Rust CLI book lack the `mdbook-` prefixed ids that current releases use. Without the comment, `#mdbook-content`, `nav#mdbook-sidebar`, or `#mdbook-page-wrapper` match on structure at medium confidence. Either way the selector is validated against the page before it is used.
 
 Content selector: `#mdbook-content main, main`.
 
@@ -18,7 +18,7 @@ The [quick start](/doc-scraper/getting-started/quick-start/) crawls an mdBook (t
 ```text
 $ doc-scraper add -config config.yaml -dry-run https://rust-lang.github.io/mdBook/
 Probing https://rust-lang.github.io/mdBook/ ...
-Detected: mdbook via dom, confidence medium
+Detected: mdbook via generator, confidence high
 
 Drafted entry:
 
@@ -30,7 +30,7 @@ Drafted entry:
     content_selector: '#mdbook-content main, main'
     max_depth: 5
 
-  # content_selector: mdbook detected via dom (medium confidence), validated on the fetched page
+  # content_selector: mdbook detected via generator (high confidence), validated on the fetched page
   # allowed_path_prefix: /mdBook/ from the URL path (no sitemap to verify against)
 
 Preview of the fetched page:
@@ -44,7 +44,7 @@ Preview of the fetched page:
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.10.1 (built from `main`) against <https://rust-lang.github.io/mdBook/>, 2026-10-10. Exit code 2.
+Output from doc-scraper 2.10.1 (built from `main`) against <https://rust-lang.github.io/mdBook/>, 2026-10-11. Exit code 2.
 
 ## Crawl it
 

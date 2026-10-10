@@ -1,18 +1,18 @@
 ---
 title: Detection benchmark
-description: How accurately doc-scraper recognizes docs frameworks across 231 labeled live sites, and how to rerun the benchmark.
+description: How accurately doc-scraper recognizes docs frameworks across 234 labeled live sites, and how to rerun the benchmark.
 ---
 
 ## What it measures
 
-`tools/detect-bench` runs the same detection that `content_selector: "auto"` and `doc-scraper add` use against a battery of 231 live documentation sites, each labeled with the framework it is built on. 44 of them are labeled `unknown`: sites built with no supported framework, which must **not** be claimed by any signature. The benchmark measures two things: how often a labeled site's framework family is recognized, and whether any unknown site is wrongly claimed (a false positive, which would apply the wrong content selector to every page of a crawl).
+`tools/detect-bench` runs the same detection that `content_selector: "auto"` and `doc-scraper add` use against a battery of 234 live documentation sites, each labeled with the framework it is built on. 44 of them are labeled `unknown`: sites built with no supported framework, which must **not** be claimed by any signature. The benchmark measures two things: how often a labeled site's framework family is recognized, and whether any unknown site is wrongly claimed (a false positive, which would apply the wrong content selector to every page of a crawl).
 
 Scoring is by family: any Sphinx theme counts as Sphinx, any MkDocs theme as MkDocs, and any JavaScript-shell verdict on a JavaScript-shell site is a hit. A `js-shell` verdict on an unknown-labeled site also counts as correct.
 
 ## Results
 
 ```text
-fetched 220/231 | HIT 220 (100.0%) | UNDER 0 | OVER 0 | CONFUSE 0 | SHELL 0 | fetch-fail 11
+fetched 223/234 | HIT 223 (100.0%) | UNDER 0 | OVER 0 | CONFUSE 0 | SHELL 0 | fetch-fail 11
 ```
 
 | Family | Hits | Fetched |
@@ -27,7 +27,7 @@ fetched 220/231 | HIT 220 (100.0%) | UNDER 0 | OVER 0 | CONFUSE 0 | SHELL 0 | fe
 | `godoc` | 1 | 1 |
 | `javadoc` | 1 | 1 |
 | `just-the-docs` | 1 | 1 |
-| `mdbook` | 2 | 2 |
+| `mdbook` | 5 | 5 |
 | `mintlify` | 4 | 4 |
 | `mkdocs` | 8 | 8 |
 | `nextra` | 3 | 3 |
@@ -42,7 +42,7 @@ fetched 220/231 | HIT 220 (100.0%) | UNDER 0 | OVER 0 | CONFUSE 0 | SHELL 0 | fe
 | `vitepress` | 11 | 11 |
 | `vuepress` | 2 | 2 |
 
-Run on 2026-10-10 with the detector as of doc-scraper commit `e3a5942`.
+Run on 2026-10-11 with the detector as of doc-scraper commit `9932b12`.
 
 - **HIT**: the detected family matches the label.
 - **UNDER**: a labeled framework was not recognized (detection fell back to Readability).

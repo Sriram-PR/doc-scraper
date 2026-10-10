@@ -72,7 +72,7 @@ Rows link to a guide where one exists. Selectors are tried left to right; the fi
 | `hugo-book` | hugo-book | generic generator `hugo`; DOM `article.book-article`, `.book-menu` | `article.book-article` |
 | `geekdoc` | Geekdoc (Hugo) | generic generator `hugo`; DOM `article.gdoc-markdown`, `.gdoc-page` | `article.gdoc-markdown` |
 | `just-the-docs` | Just the Docs (Jekyll) | generic generator `jekyll`; DOM `div#main-content.main-content`, `.side-bar`; assets `just-the-docs` | `#main-content main, #main-content` |
-| `mdbook` | [mdBook](/doc-scraper/frameworks/mdbook/) | DOM `#mdbook-content`, `nav#mdbook-sidebar`, `#mdbook-page-wrapper` | `#mdbook-content main, main` |
+| `mdbook` | [mdBook](/doc-scraper/frameworks/mdbook/) | `<head>` comment contains `book generated using mdbook`; DOM `#mdbook-content`, `nav#mdbook-sidebar`, `#mdbook-page-wrapper` | `#mdbook-content main, main` |
 | `rustdoc` | rustdoc | generator contains `rustdoc`; DOM `[data-rustdoc-version]`, `section#main-content.content` | `#main-content` |
 | `godoc` | pkg.go.dev | DOM `.Documentation-content`, `[data-test-id="UnitDetails-content"]` | `.Documentation-content, [data-test-id="UnitDetails-content"], article.go-Main-article` |
 | `javadoc` | Javadoc | generator contains `javadoc/` | `main[role='main'], main` |
