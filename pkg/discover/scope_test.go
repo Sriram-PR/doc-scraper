@@ -82,6 +82,57 @@ func TestClusterScope_RootSeed(t *testing.T) {
 	assert.Equal(t, 30, scope.PrefixCount)
 }
 
+func TestClusterScope_NestedVersionTreesMirroringTheDocs(t *testing.T) {
+	// Docusaurus layout: current docs at /docs/, older and unreleased versions
+	// nested inside it as mirrors of the same pages.
+	paths := repeatPaths("/docs/", 30)
+	paths = append(paths, repeatPaths("/docs/api/", 10)...)
+	paths = append(paths, repeatPaths("/docs/next/", 30)...)
+	paths = append(paths, repeatPaths("/docs/2.x/", 25)...)
+	paths = append(paths, repeatPaths("/docs/3.9.2/", 30)...)
+	paths = append(paths, "/docs/3.9.2/a/b/c/d/")
+	urls := withHost("docusaurus.example.io", paths)
+
+	scope := clusterScope(mustURL(t, "https://docusaurus.example.io/docs/pageaa/"), urls)
+	assert.Equal(t, "/docs/", scope.Prefix)
+	assert.ElementsMatch(t, []string{"/docs/next/", "/docs/2.x/", "/docs/3.9.2/"}, scope.SiblingVersions)
+	assert.Equal(t, 40, scope.PrefixCount, "excluded version trees do not count toward the corpus")
+	assert.Equal(t, 86, scope.ExcludedCount)
+	assert.Equal(t, 3, scope.MaxDepth, "depth is measured on the current docs only")
+}
+
+func TestClusterScope_NestedLocaleTreesAtRoot(t *testing.T) {
+	// Starlight layout: English at the root, translations under locale dirs.
+	paths := append(repeatPaths("/", 20), repeatPaths("/guides/", 10)...)
+	paths = append(paths, repeatPaths("/de/", 20)...)
+	paths = append(paths, repeatPaths("/de/guides/", 10)...)
+	paths = append(paths, repeatPaths("/pt-br/", 20)...)
+	urls := withHost("starlight.example.dev", paths)
+
+	scope := clusterScope(mustURL(t, "https://starlight.example.dev/"), urls)
+	assert.Equal(t, "/", scope.Prefix)
+	assert.ElementsMatch(t, []string{"/de/", "/pt-br/"}, scope.SiblingLocales)
+	assert.Equal(t, 30, scope.PrefixCount)
+}
+
+func TestClusterScope_ShapedDirsWithTheirOwnPagesAreKept(t *testing.T) {
+	// /docs/v1/ and /docs/it/ look like a version and a locale but hold pages
+	// found nowhere else, so they are sections, not copies.
+	paths := repeatPaths("/docs/", 30)
+	paths = append(paths, "/docs/v1/users/", "/docs/v1/orders/", "/docs/v1/auth/", "/docs/it/ops/", "/docs/it/oncall/")
+	urls := withHost("api.example.com", paths)
+
+	scope := clusterScope(mustURL(t, "https://api.example.com/docs/pageaa/"), urls)
+	assert.Empty(t, scope.SiblingVersions)
+	assert.Empty(t, scope.SiblingLocales)
+	assert.Equal(t, 35, scope.PrefixCount)
+}
+
+func TestDisallowPatterns_ExcludeNestedTrees(t *testing.T) {
+	r := &Report{Scope: ScopeInfo{Prefix: "/docs/", SiblingVersions: []string{"/docs/next/", "/docs/2.x/"}, SiblingLocales: []string{"/docs/"}}}
+	assert.Equal(t, []string{`^/docs/next/`, `^/docs/2\.x/`}, disallowPatterns(r), "never excludes the prefix itself")
+}
+
 func TestSeedDir(t *testing.T) {
 	assert.Equal(t, "/docs/", seedDir("/docs/intro.html"))
 	assert.Equal(t, "/docs/intro/", seedDir("/docs/intro/"))
@@ -105,4 +156,15 @@ func TestVersionAndLocaleSegments(t *testing.T) {
 	assert.False(t, isLocaleSegment("docs"))
 	assert.False(t, isLocaleSegment("v2"))
 	assert.False(t, isLocaleSegment("go"), "not an ISO 639-1 language")
+}
+
+func TestBuildDraft_EvidenceCountsExcludedTrees(t *testing.T) {
+	r := &Report{
+		FinalURL: mustURL(t, "https://docusaurus.example.io/docs/intro"),
+		Sitemap:  SitemapInfo{Found: true},
+		Scope:    ScopeInfo{Prefix: "/docs/", PrefixCount: 40, TotalCount: 200, ExcludedCount: 86, MaxDepth: 3, SiblingVersions: []string{"/docs/next/"}},
+	}
+	d := BuildDraft(r, "")
+	assert.Contains(t, d.Evidence, "allowed_path_prefix: /docs/ covers 40 of 200 sitemap URLs, not counting 86 in excluded version/locale trees")
+	assert.Equal(t, []string{"^/docs/next/"}, d.Site.DisallowedPathPatterns)
 }

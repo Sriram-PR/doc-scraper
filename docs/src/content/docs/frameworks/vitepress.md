@@ -74,3 +74,5 @@ doc-scraper crawl -site vitepress_docs
   ```
 
   That pattern is matched against each URL's path and leaves the 34 English pages.
+
+  Alternatively, run `add` on the site root, `https://vitepress.dev/`: it drafts `allowed_path_prefix: /` and excludes the seven translation directories itself, because their pages mirror the English ones. The root is the VitePress home layout, which has no `.vp-doc`, so `add` drafts `content_selector: auto` there; pass `-selector '.vp-doc, main.main, #VPContent'` to keep the VitePress selector.

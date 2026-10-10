@@ -17,14 +17,18 @@ type ScopeInfo struct {
 	MaxDepth        int
 	SiblingVersions []string
 	SiblingLocales  []string
+	ExcludedCount   int
 }
 
 const (
 	minClusterPages = 5
-	defaultMaxDepth = 5
-	depthCap        = 10
-	corpusNoteAt    = 2000
-	corpusWarnAt    = 10000
+	// A tree must repeat at least this many main-tree pages (and at least half
+	// of its own) to count as a version or translation copy.
+	minMirroredPages = 2
+	defaultMaxDepth  = 5
+	depthCap         = 10
+	corpusNoteAt     = 2000
+	corpusWarnAt     = 10000
 )
 
 func analyzeScope(r *Report) {
@@ -85,13 +89,72 @@ func clusterScope(seed *url.URL, sitemapURLs []string) ScopeInfo {
 		prefix = candidate
 	}
 	scope.Prefix = prefix
-	scope.PrefixCount = countUnder(paths, prefix)
 	if len(paths) == 0 {
-		scope.PrefixCount = 0
-	} else {
-		scope.MaxDepth = depthUnder(paths, prefix)
+		return scope
 	}
+	versions, locales, kept := nestedMirrorTrees(paths, prefix)
+	scope.SiblingVersions = append(scope.SiblingVersions, versions...)
+	scope.SiblingLocales = append(scope.SiblingLocales, locales...)
+	scope.PrefixCount = countUnder(kept, prefix)
+	scope.ExcludedCount = countUnder(paths, prefix) - scope.PrefixCount
+	scope.MaxDepth = depthUnder(kept, prefix)
 	return scope
+}
+
+// nestedMirrorTrees finds version- and locale-shaped directories directly under
+// prefix that copy the main tree's pages, such as old releases next to the
+// current docs or translations next to the default language. A shaped
+// directory whose pages mostly exist nowhere else is a real section and stays.
+// kept is paths minus the excluded trees.
+func nestedMirrorTrees(paths []string, prefix string) (versions, locales, kept []string) {
+	shaped := map[string][]string{}
+	main := map[string]struct{}{}
+	for _, p := range paths {
+		rest, ok := strings.CutPrefix(p, prefix)
+		if !ok {
+			continue
+		}
+		seg, sub, found := strings.Cut(rest, "/")
+		if _, version := isVersionSegment(seg); found && (version || isLocaleSegment(seg)) {
+			shaped[seg] = append(shaped[seg], strings.TrimSuffix(sub, "/"))
+			continue
+		}
+		main[strings.TrimSuffix(rest, "/")] = struct{}{}
+	}
+
+	excluded := map[string]struct{}{}
+	for seg, subs := range shaped {
+		mirrored := 0
+		for _, sub := range subs {
+			if _, ok := main[sub]; ok {
+				mirrored++
+			}
+		}
+		if mirrored < minMirroredPages || mirrored*2 < len(subs) {
+			continue
+		}
+		excluded[prefix+seg+"/"] = struct{}{}
+		if _, version := isVersionSegment(seg); version {
+			versions = append(versions, prefix+seg+"/")
+		} else {
+			locales = append(locales, prefix+seg+"/")
+		}
+	}
+	sort.Strings(versions)
+	sort.Strings(locales)
+
+	for _, p := range paths {
+		dir := ""
+		if rest, ok := strings.CutPrefix(p, prefix); ok {
+			if seg, _, found := strings.Cut(rest, "/"); found {
+				dir = prefix + seg + "/"
+			}
+		}
+		if _, drop := excluded[dir]; !drop {
+			kept = append(kept, p)
+		}
+	}
+	return versions, locales, kept
 }
 
 func hostPaths(seed *url.URL, urls []string) []string {
