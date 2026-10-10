@@ -742,3 +742,52 @@ func TestCrawlerRun_ResumeKeepsEnqueuedDepth(t *testing.T) {
 	}
 	assert.Equal(t, want, got, "resumed crawl must match the uninterrupted baseline, depths included")
 }
+
+func TestCrawlerRun_CancelDuringInitialRobotsFetchReturns(t *testing.T) {
+	robotsRequested := make(chan struct{})
+	var once sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			once.Do(func() { close(robotsRequested) })
+			<-r.Context().Done()
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<html><body><p>Page.</p></body></html>")
+	}))
+	t.Cleanup(server.Close)
+
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	logger := silentLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, false, logger)
+	require.NoError(t, err)
+	defer store.Close()
+	httpClient := fetch.NewClient(appCfg.HTTPClientSettings, logger)
+	fetcher := fetch.NewFetcher(httpClient, appCfg, logger)
+	rateLimiter := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logger)
+	c, err := NewCrawlerWithOptions(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rateLimiter, ctx, cancel, false, nil)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = c.Run(false)
+	}()
+
+	select {
+	case <-robotsRequested:
+	case <-time.After(10 * time.Second):
+		t.Fatal("robots.txt was never requested")
+	}
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after the crawl was cancelled during the initial robots.txt fetch")
+	}
+}
