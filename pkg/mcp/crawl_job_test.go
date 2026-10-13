@@ -57,7 +57,6 @@ func newCrawlJobServer(t *testing.T, siteKey string) (*Server, *config.SiteConfi
 			Timeout:              10 * time.Second,
 			AllowPrivateNetworks: true,
 		},
-		EnableJSONLOutput:   true,
 		JSONLOutputFilename: "pages.jsonl",
 		Sites:               map[string]*config.SiteConfig{siteKey: siteCfg},
 	}
