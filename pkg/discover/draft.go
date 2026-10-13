@@ -65,7 +65,11 @@ func BuildDraft(r *Report, selectorOverride string) *Draft {
 		d.Evidence = append(d.Evidence, fmt.Sprintf("allowed_domain: %s (after redirect from %s)", r.FinalURL.Hostname(), hostOf(r.SeedURL)))
 	}
 	if r.Sitemap.Found {
-		d.Evidence = append(d.Evidence, fmt.Sprintf("allowed_path_prefix: %s covers %d of %d sitemap URLs", r.Scope.Prefix, r.Scope.PrefixCount, r.Scope.TotalCount))
+		covers := fmt.Sprintf("allowed_path_prefix: %s covers %d of %d sitemap URLs", r.Scope.Prefix, r.Scope.PrefixCount, r.Scope.TotalCount)
+		if r.Scope.ExcludedCount > 0 {
+			covers += fmt.Sprintf(", not counting %d in excluded version/locale trees", r.Scope.ExcludedCount)
+		}
+		d.Evidence = append(d.Evidence, covers)
 		d.Evidence = append(d.Evidence, fmt.Sprintf("max_depth: %d from sitemap path depth under the prefix", r.Scope.MaxDepth))
 	} else {
 		d.Evidence = append(d.Evidence, fmt.Sprintf("allowed_path_prefix: %s from the URL path (no sitemap to verify against)", r.Scope.Prefix))
@@ -81,13 +85,13 @@ func BuildDraft(r *Report, selectorOverride string) *Draft {
 	return d
 }
 
-// disallowPatterns excludes sibling version and locale trees that the path
-// prefix does not already fence out, as anchored literal patterns built from
+// disallowPatterns excludes sibling version and locale trees, including those
+// nested inside the path prefix, as anchored literal patterns built from
 // directories actually observed in the sitemap.
 func disallowPatterns(r *Report) []string {
 	var out []string
 	for _, sib := range append(append([]string{}, r.Scope.SiblingVersions...), r.Scope.SiblingLocales...) {
-		if strings.HasPrefix(r.Scope.Prefix, sib) || strings.HasPrefix(sib, r.Scope.Prefix) {
+		if strings.HasPrefix(r.Scope.Prefix, sib) {
 			continue
 		}
 		out = append(out, "^"+regexp.QuoteMeta(sib))

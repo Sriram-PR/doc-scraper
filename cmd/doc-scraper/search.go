@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
@@ -129,7 +130,7 @@ func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout
 	}
 
 	if len(results) == 0 {
-		fmt.Fprintf(stdout, "No matches for %q. Crawl a site first, or broaden the query.\n", query)
+		explainNoMatches(stdout, idx, appCfg, query, siteKey)
 		return 0
 	}
 	for i, r := range results {
@@ -144,4 +145,50 @@ func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout
 		fmt.Fprintf(stdout, "%2d. %s  (%s)\n    %s\n    %s\n", i+1, title, r.SiteKey, link, r.Snippet)
 	}
 	return 0
+}
+
+// explainNoMatches separates "the query matched nothing" from "there was nothing
+// to search": a site without chunks either opted out of JSONL, which is never
+// indexed, or has not been crawled yet.
+func explainNoMatches(w io.Writer, idx *index.Index, appCfg *config.AppConfig, query, siteKey string) {
+	keys := []string{siteKey}
+	if siteKey == "" {
+		keys = config.GetAllSiteKeys(appCfg)
+	}
+	var off, uncrawled []string
+	for _, key := range keys {
+		if has, err := idx.SiteHasChunks(context.Background(), key); err != nil || has {
+			continue
+		}
+		if config.GetEffectiveEnableJSONLOutput(appCfg.Sites[key], appCfg) {
+			uncrawled = append(uncrawled, key)
+		} else {
+			off = append(off, key)
+		}
+	}
+
+	if siteKey != "" {
+		switch {
+		case len(off) > 0:
+			fmt.Fprintf(w, "Site '%s' is not indexed: enable_jsonl_output is false for it, and search reads the JSONL corpus. "+
+				"Remove the setting (it defaults to true), then run doc-scraper crawl -site %s.\n", siteKey, siteKey)
+		case len(uncrawled) > 0:
+			fmt.Fprintf(w, "Site '%s' has no indexed pages. Run doc-scraper crawl -site %s first.\n", siteKey, siteKey)
+		default:
+			fmt.Fprintf(w, "No matches for %q in %s. Broaden the query.\n", query, siteKey)
+		}
+		return
+	}
+
+	if len(off)+len(uncrawled) == len(keys) {
+		fmt.Fprintln(w, "No site is indexed yet. Run doc-scraper crawl first.")
+	} else {
+		fmt.Fprintf(w, "No matches for %q. Broaden the query.\n", query)
+	}
+	if len(off) > 0 {
+		fmt.Fprintf(w, "Not searched, enable_jsonl_output is false: %s. Remove the setting (it defaults to true) and re-crawl them.\n", strings.Join(off, ", "))
+	}
+	if len(uncrawled) > 0 {
+		fmt.Fprintf(w, "Not searched, not crawled yet: %s.\n", strings.Join(uncrawled, ", "))
+	}
 }

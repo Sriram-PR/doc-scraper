@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -228,4 +229,27 @@ func TestStdinIsTerminal_DevNull(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = f.Close() })
 	assert.False(t, stdinIsTerminal(f), "/dev/null must not count as a confirmation terminal")
+}
+
+func TestHasNavResidue(t *testing.T) {
+	prose := strings.Repeat("Real explanatory prose about the feature. ", 4)
+	cases := []struct {
+		name string
+		html string
+		want bool
+	}{
+		{"content callout with a link", `<aside class="note">Note: ` + prose + `<a href="/x">see this</a></aside>`, false},
+		{"starlight tip", `<aside class="starlight-aside starlight-aside--tip"><p>Tip</p>` + prose + `</aside>`, false},
+		{"nav element", `<nav><a href="/a">A</a><a href="/b">B</a></nav>`, true},
+		{"role navigation", `<div role="navigation"><a href="/a">A</a></div>`, true},
+		{"link-list sidebar", `<div class="sidebar"><a href="/a">Install</a> <a href="/b">Configure</a> <a href="/c">Deploy</a></div>`, true},
+		{"aside wrapping a nav", `<aside class="md-source-file">2025-11-07 <nav><a href="/u">+9</a></nav></aside>`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := goquery.NewDocumentFromReader(strings.NewReader("<html><body><main><p>" + prose + "</p>" + tc.html + "</main></body></html>"))
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, hasNavResidue(doc.Find("main")))
+		})
+	}
 }

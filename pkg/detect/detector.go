@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/html"
 )
 
 // Framework identifies a detected documentation generator or hosting platform.
@@ -185,9 +186,10 @@ func DetectPage(doc *goquery.Document) DetectionResult {
 }
 
 type pageFacts struct {
-	generators []string
-	assets     []string
-	bodyChars  int
+	generators   []string
+	headComments []string
+	assets       []string
+	bodyChars    int
 	// hasShellEvidence marks a page that could be rendering client-side: a
 	// noscript fallback, an SPA mount point, or scripts on an almost textless body.
 	hasShellEvidence bool
@@ -198,6 +200,11 @@ func collectPageFacts(doc *goquery.Document) pageFacts {
 	doc.Find(`meta[name="generator"]`).Each(func(_ int, s *goquery.Selection) {
 		if c, ok := s.Attr("content"); ok {
 			f.generators = append(f.generators, strings.ToLower(strings.TrimSpace(c)))
+		}
+	})
+	doc.Find("head").Contents().Each(func(_ int, s *goquery.Selection) {
+		if n := s.Get(0); n.Type == html.CommentNode {
+			f.headComments = append(f.headComments, strings.ToLower(strings.TrimSpace(n.Data)))
 		}
 	})
 	doc.Find("script[src]").Each(func(_ int, s *goquery.Selection) {
@@ -219,6 +226,15 @@ func collectPageFacts(doc *goquery.Document) pageFacts {
 func (f pageFacts) generatorContains(sub string) bool {
 	for _, g := range f.generators {
 		if strings.Contains(g, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func (f pageFacts) headCommentContains(sub string) bool {
+	for _, c := range f.headComments {
+		if strings.Contains(c, sub) {
 			return true
 		}
 	}
@@ -254,11 +270,8 @@ func scoreSignature(doc *goquery.Document, sig *FrameworkSignature, facts pageFa
 		}
 	}
 	score := 0
-	for _, g := range sig.GenContains {
-		if facts.generatorContains(g) {
-			score += 4
-			break
-		}
+	if sig.hasGeneratorSignal(facts) {
+		score += 4
 	}
 	for _, g := range sig.GenGates {
 		if facts.generatorContains(g) {
@@ -281,11 +294,23 @@ func scoreSignature(doc *goquery.Document, sig *FrameworkSignature, facts pageFa
 	return score
 }
 
-func scoreSource(sig *FrameworkSignature, facts pageFacts) Source {
+func (sig *FrameworkSignature) hasGeneratorSignal(facts pageFacts) bool {
 	for _, g := range sig.GenContains {
 		if facts.generatorContains(g) {
-			return SourceGenerator
+			return true
 		}
+	}
+	for _, c := range sig.HeadComment {
+		if facts.headCommentContains(c) {
+			return true
+		}
+	}
+	return false
+}
+
+func scoreSource(sig *FrameworkSignature, facts pageFacts) Source {
+	if sig.hasGeneratorSignal(facts) {
+		return SourceGenerator
 	}
 	for _, q := range sig.DOMAny {
 		if q != "" {

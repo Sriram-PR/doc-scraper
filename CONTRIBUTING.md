@@ -62,7 +62,7 @@ Every change needs tests, and a bug fix needs a test that fails without the fix.
 - **testify for new tests.** Use `require` for preconditions that make the rest of the test meaningless, `assert` for the checks themselves. Some older files still use plain `t.Errorf`; convert a file only when you are already changing it.
 - **No sleeping to synchronize.** Wait on a channel, a `sync.WaitGroup`, or a deadline-bounded poll instead of `time.Sleep` followed by an assertion. Sleeps that pass locally fail on a loaded CI runner.
 - **Race-clean on every OS.** CI runs `go test -race ./...` on Linux, macOS, and Windows. Windows differs most: it refuses to rename over an open file, and its coarser clock makes timestamps tie.
-- **Smoke test.** `cmd/doc-scraper/smoke_test.go` builds the real binary and checks the MCP stdio handshake. If you add, rename, or remove an MCP tool, update the tool list in `mcp-server -h` (`cmd/doc-scraper/mcp.go`) and the tool table in `README.md`; the smoke test fails when the three disagree. `go test -short` skips it.
+- **Smoke test.** `cmd/doc-scraper/smoke_test.go` builds the real binary and checks the MCP stdio handshake. If you add, rename, or remove an MCP tool, update the tool list in `mcp-server -h` (`cmd/doc-scraper/mcp.go`) and the tool table in `docs/src/content/docs/mcp/tools.md`; the smoke test fails when the three disagree. `go test -short` skips it.
 - **Fuzzing.** Parsers of untrusted input have fuzz targets (`Fuzz*` in `pkg/chunk`, `pkg/config`, `pkg/detect`, `pkg/discover`). CI fuzzes each one weekly; to fuzz locally, `go test ./pkg/discover -run='^$' -fuzz='^FuzzParseRobotsLines$' -fuzztime=30s`.
 
 ### Framework detection changes
@@ -80,7 +80,7 @@ It fetches about 230 labeled documentation sites and prints a per-family scoreca
 - One issue per PR, linked in the description (`Fixes #123`).
 - Run `make check` before pushing. CI must pass on all three operating systems.
 - PRs are squash-merged, so your branch's commit history does not matter. Write the PR title as the final commit message: one line describing the user-visible change, for example `Reject a -sites list with no site keys instead of panicking`.
-- Update `README.md` when you change a flag, config key, MCP tool, or output format.
+- Update the docs site (`docs/src/content/docs/`) when you change a flag, config key, MCP tool, or output format; `go test ./cmd/doc-scraper` fails if the configuration, CLI, MCP tools, or frameworks pages drift from the code.
 
 ## License
 

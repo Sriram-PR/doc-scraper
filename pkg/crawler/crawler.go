@@ -474,11 +474,13 @@ func (c *Crawler) runWaiter(firstValidParsedURL *url.URL, runLog *slog.Logger, w
 	}()
 	go c.reportProgress(runLog, progTicker, progDone)
 
-	if !c.fetchInitialRobots(firstValidParsedURL, runLog) {
-		return
+	if c.fetchInitialRobots(firstValidParsedURL, runLog) {
+		c.queueInitialSitemaps(runLog)
+		c.awaitTasks(runLog)
 	}
-	c.queueInitialSitemaps(runLog)
-	c.awaitTasksAndCloseQueues(runLog)
+	// Workers blocked in Pop only exit once the queue is closed, so it must
+	// close on every path, including cancellation during the robots fetch.
+	c.closeQueues(runLog)
 }
 
 func (c *Crawler) reportProgress(runLog *slog.Logger, progTicker *time.Ticker, progDone chan bool) {
@@ -568,7 +570,7 @@ func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) {
 	}
 }
 
-func (c *Crawler) awaitTasksAndCloseQueues(runLog *slog.Logger) {
+func (c *Crawler) awaitTasks(runLog *slog.Logger) {
 	runLog.Info("Waiter: Waiting for ALL tasks (pages, sitemaps) via WaitGroup...")
 	waitTasksDone := make(chan struct{})
 	go func() { c.wg.Wait(); close(waitTasksDone) }()
@@ -578,7 +580,9 @@ func (c *Crawler) awaitTasksAndCloseQueues(runLog *slog.Logger) {
 	case <-c.crawlCtx.Done():
 		runLog.Warn(fmt.Sprintf("Waiter: Global context cancelled/timed out (%v) while waiting for tasks. Initiating shutdown.", c.crawlCtx.Err()))
 	}
+}
 
+func (c *Crawler) closeQueues(runLog *slog.Logger) {
 	runLog.Info("Waiter: Closing priority queue for pages...")
 	c.pq.Close()
 	runLog.Info("Waiter: Closing sitemap processing queue...")

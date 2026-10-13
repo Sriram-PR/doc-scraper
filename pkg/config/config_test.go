@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func boolPtr(b bool) *bool {
@@ -108,25 +110,31 @@ func TestGetEffectiveEnableJSONLOutput(t *testing.T) {
 		{
 			name:     "site enabled overrides global disabled",
 			siteCfg:  SiteConfig{EnableJSONLOutput: boolPtr(true)},
-			appCfg:   AppConfig{EnableJSONLOutput: false},
+			appCfg:   AppConfig{EnableJSONLOutput: boolPtr(false)},
 			expected: true,
 		},
 		{
 			name:     "site disabled overrides global enabled",
 			siteCfg:  SiteConfig{EnableJSONLOutput: boolPtr(false)},
-			appCfg:   AppConfig{EnableJSONLOutput: true},
+			appCfg:   AppConfig{EnableJSONLOutput: boolPtr(true)},
 			expected: false,
 		},
 		{
 			name:     "site nil uses global enabled",
 			siteCfg:  SiteConfig{EnableJSONLOutput: nil},
-			appCfg:   AppConfig{EnableJSONLOutput: true},
+			appCfg:   AppConfig{EnableJSONLOutput: boolPtr(true)},
+			expected: true,
+		},
+		{
+			name:     "neither set defaults to enabled",
+			siteCfg:  SiteConfig{EnableJSONLOutput: nil},
+			appCfg:   AppConfig{},
 			expected: true,
 		},
 		{
 			name:     "site nil uses global disabled",
 			siteCfg:  SiteConfig{EnableJSONLOutput: nil},
-			appCfg:   AppConfig{EnableJSONLOutput: false},
+			appCfg:   AppConfig{EnableJSONLOutput: boolPtr(false)},
 			expected: false,
 		},
 	}
@@ -170,6 +178,26 @@ func TestGetEffectiveJSONLOutputFilename(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := GetEffectiveJSONLOutputFilename(&tt.siteCfg, &tt.appCfg)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestEnableJSONLOutputDefaultsOnWhenUnset(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		expected bool
+	}{
+		{"key absent", "sites:\n  s:\n    allowed_domain: example.com\n", true},
+		{"global false", "enable_jsonl_output: false\nsites:\n  s:\n    allowed_domain: example.com\n", false},
+		{"site false", "sites:\n  s:\n    allowed_domain: example.com\n    enable_jsonl_output: false\n", false},
+		{"global false, site true", "enable_jsonl_output: false\nsites:\n  s:\n    enable_jsonl_output: true\n", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg AppConfig
+			require.NoError(t, yaml.Unmarshal([]byte(tt.yaml), &cfg))
+			assert.Equal(t, tt.expected, GetEffectiveEnableJSONLOutput(cfg.Sites["s"], &cfg))
 		})
 	}
 }

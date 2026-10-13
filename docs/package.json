@@ -1,0 +1,20 @@
+{
+  "name": "doc-scraper-docs",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "predev": "node scripts/copy-assets.mjs",
+    "dev": "astro dev",
+    "prebuild": "node scripts/copy-assets.mjs",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.42.5",
+    "astro": "7.3.7",
+    "sharp": "0.35.5",
+    "starlight-links-validator": "0.26.0"
+  }
+}

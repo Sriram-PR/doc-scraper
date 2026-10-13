@@ -44,7 +44,7 @@ type AppConfig struct {
 	MaxPageSizeBytes    int64                  `yaml:"max_page_size_bytes,omitempty"` // 0 = 50 MB default
 	HTTPClientSettings  HTTPClientConfig       `yaml:"http_client_settings,omitempty"`
 	Sites               map[string]*SiteConfig `yaml:"sites"`
-	EnableJSONLOutput   bool                   `yaml:"enable_jsonl_output,omitempty"`
+	EnableJSONLOutput   *bool                  `yaml:"enable_jsonl_output,omitempty"` // nil = on; search and history are built from it
 	JSONLOutputFilename string                 `yaml:"jsonl_output_filename,omitempty"`
 	EnableIncremental   bool                   `yaml:"enable_incremental,omitempty"`
 	// CrawlHistoryRetention is the number of past crawls per site kept in the
@@ -114,12 +114,17 @@ func GetEffectiveMaxImageSize(siteCfg *SiteConfig, appCfg *AppConfig) int64 {
 	return appCfg.MaxImageSizeBytes
 }
 
-// GetEffectiveEnableJSONLOutput returns the effective JSONL output setting (site overrides global).
+// GetEffectiveEnableJSONLOutput returns the effective JSONL output setting (site overrides
+// global). It defaults to on because the JSONL is the stored corpus that search, crawl
+// history, llms.txt, and the MCP page tools read.
 func GetEffectiveEnableJSONLOutput(siteCfg *SiteConfig, appCfg *AppConfig) bool {
 	if siteCfg.EnableJSONLOutput != nil {
 		return *siteCfg.EnableJSONLOutput
 	}
-	return appCfg.EnableJSONLOutput
+	if appCfg.EnableJSONLOutput != nil {
+		return *appCfg.EnableJSONLOutput
+	}
+	return true
 }
 
 // GetEffectiveJSONLOutputFilename returns the JSONL output filename (site > global > default).

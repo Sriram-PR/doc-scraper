@@ -955,5 +955,5 @@ func logAppConfig(appCfg *config.AppConfig, log *slog.Logger) {
 	log.Info(fmt.Sprintf("Global Config HTTP Client: Timeout:%v, MaxIdlePerHost:%d, AllowPrivateNetworks:%t",
 		appCfg.HTTPClientSettings.Timeout, appCfg.HTTPClientSettings.MaxIdleConnsPerHost, appCfg.HTTPClientSettings.AllowPrivateNetworks))
 	log.Info(fmt.Sprintf("Global Config JSONL Output: Enabled Globally:%t, Default Global Filename:'%s'",
-		appCfg.EnableJSONLOutput, appCfg.JSONLOutputFilename))
+		config.GetEffectiveEnableJSONLOutput(&config.SiteConfig{}, appCfg), appCfg.JSONLOutputFilename))
 }
