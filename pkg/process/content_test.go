@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 )
@@ -48,12 +50,8 @@ func TestGetOutputPathForURL_RootURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
 			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			if ok != tt.expectedOK {
-				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
-			}
-			if path != tt.expectedPath {
-				t.Errorf("getOutputPathForURL(%q) path = %q, want %q", tt.inputURL, path, tt.expectedPath)
-			}
+			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -102,12 +100,8 @@ func TestGetOutputPathForURL_FileLikeURLs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
 			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			if ok != tt.expectedOK {
-				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
-			}
-			if path != tt.expectedPath {
-				t.Errorf("getOutputPathForURL(%q) path = %q, want %q", tt.inputURL, path, tt.expectedPath)
-			}
+			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -156,12 +150,8 @@ func TestGetOutputPathForURL_DirectoryLikeURLs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
 			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			if ok != tt.expectedOK {
-				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
-			}
-			if path != tt.expectedPath {
-				t.Errorf("getOutputPathForURL(%q) path = %q, want %q", tt.inputURL, path, tt.expectedPath)
-			}
+			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -210,11 +200,9 @@ func TestGetOutputPathForURL_ScopeViolations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
 			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			if ok != tt.expectedOK {
-				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
-			}
-			if ok && path != "" {
-				t.Errorf("getOutputPathForURL(%q) returned path %q for out-of-scope URL", tt.inputURL, path)
+			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
+			if ok {
+				assert.Empty(t, path, "getOutputPathForURL(%q) returned a path for out-of-scope URL", tt.inputURL)
 			}
 		})
 	}
@@ -252,12 +240,8 @@ func TestGetOutputPathForURL_HTTPScheme(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
 			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			if ok != tt.expectedOK {
-				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
-			}
-			if path != tt.expectedPath {
-				t.Errorf("getOutputPathForURL(%q) path = %q, want %q", tt.inputURL, path, tt.expectedPath)
-			}
+			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -296,12 +280,8 @@ func TestGetOutputPathForURL_PathPrefixVariations(t *testing.T) {
 			}
 			parsed, _ := url.Parse(tt.inputURL)
 			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, "/output")
-			if ok != tt.expectedOK {
-				t.Errorf("getOutputPathForURL(%q) ok = %v, want %v", tt.inputURL, ok, tt.expectedOK)
-			}
-			if path != tt.expectedPath {
-				t.Errorf("getOutputPathForURL(%q) path = %q, want %q", tt.inputURL, path, tt.expectedPath)
-			}
+			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -337,9 +317,8 @@ func TestGetOutputPathForURL_PathTraversal(t *testing.T) {
 			if ok {
 				cleanedDir := filepath.Clean(siteOutputDir)
 				cleanedFull := filepath.Clean(gotPath)
-				if cleanedFull != cleanedDir && !strings.HasPrefix(cleanedFull, cleanedDir+string(filepath.Separator)) {
-					t.Errorf("getOutputPathForURL(%q) returned escape path %q (siteOutputDir=%q)", tt.inputURL, gotPath, siteOutputDir)
-				}
+				assert.True(t, cleanedFull == cleanedDir || strings.HasPrefix(cleanedFull, cleanedDir+string(filepath.Separator)),
+					"getOutputPathForURL(%q) returned escape path %q (siteOutputDir=%q)", tt.inputURL, gotPath, siteOutputDir)
 			}
 		})
 	}
@@ -349,16 +328,12 @@ func TestGetOutputPathForURL_PathTraversal(t *testing.T) {
 func cleanedHeading(t *testing.T, fragment string) string {
 	t.Helper()
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader("<body>" + fragment + "</body>"))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
+	require.NoError(t, err, "parse")
 	cp := testContentProcessor()
 	body := doc.Find("body")
 	cp.cleanupHTML(body)
 	html, err := body.Html()
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
+	require.NoError(t, err, "render")
 	return strings.TrimSpace(html)
 }
 
@@ -394,12 +369,8 @@ func TestCleanupHTML_UnwrapsHeadingSelfAnchors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := cleanedHeading(t, tt.fragment)
-			if strings.Contains(got, "<a") {
-				t.Errorf("anchor survived in %q", got)
-			}
-			if !strings.Contains(got, tt.wantText) {
-				t.Errorf("heading text %q lost; got %q", tt.wantText, got)
-			}
+			assert.NotContains(t, got, "<a", "anchor survived")
+			assert.Contains(t, got, tt.wantText, "heading text lost")
 		})
 	}
 }
@@ -427,9 +398,7 @@ func TestCleanupHTML_KeepsNonSelfHeadingLinks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := cleanedHeading(t, tt.fragment)
-			if !strings.Contains(got, "<a") {
-				t.Errorf("legitimate heading link was stripped: %q", got)
-			}
+			assert.Contains(t, got, "<a", "legitimate heading link was stripped")
 		})
 	}
 }
@@ -438,24 +407,16 @@ func TestCleanupHTML_KeepsNonSelfHeadingLinks(t *testing.T) {
 // a self-anchor, so it must survive.
 func TestCleanupHTML_KeepsPartialHeadingAnchor(t *testing.T) {
 	got := cleanedHeading(t, `<h2>See also <a href="#other">the other section</a></h2>`)
-	if !strings.Contains(got, "<a") {
-		t.Errorf("partial in-page heading anchor was stripped: %q", got)
-	}
-	if !strings.Contains(got, "See also") {
-		t.Errorf("heading text lost: %q", got)
-	}
+	assert.Contains(t, got, "<a", "partial in-page heading anchor was stripped")
+	assert.Contains(t, got, "See also", "heading text lost")
 }
 
 // Docusaurus hash-links render as a zero-width space, so they are invisible but
 // not whitespace.
 func TestCleanupHTML_RemovesZeroWidthAnchors(t *testing.T) {
 	got := cleanedHeading(t, "<h2 id=\"install\">Install<a class=\"hash-link\" href=\"#install\">\u200b</a></h2>")
-	if strings.Contains(got, "<a") {
-		t.Errorf("zero-width hash-link survived: %q", got)
-	}
-	if !strings.Contains(got, "Install") {
-		t.Errorf("heading text lost: %q", got)
-	}
+	assert.NotContains(t, got, "<a", "zero-width hash-link survived")
+	assert.Contains(t, got, "Install", "heading text lost")
 }
 
 func TestCleanupHTML_RemovesPermalinkAnchors(t *testing.T) {
@@ -471,12 +432,8 @@ func TestCleanupHTML_RemovesPermalinkAnchors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := cleanedHeading(t, tt.fragment)
-			if strings.Contains(got, "<a") {
-				t.Errorf("permalink anchor survived: %q", got)
-			}
-			if !strings.Contains(got, "Title") {
-				t.Errorf("heading text lost: %q", got)
-			}
+			assert.NotContains(t, got, "<a", "permalink anchor survived")
+			assert.Contains(t, got, "Title", "heading text lost")
 		})
 	}
 }
@@ -484,17 +441,13 @@ func TestCleanupHTML_RemovesPermalinkAnchors(t *testing.T) {
 // Links in body copy are untouched by the heading rule.
 func TestCleanupHTML_LeavesBodyLinksAlone(t *testing.T) {
 	got := cleanedHeading(t, `<h2 id="x"><a href="#x">Heading</a></h2><p>See <a href="#x">this section</a> and <a href="/other">other</a>.</p>`)
-	if strings.Count(got, "<a") != 2 {
-		t.Errorf("expected the two body links to survive, got %q", got)
-	}
+	assert.Equal(t, 2, strings.Count(got, "<a"), "expected the two body links to survive, got %q", got)
 }
 
 func selectMainContentFixture(t *testing.T, html, selector string) (*goquery.Selection, string, error) {
 	t.Helper()
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		t.Fatalf("parse fixture: %v", err)
-	}
+	require.NoError(t, err, "parse fixture")
 	u, _ := url.Parse("https://docs.example.com/page/")
 	cp := NewContentProcessor(nil, &config.AppConfig{}, silentLog())
 	return cp.SelectMainContent(doc, u, &config.SiteConfig{ContentSelector: selector}, silentLog())
@@ -520,12 +473,8 @@ func TestHasExtractableContent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			doc, err := goquery.NewDocumentFromReader(strings.NewReader(tt.html))
-			if err != nil {
-				t.Fatalf("parse: %v", err)
-			}
-			if got := hasExtractableContent(doc.Find("article")); got != tt.want {
-				t.Errorf("hasExtractableContent() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err, "parse")
+			assert.Equal(t, tt.want, hasExtractableContent(doc.Find("article")))
 		})
 	}
 }
@@ -540,21 +489,15 @@ func TestSelectMainContent_ExplicitSelectorMatchedButEmpty(t *testing.T) {
 	</body></html>`
 
 	_, _, err := selectMainContentFixture(t, html, "article.md-content__inner")
-	if err == nil {
-		t.Fatal("expected an error for a matched-but-empty selector, got nil (page would be saved blank)")
-	}
-	if !strings.Contains(err.Error(), "yielded no content") {
-		t.Errorf("error should name the empty-content condition, got: %v", err)
-	}
+	require.Error(t, err, "expected an error for a matched-but-empty selector (page would be saved blank)")
+	require.ErrorContains(t, err, "yielded no content", "error should name the empty-content condition")
 }
 
 func TestSelectMainContent_ExplicitSelectorNotFoundStillErrors(t *testing.T) {
 	html := `<html><head><title>T</title></head><body><div class="other">x</div></body></html>`
 
 	_, _, err := selectMainContentFixture(t, html, "article.md-content__inner")
-	if err == nil {
-		t.Fatal("expected an error when the selector matches nothing")
-	}
+	require.Error(t, err, "expected an error when the selector matches nothing")
 }
 
 func TestSelectMainContent_ExplicitSelectorWithContentSucceeds(t *testing.T) {
@@ -563,15 +506,9 @@ func TestSelectMainContent_ExplicitSelectorWithContentSucceeds(t *testing.T) {
 	</body></html>`
 
 	content, title, err := selectMainContentFixture(t, html, "article.md-content__inner")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if title != "T" {
-		t.Errorf("title = %q, want %q", title, "T")
-	}
-	if !strings.Contains(content.Text(), "max_retries") {
-		t.Errorf("content missing real body, got %q", content.Text())
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "T", title)
+	assert.Contains(t, content.Text(), "max_retries", "content missing real body")
 }
 
 // An image-only content region is legitimate and must survive the empty check.
@@ -581,12 +518,8 @@ func TestSelectMainContent_ExplicitSelectorImageOnlySurvives(t *testing.T) {
 	</body></html>`
 
 	content, _, err := selectMainContentFixture(t, html, "article.md-content__inner")
-	if err != nil {
-		t.Fatalf("image-only content region must not be treated as empty: %v", err)
-	}
-	if content.Find("img").Length() != 1 {
-		t.Error("expected the image to be preserved")
-	}
+	require.NoError(t, err, "image-only content region must not be treated as empty")
+	assert.Equal(t, 1, content.Find("img").Length(), "expected the image to be preserved")
 }
 
 // Auto mode must route a matched-but-empty container to readability rather than
@@ -599,10 +532,6 @@ func TestSelectMainContent_AutoMatchedButEmptyFallsBackToReadability(t *testing.
 	</body></html>`
 
 	content, _, err := selectMainContentFixture(t, html, "auto")
-	if err != nil {
-		t.Fatalf("expected readability fallback to recover content, got: %v", err)
-	}
-	if !strings.Contains(content.Text(), "Readability needs a decent block") {
-		t.Errorf("fallback did not return the prose block, got %q", content.Text())
-	}
+	require.NoError(t, err, "expected readability fallback to recover content")
+	assert.Contains(t, content.Text(), "Readability needs a decent block", "fallback did not return the prose block")
 }

@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
@@ -77,13 +79,9 @@ func runExtract(t *testing.T, html string, pageURL string, siteCfg *config.SiteC
 	t.Helper()
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		t.Fatalf("parse html: %v", err)
-	}
+	require.NoError(t, err, "parse html")
 	finalURL, err := url.Parse(pageURL)
-	if err != nil {
-		t.Fatalf("parse url: %v", err)
-	}
+	require.NoError(t, err, "parse url")
 
 	pq := queue.NewThreadSafePriorityQueue(silentLog())
 	lp := NewLinkProcessor(store, pq, disallowed, silentLog())
@@ -126,12 +124,8 @@ func TestIsResourceURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			u, err := url.Parse("https://docs.example.com" + tt.path)
-			if err != nil {
-				t.Fatalf("parse: %v", err)
-			}
-			if got := isResourceURL(u); got != tt.want {
-				t.Errorf("isResourceURL(%q) = %v, want %v", tt.path, got, tt.want)
-			}
+			require.NoError(t, err, "parse")
+			assert.Equal(t, tt.want, isResourceURL(u), "isResourceURL(%q)", tt.path)
 		})
 	}
 }
@@ -145,21 +139,15 @@ func TestExtractAndQueueLinks_QueuesInScopeLinks(t *testing.T) {
 
 	store := newFakePageStore()
 	n, got, err := runExtract(t, html, "https://docs.example.com/guide/", baseSiteCfg(), store, 0, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 3 {
-		t.Fatalf("queued %d links, want 3 (got %v)", n, got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 3, n, "queued links (got %v)", got)
 	want := []string{
 		"https://docs.example.com/guide/a.html",
 		"https://docs.example.com/guide/b.html",
 		"https://docs.example.com/guide/c.html",
 	}
 	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("queued[%d] = %q, want %q", i, got[i], want[i])
-		}
+		assert.Equal(t, want[i], got[i], "queued[%d]", i)
 	}
 }
 
@@ -180,12 +168,8 @@ func TestExtractAndQueueLinks_FiltersOutOfScope(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := newFakePageStore()
 			n, _, err := runExtract(t, "<body>"+tt.html+"</body>", "https://docs.example.com/guide/", baseSiteCfg(), store, 0, nil)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if n != 0 {
-				t.Errorf("queued %d links, want 0", n)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, 0, n, "queued links")
 		})
 	}
 }
@@ -201,12 +185,9 @@ func TestExtractAndQueueLinks_PathPrefixFilter(t *testing.T) {
 
 	store := newFakePageStore()
 	n, got, err := runExtract(t, html, "https://docs.example.com/guide/", siteCfg, store, 0, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 1 || got[0] != "https://docs.example.com/guide/in.html" {
-		t.Errorf("queued %v (n=%d), want only the /guide/ link", got, n)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "want only the /guide/ link")
+	assert.Equal(t, []string{"https://docs.example.com/guide/in.html"}, got, "want only the /guide/ link")
 }
 
 func TestExtractAndQueueLinks_DisallowedPatterns(t *testing.T) {
@@ -219,12 +200,9 @@ func TestExtractAndQueueLinks_DisallowedPatterns(t *testing.T) {
 
 	store := newFakePageStore()
 	n, got, err := runExtract(t, html, "https://docs.example.com/guide/", baseSiteCfg(), store, 0, disallowed)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 1 || got[0] != "https://docs.example.com/guide/keep.html" {
-		t.Errorf("queued %v (n=%d), want only keep.html", got, n)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "want only keep.html")
+	assert.Equal(t, []string{"https://docs.example.com/guide/keep.html"}, got, "want only keep.html")
 }
 
 func TestExtractAndQueueLinks_MaxDepth(t *testing.T) {
@@ -250,12 +228,8 @@ func TestExtractAndQueueLinks_MaxDepth(t *testing.T) {
 
 			store := newFakePageStore()
 			n, _, err := runExtract(t, html, "https://docs.example.com/guide/", siteCfg, store, tt.currentDepth, nil)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if n != tt.wantQueued {
-				t.Errorf("queued %d, want %d", n, tt.wantQueued)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantQueued, n, "queued")
 		})
 	}
 }
@@ -273,23 +247,16 @@ func TestExtractAndQueueLinks_RespectNofollow(t *testing.T) {
 
 		store := newFakePageStore()
 		n, got, err := runExtract(t, html, "https://docs.example.com/guide/", siteCfg, store, 0, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if n != 1 || got[0] != "https://docs.example.com/guide/plain.html" {
-			t.Errorf("queued %v (n=%d), want only plain.html", got, n)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, 1, n, "want only plain.html")
+		assert.Equal(t, []string{"https://docs.example.com/guide/plain.html"}, got, "want only plain.html")
 	})
 
 	t.Run("Disabled", func(t *testing.T) {
 		store := newFakePageStore()
 		n, _, err := runExtract(t, html, "https://docs.example.com/guide/", baseSiteCfg(), store, 0, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if n != 3 {
-			t.Errorf("queued %d, want 3 when respect_nofollow is off", n)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, 3, n, "queued count when respect_nofollow is off")
 	})
 }
 
@@ -304,15 +271,9 @@ func TestExtractAndQueueLinks_NormalizesFragmentsBeforeDedup(t *testing.T) {
 
 	store := newFakePageStore()
 	n, got, err := runExtract(t, html, "https://docs.example.com/guide/", baseSiteCfg(), store, 0, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 1 {
-		t.Fatalf("queued %d links, want 1 (got %v)", n, got)
-	}
-	if strings.Contains(got[0], "#") {
-		t.Errorf("queued URL %q still carries a fragment", got[0])
-	}
+	require.NoError(t, err)
+	require.Equal(t, 1, n, "queued links (got %v)", got)
+	assert.NotContains(t, got[0], "#", "queued URL still carries a fragment")
 }
 
 func TestExtractAndQueueLinks_SkipsAlreadyVisited(t *testing.T) {
@@ -325,15 +286,10 @@ func TestExtractAndQueueLinks_SkipsAlreadyVisited(t *testing.T) {
 	store.seen["https://docs.example.com/guide/old.html"] = true
 
 	n, got, err := runExtract(t, html, "https://docs.example.com/guide/", baseSiteCfg(), store, 0, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 1 || got[0] != "https://docs.example.com/guide/new.html" {
-		t.Errorf("queued %v (n=%d), want only new.html", got, n)
-	}
-	if len(store.marked) != 2 {
-		t.Errorf("MarkPageVisited called %d times, want 2", len(store.marked))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "want only new.html")
+	assert.Equal(t, []string{"https://docs.example.com/guide/new.html"}, got, "want only new.html")
+	assert.Len(t, store.marked, 2, "MarkPageVisited calls")
 }
 
 // A DB failure on one link must not abort the others, and the first error is returned.
@@ -348,15 +304,9 @@ func TestExtractAndQueueLinks_DBErrorIsNonFatal(t *testing.T) {
 	store.failURLs["https://docs.example.com/guide/bad.html"] = true
 
 	n, got, err := runExtract(t, html, "https://docs.example.com/guide/", baseSiteCfg(), store, 0, nil)
-	if err == nil {
-		t.Fatal("expected a DB error to be returned")
-	}
-	if !errors.Is(err, utils.ErrDatabase) {
-		t.Errorf("error = %v, want wrapped ErrDatabase", err)
-	}
-	if n != 2 {
-		t.Errorf("queued %d links, want 2 (got %v)", n, got)
-	}
+	require.Error(t, err, "expected a DB error to be returned")
+	require.ErrorIs(t, err, utils.ErrDatabase)
+	assert.Equal(t, 2, n, "queued links (got %v)", got)
 }
 
 func TestExtractAndQueueLinks_UsesLinkExtractionSelectors(t *testing.T) {
@@ -372,28 +322,18 @@ func TestExtractAndQueueLinks_UsesLinkExtractionSelectors(t *testing.T) {
 
 		store := newFakePageStore()
 		n, got, err := runExtract(t, html, "https://docs.example.com/guide/", siteCfg, store, 0, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if n != 2 {
-			t.Fatalf("queued %d links, want 2 (got %v)", n, got)
-		}
+		require.NoError(t, err)
+		require.Equal(t, 2, n, "queued links (got %v)", got)
 		for _, u := range got {
-			if strings.Contains(u, "footer") {
-				t.Errorf("footer link %q should not be queued", u)
-			}
+			assert.NotContains(t, u, "footer", "footer link should not be queued")
 		}
 	})
 
 	t.Run("DefaultsToBody", func(t *testing.T) {
 		store := newFakePageStore()
 		n, _, err := runExtract(t, html, "https://docs.example.com/guide/", baseSiteCfg(), store, 0, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if n != 3 {
-			t.Errorf("queued %d links, want all 3 when no selectors configured", n)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, 3, n, "queued links when no selectors configured")
 	})
 }
 
@@ -406,21 +346,15 @@ func TestExtractAndQueueLinks_DedupesAcrossOverlappingSelectors(t *testing.T) {
 
 	store := newFakePageStore()
 	n, got, err := runExtract(t, html, "https://docs.example.com/guide/", siteCfg, store, 0, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 1 {
-		t.Errorf("queued %d links, want 1 (got %v)", n, got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "queued links (got %v)", got)
 }
 
 func TestExtractAndQueueLinks_QueuedItemsCarryNextDepth(t *testing.T) {
 	html := `<body><a href="/guide/next.html">next</a></body>`
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		t.Fatalf("parse html: %v", err)
-	}
+	require.NoError(t, err, "parse html")
 	finalURL, _ := url.Parse("https://docs.example.com/guide/")
 
 	pq := queue.NewThreadSafePriorityQueue(silentLog())
@@ -428,18 +362,12 @@ func TestExtractAndQueueLinks_QueuedItemsCarryNextDepth(t *testing.T) {
 
 	var wg sync.WaitGroup
 	n, err := lp.ExtractAndQueueLinks(doc, finalURL, 3, baseSiteCfg(), &wg, silentLog())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	for range n {
 		wg.Done()
 	}
 
 	item, ok := pq.Pop()
-	if !ok {
-		t.Fatal("expected a queued item")
-	}
-	if item.Depth != 4 {
-		t.Errorf("queued item depth = %d, want 4 (currentDepth+1)", item.Depth)
-	}
+	require.True(t, ok, "expected a queued item")
+	assert.Equal(t, 4, item.Depth, "queued item depth (currentDepth+1)")
 }
