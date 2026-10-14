@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -426,6 +427,100 @@ func TestCrawlerRun_DisallowedPathPatterns(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(outDir, "secret.md"))
 
 	assert.False(t, rec.wasRequested("/docs/secret.html"), "disallowed-pattern link must not be fetched")
+}
+
+// noindexPages mirrors mdBook: print.html repeats the chapters, is marked
+// noindex, and is the only route to one page.
+func noindexPages(robots string) map[string]string {
+	return map[string]string{
+		"/docs/index.html": `<html><head><title>Index</title></head><body>
+			<a href="/docs/print.html">Print</a></body></html>`,
+		"/docs/print.html": `<html><head><title>Print</title><meta name="robots" content="` + robots + `"></head><body>
+			<p>Every chapter again.</p><a href="/docs/only-from-print.html">Only here</a></body></html>`,
+		"/docs/only-from-print.html": `<html><head><title>Only</title></head><body>Reached via print.</body></html>`,
+	}
+}
+
+func jsonlHasURL(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, u string) bool {
+	t.Helper()
+	for _, line := range readJSONLLines(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "pages.jsonl")) {
+		var p models.PageJSONL
+		require.NoError(t, json.Unmarshal([]byte(line), &p))
+		if p.RecordType == models.RecordTypePage && p.URL == u {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCrawlerRun_NoindexPageNotSavedButFollowed(t *testing.T) {
+	server, rec := newDocServer(t, noindexPages("noindex"))
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	assert.True(t, rec.wasRequested("/docs/print.html"))
+	assert.NoFileExists(t, filepath.Join(outDir, "print.md"), "noindex page must not be saved")
+	assert.False(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/print.html"), "noindex page must not reach the JSONL")
+	assert.FileExists(t, filepath.Join(outDir, "only-from-print.md"), "links on a noindex page are still followed")
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/only-from-print.html"))
+}
+
+func TestCrawlerRun_NoindexFromHeader(t *testing.T) {
+	pages := noindexPages("all")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := pages[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Path == "/docs/print.html" {
+			w.Header().Set("X-Robots-Tag", "noindex")
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(srv, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	assert.NoFileExists(t, filepath.Join(outDir, "print.md"))
+	assert.FileExists(t, filepath.Join(outDir, "only-from-print.md"))
+}
+
+func TestCrawlerRun_NoindexNofollow(t *testing.T) {
+	for _, respect := range []bool{false, true} {
+		t.Run(fmt.Sprintf("respect_nofollow=%v", respect), func(t *testing.T) {
+			server, rec := newDocServer(t, noindexPages("noindex, nofollow"))
+			appCfg := newTestAppConfig(t)
+			siteCfg := baseSiteConfig(server, "/docs/index.html")
+			siteCfg.RespectNofollow = respect
+
+			require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+			assert.NoFileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "print.md"))
+			assert.Equal(t, !respect, rec.wasRequested("/docs/only-from-print.html"),
+				"meta nofollow stops link following only when respect_nofollow is set")
+		})
+	}
+}
+
+func TestCrawlerRun_RespectNoindexFalseSavesPage(t *testing.T) {
+	server, _ := newDocServer(t, noindexPages("noindex"))
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	off := false
+	siteCfg.RespectNoindex = &off
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "print.md"))
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/print.html"))
 }
 
 // TestCrawlerRun_FrontmatterAndTables verifies that every saved .md file carries

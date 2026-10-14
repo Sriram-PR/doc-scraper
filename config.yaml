@@ -71,6 +71,7 @@ sites:
     max_depth: 2
     delay_per_host: 500ms           # Polite crawling
     respect_nofollow: true
+    respect_noindex: true           # Skip pages marked noindex (default)
 
     # Image handling: opt in to downloading images for this site
     skip_images: false

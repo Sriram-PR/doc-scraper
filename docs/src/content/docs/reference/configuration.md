@@ -120,7 +120,8 @@ Each entry under `sites:` accepts these keys.
 | `content_selector` | String | CSS selector for main content extraction, or `"auto"` for automatic detection | required |
 | `link_extraction_selectors` | Array | CSS selectors for additional link extraction areas | |
 | `disallowed_path_patterns` | Array | Regex patterns for URLs to skip | |
-| `respect_nofollow` | Boolean | Whether to respect `rel="nofollow"` links | `false` |
+| `respect_nofollow` | Boolean | Whether to respect `rel="nofollow"` links and pages marked `nofollow` by `<meta name="robots">` or `X-Robots-Tag` | `false` |
+| `respect_noindex` | Boolean | Skip saving pages marked `noindex` by `<meta name="robots">` or `X-Robots-Tag` (such as mdBook's `print.html`); their links are still followed. Set `false` for sites that mark every page `noindex` | `true` |
 | `user_agent` | String | Override the global user agent for this site | `default_user_agent` |
 | `delay_per_host` | Duration | Override the global delay setting for this site | `default_delay_per_host` |
 | `max_depth` | Integer | Exclusive upper bound on crawl depth from start URLs. Start pages are depth 0, so `1` crawls only the start pages, `2` adds their directly-linked pages, and so on. `0` = unlimited. URLs discovered from a `sitemap.xml` are seeded at depth 1 (one hop from the site root), so they are still bounded by `max_depth`: `max_depth: 1` stays start-only and skips sitemap expansion | `0` (unlimited) |

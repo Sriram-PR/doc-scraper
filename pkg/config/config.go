@@ -11,6 +11,7 @@ type SiteConfig struct {
 	LinkExtractionSelectors []string      `yaml:"link_extraction_selectors,omitempty"`
 	DisallowedPathPatterns  []string      `yaml:"disallowed_path_patterns,omitempty"`
 	RespectNofollow         bool          `yaml:"respect_nofollow,omitempty"`
+	RespectNoindex          *bool         `yaml:"respect_noindex,omitempty"` // nil = respect
 	UserAgent               string        `yaml:"user_agent,omitempty"`
 	DelayPerHost            time.Duration `yaml:"delay_per_host,omitempty"`
 	// MaxDepth is the exclusive upper bound on crawl depth. Seed pages are
@@ -154,6 +155,7 @@ type ResolvedSiteConfig struct {
 	MaxImageSizeBytes   int64
 	SkipImages          bool
 	EnableJSONLOutput   bool
+	RespectNoindex      bool
 }
 
 // NewResolvedSiteConfig resolves all effective configuration values for a site at crawl start.
@@ -166,5 +168,6 @@ func NewResolvedSiteConfig(siteCfg *SiteConfig, appCfg *AppConfig) *ResolvedSite
 		MaxImageSizeBytes:   GetEffectiveMaxImageSize(siteCfg, appCfg),
 		SkipImages:          GetEffectiveSkipImages(siteCfg, appCfg),
 		EnableJSONLOutput:   GetEffectiveEnableJSONLOutput(siteCfg, appCfg),
+		RespectNoindex:      siteCfg.RespectNoindex == nil || *siteCfg.RespectNoindex,
 	}
 }

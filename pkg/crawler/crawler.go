@@ -866,6 +866,22 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		return
 	}
 
+	// Checked before content selection so a noindex page (mdBook's print.html
+	// repeats every chapter) never seeds the selector cache or the corpus. No
+	// content hash is recorded, so turning respect_noindex off later reprocesses it.
+	if noindex, nofollow := process.RobotsDirectives(originalDoc, resp.Header); noindex && c.resolved.RespectNoindex {
+		cleanupResources()
+		if nofollow && c.siteCfg.RespectNofollow {
+			taskLog.Info("Page is marked noindex, nofollow; not saved, links not followed")
+			return
+		}
+		taskLog.Info("Page is marked noindex; not saved, following its links")
+		if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
+			taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
+		}
+		return
+	}
+
 	mainContent, extractedTitle, selectErr := c.contentProcessor.SelectMainContent(originalDoc, finalURL, c.siteCfg, taskLog)
 	if handleTaskError(selectErr) {
 		return
