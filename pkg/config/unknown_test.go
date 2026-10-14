@@ -1,8 +1,9 @@
 package config
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestUnknownKeys(t *testing.T) {
@@ -25,19 +26,11 @@ sites:
 		"line 6: unknown key \"http_client_settings.bogus\"",
 		"line 10: unknown key \"sites.a.contnt_selector\"",
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %q\nwant %q", got, want)
-	}
+	assert.Equal(t, want, got)
 }
 
 func TestUnknownKeys_CleanAndMalformed(t *testing.T) {
-	if got := UnknownKeys([]byte("num_workers: 2\nsites: {}\n")); len(got) != 0 {
-		t.Fatalf("unexpected: %q", got)
-	}
-	if got := UnknownKeys([]byte("a: [\n")); got != nil {
-		t.Fatalf("malformed yaml should yield nil, got %q", got)
-	}
-	if got := UnknownKeys(nil); got != nil {
-		t.Fatalf("empty: %q", got)
-	}
+	assert.Empty(t, UnknownKeys([]byte("num_workers: 2\nsites: {}\n")))
+	assert.Nil(t, UnknownKeys([]byte("a: [\n")), "malformed yaml should yield nil")
+	assert.Nil(t, UnknownKeys(nil))
 }
