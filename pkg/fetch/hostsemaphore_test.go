@@ -85,6 +85,23 @@ func TestHostSemaphore_EvictIdle_PreservesActiveEntries(t *testing.T) {
 	pool.Release("host-a")
 }
 
+// A host released earlier carries a non-zero lastRelease, so only the active
+// count protects it once it is held again.
+func TestHostSemaphore_EvictIdle_PreservesReacquiredEntries(t *testing.T) {
+	pool := newTestPool(1)
+
+	require.NoError(t, pool.Acquire(context.Background(), "host-a"))
+	pool.Release("host-a")
+	require.NoError(t, pool.Acquire(context.Background(), "host-a"))
+
+	time.Sleep(5 * time.Millisecond)
+	pool.evictIdle(1 * time.Millisecond)
+
+	assert.Equal(t, 1, pool.Len(), "held host must not be evicted")
+
+	pool.Release("host-a")
+}
+
 func TestHostSemaphore_RunEviction_RespectsContextCancellation(t *testing.T) {
 	pool := newTestPool(1)
 
