@@ -483,7 +483,7 @@ func TestCrawlerRun_FrontmatterAndTables(t *testing.T) {
 	// The frontmatter hash must match the JSONL record's content_hash for the page.
 	jsonlBytes, err := os.ReadFile(filepath.Join(outDir, "pages.jsonl"))
 	require.NoError(t, err, "read pages.jsonl")
-	var jsonlHash string
+	var recordHash string
 	for _, line := range strings.Split(strings.TrimSpace(string(jsonlBytes)), "\n") {
 		if line == "" {
 			continue
@@ -491,12 +491,10 @@ func TestCrawlerRun_FrontmatterAndTables(t *testing.T) {
 		var p models.PageJSONL
 		require.NoError(t, json.Unmarshal([]byte(line), &p))
 		if p.RecordType == models.RecordTypePage && strings.Contains(p.URL, "/docs/index.html") {
-			jsonlHash = p.ContentHash
+			recordHash = p.ContentHash
 		}
 	}
-	if jsonlHash != fm.ContentHash {
-		t.Errorf("frontmatter content_hash %q must match JSONL content_hash %q", fm.ContentHash, jsonlHash)
-	}
+	assert.Equal(t, recordHash, fm.ContentHash, "frontmatter content_hash must match JSONL content_hash")
 }
 
 // mutableDocServer serves per-path HTML that tests can change between crawls, and
@@ -571,7 +569,7 @@ func mdFileIn(t *testing.T, dir string) string {
 			return filepath.Join(dir, e.Name())
 		}
 	}
-	t.Fatalf("no .md file found in %s", dir)
+	require.FailNowf(t, "no .md file found", "dir %s", dir)
 	return ""
 }
 
