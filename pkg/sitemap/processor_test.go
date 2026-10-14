@@ -563,6 +563,7 @@ func TestProbe_SkipsNonSitemapsAndProcessesFirstIndex(t *testing.T) {
 	const ns = `xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"`
 	routes := map[string]string{
 		"https://example.com/sitemap.xml":        `<html><body>Soft 404</body></html>`,
+		"https://example.com/sitemap_index.xml":  `<?xml version="1.0"?><urlset ` + ns + `></urlset>`,
 		"https://example.com/docs/sitemap.xml":   `<?xml version="1.0"?><sitemapindex ` + ns + `><sitemap><loc>https://example.com/docs/sitemap-0.xml</loc></sitemap></sitemapindex>`,
 		"https://example.com/docs/sitemap-0.xml": `<?xml version="1.0"?><urlset ` + ns + `><url><loc>https://example.com/docs/page</loc></url></urlset>`,
 	}
@@ -576,6 +577,7 @@ func TestProbe_SkipsNonSitemapsAndProcessesFirstIndex(t *testing.T) {
 	got, ok := sp.Probe(ctx, []string{
 		"https://example.com/sitemap.xml",
 		"https://example.com/sitemap-index.xml", // empty body
+		"https://example.com/sitemap_index.xml", // empty urlset
 		"https://example.com/docs/sitemap.xml",
 		"https://example.com/docs/sitemap_index.xml",
 	})
@@ -595,6 +597,20 @@ func TestProbe_NoSitemapFound(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sp.Start(ctx)
+
+	_, ok := sp.Probe(ctx, []string{"https://example.com/sitemap.xml"})
+	assert.False(t, ok)
+	assert.Equal(t, 0, pq.Len())
+}
+
+func TestProbe_StopsOnCancelledContext(t *testing.T) {
+	routes := map[string]string{
+		"https://example.com/sitemap.xml": `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/docs/page</loc></url></urlset>`,
+	}
+	sp, _, pq, _ := newTestProcessor(t, &routeFetcher{routes}, newMockPageStore(), defaultSiteCfg(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	sp.Start(ctx)
+	cancel()
 
 	_, ok := sp.Probe(ctx, []string{"https://example.com/sitemap.xml"})
 	assert.False(t, ok)
