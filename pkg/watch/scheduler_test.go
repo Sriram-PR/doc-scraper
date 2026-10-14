@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -136,6 +137,61 @@ func TestRunDueSites_DeadSiteRecordedAsFailure(t *testing.T) {
 	assert.Contains(t, state.ErrorMessage, "zero successful pages")
 	assert.Zero(t, state.PagesSaved)
 	assert.EqualValues(t, 1, state.PagesFailed)
+}
+
+// TestRunDueSites_ShutdownIsNotRecorded: a crawl cut short by watch stopping
+// is not a site failure. Recording it would schedule the next run a full
+// interval out and leave a first crawl's partial corpus in place until then.
+func TestRunDueSites_ShutdownIsNotRecorded(t *testing.T) {
+	started := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+
+	quick := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<html><head><title>Q</title></head><body><main><p>Quick page.</p></main></body></html>`)
+	}))
+	t.Cleanup(quick.Close)
+
+	cfg := schedulerConfig(t, srv.URL)
+	cfg.Sites["quick"] = &config.SiteConfig{
+		StartURLs:       []string{quick.URL + "/"},
+		AllowedDomain:   mustHostname(quick.URL),
+		ContentSelector: "main",
+		MaxDepth:        1,
+	}
+	s := NewScheduler(cfg, []string{"fixture", "quick"}, time.Hour, discardLog())
+	require.NoError(t, s.stateManager.Load())
+
+	s.runDueSites()
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("crawl never fetched the start page")
+	}
+	// Let the quick site finish before stopping, so only fixture is interrupted.
+	require.Eventually(t, func() bool {
+		b, err := os.ReadFile(filepath.Join(cfg.OutputBaseDir, "quick", "pages.jsonl"))
+		return err == nil && strings.Contains(string(b), `"crawl_meta"`)
+	}, 10*time.Second, 10*time.Millisecond)
+	s.Stop()
+	s.wg.Wait()
+
+	_, ok := s.stateManager.GetSiteState("fixture")
+	assert.False(t, ok, "an interrupted run leaves no state, so the next start runs the site at once")
+	quickState, ok := s.stateManager.GetSiteState("quick")
+	require.True(t, ok, "a site that finished before the shutdown is still recorded")
+	assert.True(t, quickState.LastRunSuccess)
+	assert.Equal(t, []string{"fixture"}, s.getDueSites())
 }
 
 func TestRunDueSites_RecordsUnchangedPages(t *testing.T) {

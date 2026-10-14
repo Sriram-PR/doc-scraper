@@ -121,3 +121,36 @@ func TestStateManagerGetNextRunTime(t *testing.T) {
 
 	assert.LessOrEqual(t, actualNextRun.Sub(expectedNextRun), time.Millisecond)
 }
+
+// backdate sets a site's last run time to ago before now.
+func backdate(sm *StateManager, siteKey string, ago time.Duration) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	st := sm.state.Sites[siteKey]
+	st.LastRunTime = time.Now().Add(-ago)
+	sm.state.Sites[siteKey] = st
+}
+
+func TestStateManagerFailedRunRetriesSooner(t *testing.T) {
+	sm := NewStateManager(t.TempDir())
+	require.NoError(t, sm.Load())
+	day := 24 * time.Hour
+
+	sm.UpdateSiteState("failed", false, PageCounts{Failed: 1}, "boom")
+	sm.UpdateSiteState("ok", true, PageCounts{Saved: 1}, "")
+	backdate(sm, "failed", 14*time.Minute)
+	backdate(sm, "ok", 16*time.Minute)
+
+	assert.False(t, sm.ShouldRun("failed", day), "within the retry delay")
+	assert.False(t, sm.ShouldRun("ok", day), "a successful run waits the full interval")
+
+	backdate(sm, "failed", 16*time.Minute)
+	assert.True(t, sm.ShouldRun("failed", day), "past the retry delay")
+
+	failed, _ := sm.GetSiteState("failed")
+	assert.WithinDuration(t, failed.LastRunTime.Add(failedRetryDelay), sm.GetNextRunTime("failed", day), time.Millisecond)
+
+	// An interval shorter than the retry delay is not stretched.
+	backdate(sm, "failed", 6*time.Minute)
+	assert.True(t, sm.ShouldRun("failed", 5*time.Minute))
+}

@@ -54,7 +54,7 @@ Watch mode persists state to `<state_dir>/watch_state.json`, tracking:
 - Pages saved, re-checked but unchanged, and failed in the last run
 - Error messages (if any)
 
-This allows the scheduler to resume correctly after restarts, only running sites when their interval has elapsed.
+This allows the scheduler to resume correctly after restarts, only running sites when their interval has elapsed. A failed run (the site was unreachable, or every page failed) is retried after 15 minutes instead of a full interval, or after the interval if that is shorter.
 
 ### Example Output
 
@@ -90,4 +90,4 @@ Output from doc-scraper 2.12.0 (built from `main`), 2026-10-15.
 
 ### Graceful Shutdown
 
-Watch mode handles SIGINT/SIGTERM gracefully: it stops the scheduler and cancels any in-progress crawl, letting the crawler flush its BadgerDB state and partial output first, so the interrupted crawl resumes cleanly on the next run. Watch exits `0` on a signal; scheduled re-crawls always resume, so an interrupted one is continued on the next run, and only completed re-crawls are recorded in crawl history.
+Watch mode handles SIGINT/SIGTERM gracefully: it stops the scheduler and cancels any in-progress crawl, letting the crawler flush its BadgerDB state and partial output first, so the interrupted crawl resumes cleanly on the next run. Watch exits `0` on a signal. A crawl interrupted this way is not recorded in the watch state, so the site is due as soon as watch starts again, and the crawl continues where it stopped. Only completed re-crawls are recorded in crawl history.

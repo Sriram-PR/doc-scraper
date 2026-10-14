@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -103,6 +104,10 @@ func (s *Scheduler) runDueSites() {
 		results := orch.Run()
 
 		for _, result := range results {
+			if s.ctx.Err() != nil && errors.Is(result.Error, context.Canceled) {
+				s.log.Info(fmt.Sprintf("Crawl for %s interrupted by shutdown; it runs again on the next start", result.SiteKey))
+				continue
+			}
 			errorMsg := ""
 			if result.Error != nil {
 				errorMsg = result.Error.Error()
