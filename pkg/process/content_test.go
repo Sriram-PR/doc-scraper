@@ -1,8 +1,12 @@
 package process
 
 import (
+	"context"
+	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -564,4 +568,71 @@ func TestSelectMainContent_AutoCachedSelectorEmptyOnLaterPageFallsBack(t *testin
 		<div><p>`+strings.Repeat("Readability needs a decent block of prose to score a candidate. ", 12)+`</p></div>
 		</body></html>`)
 	assert.Contains(t, landing, "Readability needs a decent block", "empty cached container should fall back to readability")
+}
+
+// processPage runs ProcessAndSaveContent over html served at pageURL, with
+// images fetched through fetcher, and returns the saved markdown.
+func processPage(t *testing.T, fetcher *stubFetcher, pageURL, html string) (string, string) {
+	t.Helper()
+	outDir := t.TempDir()
+	ip := newImageProcessorWithWorkers(t, newFakeImageStore(), fetcher, 2)
+	cp := NewContentProcessor(ip, &config.AppConfig{}, silentLog())
+	siteCfg := &config.SiteConfig{AllowedDomain: "e.com", AllowedPathPrefix: "/docs/"}
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	require.NoError(t, err)
+	u, err := url.Parse(pageURL)
+	require.NoError(t, err)
+
+	saved, md, _, err := cp.ProcessAndSaveContent(doc.Find("body"), "Page", u, siteCfg, outDir, 0, silentLog(), context.Background())
+	require.NoError(t, err)
+	onDisk, err := os.ReadFile(saved)
+	require.NoError(t, err)
+	assert.Contains(t, string(onDisk), string(md), "saved file should contain the returned markdown")
+	return string(md), outDir
+}
+
+func TestProcessAndSaveContent_RewritesImages(t *testing.T) {
+	fetcher := &stubFetcher{responses: map[string]*http.Response{
+		"https://e.com/img/ok.png":  imageResponse("PNG", "image/png", ""),
+		"https://e.com/img/fig.png": imageResponse("PNG", "image/png", ""),
+	}}
+	md, outDir := processPage(t, fetcher, "https://e.com/docs/guide/page.html", `<body>
+		<p>Intro</p>
+		<img src="/img/ok.png" alt="Diagram">
+		<figure><img src="/img/fig.png" alt="ignored"><figcaption> Real caption </figcaption></figure>
+		<img src="/img/broken.png" alt="Broken">
+		<img src="data:image/png;base64,AAAA" alt="Inline">
+		<img src="ftp://e.com/x.png" alt="Ftp">
+		<img src="http://[::1" alt="Unparseable">
+	</body>`)
+
+	okLocal := regexp.MustCompile(`!\[Diagram\]\(\.\./images/ok_[0-9a-f]{8}\.png\)`).FindString(md)
+	require.NotEmpty(t, okLocal, "downloaded image should point at its local copy relative to the page, got:\n%s", md)
+	rel := strings.TrimSuffix(strings.TrimPrefix(okLocal, "![Diagram]("), ")")
+	assert.FileExists(t, filepath.Join(outDir, "guide", filepath.FromSlash(rel)), "relative image path should resolve from the page's directory")
+
+	assert.Regexp(t, `!\[Real caption\]\(\.\./images/fig_[0-9a-f]{8}\.png\)`, md, "figcaption should become the alt text")
+	assert.NotContains(t, md, "broken.png", "failed downloads are removed")
+	assert.NotContains(t, md, "Unparseable", "images with fatal errors are removed")
+	assert.Contains(t, md, "data:image/png;base64,AAAA", "skipped images are left in place")
+	assert.Contains(t, md, "ftp://e.com/x.png", "skipped images are left in place")
+}
+
+func TestProcessAndSaveContent_RewritesInternalLinks(t *testing.T) {
+	md, _ := processPage(t, &stubFetcher{}, "https://e.com/docs/guide/page.html", `<body>
+		<a href="/docs/other.html#part">Other</a>
+		<a href="#local">Local</a>
+		<a href="//cdn.example.org/lib.js">CDN</a>
+		<a href="https://elsewhere.org/x">External</a>
+		<a href="mailto:a@e.com">Mail</a>
+		<a href="http://[::1">Broken</a>
+	</body>`)
+
+	assert.Contains(t, md, "[Other](../other.md#part)", "in-scope links become relative .md paths and keep the fragment")
+	assert.Contains(t, md, "[Local](#local)")
+	assert.Contains(t, md, "[CDN](//cdn.example.org/lib.js)")
+	assert.Contains(t, md, "[External](https://elsewhere.org/x)")
+	assert.Contains(t, md, "[Mail](mailto:a@e.com)")
+	assert.Contains(t, md, "[Broken](http://[::1)", "unparseable links are kept, not dropped")
 }
