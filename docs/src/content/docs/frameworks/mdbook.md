@@ -41,10 +41,12 @@ Preview of the fetched page:
   | Version: 0.5.4
   ...
 
+WARN: no sitemap found; crawl scope and size are estimated from the URL alone
+
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.10.1 (built from `main`) against <https://rust-lang.github.io/mdBook/>, 2026-10-11. Exit code 2.
+Output from doc-scraper 2.12.0 against <https://rust-lang.github.io/mdBook/>, 2026-10-14. Exit code 2.
 
 ## Crawl it
 

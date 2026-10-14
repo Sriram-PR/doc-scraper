@@ -60,7 +60,7 @@ Preview of the fetched page:
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.10.1 (built from `main`) against <https://starlight.astro.build/getting-started/>, 2026-10-11. Exit code 2.
+Output from doc-scraper 2.12.0 against <https://starlight.astro.build/getting-started/>, 2026-10-14. Exit code 2.
 
 ## Crawl it
 

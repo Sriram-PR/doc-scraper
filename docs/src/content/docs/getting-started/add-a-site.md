@@ -56,7 +56,7 @@ Preview of the fetched page:
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.10.1 (built from `main`), 2026-10-09. Exit code 2.
+Output from doc-scraper 2.12.0, 2026-10-14. Exit code 2.
 
 ## Confirming and writing
 
