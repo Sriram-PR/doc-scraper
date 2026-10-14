@@ -43,6 +43,20 @@ func TestJobRetention_CapsTerminalJobs(t *testing.T) {
 	assert.Len(t, jm.ListJobs(), maxTerminalJobs)
 }
 
+func TestJobRetention_PrunesOneOverTheCap(t *testing.T) {
+	jm := NewJobManager("", newTestLogger())
+	var first *Job
+	for i := range maxTerminalJobs + 1 {
+		j := createTestJob(t, jm, "site-"+strconv.Itoa(i), false)
+		if first == nil {
+			first = j
+		}
+		jm.UpdateStatus(j.ID, JobStatusCompleted, "")
+	}
+	assert.Len(t, jm.ListJobs(), maxTerminalJobs)
+	assert.Nil(t, jm.GetJob(first.ID), "the oldest job should be the one pruned")
+}
+
 func TestJobRetention_NeverPrunesActive(t *testing.T) {
 	jm := NewJobManager("", newTestLogger())
 	running := createTestJob(t, jm, "running-site", false)
