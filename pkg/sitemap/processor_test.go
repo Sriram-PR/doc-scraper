@@ -144,14 +144,8 @@ func newTestProcessor(
 // waitForPQLen polls the priority queue length until it reaches want or the timeout expires.
 func waitForPQLen(t *testing.T, pq *queue.ThreadSafePriorityQueue, want int, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if pq.Len() >= want {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for PQ length %d, got %d", want, pq.Len())
+	require.Eventuallyf(t, func() bool { return pq.Len() >= want }, timeout, 5*time.Millisecond,
+		"timed out waiting for PQ length %d", want)
 }
 
 // drainPQ closes the queue and pops all items.
@@ -183,15 +177,9 @@ func TestMarkSitemapProcessed(t *testing.T) {
 	f := newMockFetcher("")
 	sp, _, _, _ := newTestProcessor(t, f, store, defaultSiteCfg(), nil)
 
-	if !sp.MarkSitemapProcessed("http://example.com/sitemap.xml") {
-		t.Fatal("first call should return true")
-	}
-	if sp.MarkSitemapProcessed("http://example.com/sitemap.xml") {
-		t.Fatal("second call should return false")
-	}
-	if !sp.MarkSitemapProcessed("http://example.com/sitemap2.xml") {
-		t.Fatal("different URL should return true")
-	}
+	assert.True(t, sp.MarkSitemapProcessed("http://example.com/sitemap.xml"), "first call")
+	assert.False(t, sp.MarkSitemapProcessed("http://example.com/sitemap.xml"), "second call")
+	assert.True(t, sp.MarkSitemapProcessed("http://example.com/sitemap2.xml"), "different URL")
 }
 
 func TestProcessURLSet(t *testing.T) {
@@ -220,12 +208,8 @@ func TestProcessURLSet(t *testing.T) {
 	items := drainPQAndBalance(pq, wg)
 	wg.Wait()
 
-	if len(items) != 2 {
-		t.Fatalf("expected 2 queued items, got %d", len(items))
-	}
-	if store.visitedCount() != 2 {
-		t.Fatalf("expected 2 visited entries, got %d", store.visitedCount())
-	}
+	assert.Len(t, items, 2)
+	assert.Equal(t, 2, store.visitedCount())
 }
 
 func TestProcessURLSetDisallowedPath(t *testing.T) {
@@ -251,9 +235,7 @@ func TestProcessURLSetDisallowedPath(t *testing.T) {
 	items := drainPQAndBalance(pq, wg)
 	wg.Wait()
 
-	if len(items) != 1 {
-		t.Fatalf("expected 1 queued item (disallowed filtered), got %d", len(items))
-	}
+	assert.Len(t, items, 1, "disallowed URL must be filtered")
 }
 
 func TestProcessSitemapIndex(t *testing.T) {
@@ -282,12 +264,8 @@ func TestProcessSitemapIndex(t *testing.T) {
 	// So wg naturally balances to 0.
 	wg.Wait()
 
-	if sp.MarkSitemapProcessed("https://example.com/sitemap-pages.xml") {
-		t.Fatal("sitemap-pages.xml should already be marked processed")
-	}
-	if sp.MarkSitemapProcessed("https://example.com/sitemap-blog.xml") {
-		t.Fatal("sitemap-blog.xml should already be marked processed")
-	}
+	assert.False(t, sp.MarkSitemapProcessed("https://example.com/sitemap-pages.xml"), "sitemap-pages.xml should already be marked processed")
+	assert.False(t, sp.MarkSitemapProcessed("https://example.com/sitemap-blog.xml"), "sitemap-blog.xml should already be marked processed")
 }
 
 func TestProcessSitemapFetchError(t *testing.T) {
@@ -305,12 +283,8 @@ func TestProcessSitemapFetchError(t *testing.T) {
 	wg.Wait()
 
 	items := drainPQ(pq)
-	if len(items) != 0 {
-		t.Fatalf("expected 0 queued items on fetch error, got %d", len(items))
-	}
-	if store.visitedCount() != 0 {
-		t.Fatalf("expected 0 visited entries on fetch error, got %d", store.visitedCount())
-	}
+	assert.Empty(t, items)
+	assert.Equal(t, 0, store.visitedCount())
 }
 
 func TestProcessSitemapInvalidXML(t *testing.T) {
@@ -328,9 +302,7 @@ func TestProcessSitemapInvalidXML(t *testing.T) {
 	wg.Wait()
 
 	items := drainPQ(pq)
-	if len(items) != 0 {
-		t.Fatalf("expected 0 queued items for invalid XML, got %d", len(items))
-	}
+	assert.Empty(t, items)
 }
 
 // blockingFetcher reports when a fetch starts and holds it until the request
@@ -402,12 +374,8 @@ func TestProcessURLSetDBError(t *testing.T) {
 	wg.Wait()
 
 	items := drainPQ(pq)
-	if len(items) != 0 {
-		t.Fatalf("expected 0 queued items when DB errors, got %d", len(items))
-	}
-	if store.visitedCount() != 0 {
-		t.Fatalf("expected 0 visited entries when DB errors, got %d", store.visitedCount())
-	}
+	assert.Empty(t, items)
+	assert.Equal(t, 0, store.visitedCount())
 }
 
 func TestProcessSitemapIndexFanOut(t *testing.T) {
@@ -451,12 +419,8 @@ func TestProcessSitemapIndexFanOut(t *testing.T) {
 	items := drainPQAndBalance(pq, &wg)
 	wg.Wait()
 
-	if len(items) != n {
-		t.Fatalf("expected %d queued pages, got %d", n, len(items))
-	}
-	if store.visitedCount() != n {
-		t.Fatalf("expected %d visited entries, got %d", n, store.visitedCount())
-	}
+	assert.Len(t, items, n)
+	assert.Equal(t, n, store.visitedCount())
 }
 
 // hostConcurrencyFetcher records the peak number of simultaneous in-flight
@@ -567,9 +531,7 @@ func TestProcessSitemapRespectsPerHostLimit(t *testing.T) {
 	drainPQAndBalance(pq, wg)
 	wg.Wait()
 
-	if got := f.peakFor("example.com"); got > perHost {
-		t.Fatalf("sitemap fetches exceeded max_requests_per_host: peak %d, limit %d", got, perHost)
-	}
+	assert.LessOrEqual(t, f.peakFor("example.com"), perHost, "sitemap fetches exceeded max_requests_per_host")
 }
 
 func TestProcessSitemapDistinctHostsNotSerialized(t *testing.T) {
@@ -592,12 +554,8 @@ func TestProcessSitemapDistinctHostsNotSerialized(t *testing.T) {
 	wg.Wait()
 
 	for _, host := range hosts {
-		if got := f.peakFor(host); got > perHost {
-			t.Fatalf("host %s exceeded per-host limit: peak %d, limit %d", host, got, perHost)
-		}
-		if f.peakFor(host) < 2 {
-			t.Fatalf("host %s never reached its own limit; hosts appear serialized (peak %d)", host, f.peakFor(host))
-		}
+		assert.LessOrEqual(t, f.peakFor(host), perHost, "host %s exceeded per-host limit", host)
+		assert.GreaterOrEqual(t, f.peakFor(host), 2, "host %s never reached its own limit; hosts appear serialized", host)
 	}
 }
 
