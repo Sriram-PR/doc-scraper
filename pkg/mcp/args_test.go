@@ -99,7 +99,7 @@ func assertNoNulls(t *testing.T, name string, v any) {
 	t.Helper()
 	switch x := v.(type) {
 	case nil:
-		t.Errorf("%s is null", name)
+		assert.Failf(t, "null value", "%s is null", name)
 	case map[string]any:
 		for k, e := range x {
 			assertNoNulls(t, name+"."+k, e)

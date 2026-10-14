@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -317,13 +316,8 @@ func TestAppConfigValidate_NegativeMaxRetriesWarnsEffectiveValue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &AppConfig{MaxRetries: -1, InitialRetryDelay: tc.delay}
 			warnings, _ := cfg.Validate()
-			if cfg.MaxRetries != tc.want {
-				t.Fatalf("MaxRetries = %d, want %d", cfg.MaxRetries, tc.want)
-			}
-			wantMsg := fmt.Sprintf("max_retries cannot be negative, using %d", tc.want)
-			if !slices.Contains(warnings, wantMsg) {
-				t.Fatalf("warnings %q missing %q", warnings, wantMsg)
-			}
+			require.Equal(t, tc.want, cfg.MaxRetries)
+			require.Contains(t, warnings, fmt.Sprintf("max_retries cannot be negative, using %d", tc.want))
 		})
 	}
 }
