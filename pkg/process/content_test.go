@@ -535,3 +535,33 @@ func TestSelectMainContent_AutoMatchedButEmptyFallsBackToReadability(t *testing.
 	require.NoError(t, err, "expected readability fallback to recover content")
 	assert.Contains(t, content.Text(), "Readability needs a decent block", "fallback did not return the prose block")
 }
+
+// The detector caches its selector per domain after validating it on the first
+// page, so a later page whose container is empty (MkDocs Material's landing
+// page) reaches extraction unvalidated and must fall back to readability.
+func TestSelectMainContent_AutoCachedSelectorEmptyOnLaterPageFallsBack(t *testing.T) {
+	cp := NewContentProcessor(nil, &config.AppConfig{}, silentLog())
+	siteCfg := &config.SiteConfig{ContentSelector: "auto"}
+	head := `<head><meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.0"><title>Docs</title></head>`
+	extract := func(pageURL, html string) string {
+		t.Helper()
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+		require.NoError(t, err)
+		u, err := url.Parse(pageURL)
+		require.NoError(t, err)
+		content, _, err := cp.SelectMainContent(doc, u, siteCfg, silentLog())
+		require.NoError(t, err)
+		return content.Text()
+	}
+
+	guide := extract("https://docs.example.com/guide/", `<html>`+head+`<body data-md-color-scheme="default">
+		<div class="md-content"><article class="md-content__inner md-typeset"><p>`+
+		strings.Repeat("Configure retries with max_retries and a backoff delay. ", 6)+`</p></article></div></body></html>`)
+	require.Contains(t, guide, "max_retries", "first page should extract through the detected selector")
+
+	landing := extract("https://docs.example.com/", `<html>`+head+`<body data-md-color-scheme="default">
+		<div class="md-content"><article class="md-content__inner md-typeset"> </article></div>
+		<div><p>`+strings.Repeat("Readability needs a decent block of prose to score a candidate. ", 12)+`</p></div>
+		</body></html>`)
+	assert.Contains(t, landing, "Readability needs a decent block", "empty cached container should fall back to readability")
+}
