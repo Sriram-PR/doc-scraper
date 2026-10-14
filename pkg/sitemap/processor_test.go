@@ -210,6 +210,10 @@ func TestProcessURLSet(t *testing.T) {
 
 	assert.Len(t, items, 2)
 	assert.Equal(t, 2, store.visitedCount())
+	// Sitemap URLs sit one hop from the root, so max_depth still bounds them.
+	for _, item := range items {
+		assert.Equal(t, 1, item.Depth, item.URL)
+	}
 }
 
 func TestProcessURLSetDisallowedPath(t *testing.T) {
