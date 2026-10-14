@@ -65,8 +65,8 @@ func TestGetDueSites(t *testing.T) {
 	cfg := &config.AppConfig{StateDir: t.TempDir()}
 	s := NewScheduler(cfg, []string{"fresh", "recent", "stale"}, time.Hour, discardLog())
 
-	s.stateManager.UpdateSiteState("recent", true, 5, "")
-	s.stateManager.UpdateSiteState("stale", true, 5, "")
+	s.stateManager.UpdateSiteState("recent", true, 5, 0, "")
+	s.stateManager.UpdateSiteState("stale", true, 5, 0, "")
 	st, ok := s.stateManager.GetSiteState("stale")
 	require.True(t, ok)
 	st.LastRunTime = time.Now().Add(-2 * time.Hour)
@@ -79,7 +79,7 @@ func TestGetDueSites(t *testing.T) {
 func TestSchedulerRunAndStop(t *testing.T) {
 	cfg := &config.AppConfig{StateDir: t.TempDir()}
 	s := NewScheduler(cfg, []string{"quiet"}, time.Hour, discardLog()).WithIndex(nil)
-	s.stateManager.UpdateSiteState("quiet", true, 1, "")
+	s.stateManager.UpdateSiteState("quiet", true, 1, 0, "")
 
 	done := make(chan error, 1)
 	go func() { done <- s.Run() }()
@@ -120,12 +120,37 @@ func TestRunDueSites_CrawlsAndPersistsState(t *testing.T) {
 	assert.Empty(t, s.getDueSites(), "freshly crawled site is no longer due")
 }
 
+func TestRunDueSites_RecordsUnchangedPages(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<html><head><title>W</title></head><body><main><h1>Watched</h1><p>Content for the watch scheduler crawl test.</p></main></body></html>`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	cfg := schedulerConfig(t, srv.URL)
+	cfg.EnableIncremental = true
+	s := NewScheduler(cfg, []string{"fixture"}, time.Hour, discardLog())
+	require.NoError(t, s.stateManager.Load())
+
+	s.runDueSites()
+	s.wg.Wait()
+	s.interval = 0 // due again immediately
+	s.runDueSites()
+	s.wg.Wait()
+
+	state, ok := s.stateManager.GetSiteState("fixture")
+	require.True(t, ok)
+	assert.EqualValues(t, 0, state.PagesProcessed, "second run changed nothing")
+	assert.EqualValues(t, 1, state.PagesUnchanged, "second run re-checked the page")
+}
+
 func TestLogScheduleAndNextRun(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	cfg := &config.AppConfig{StateDir: t.TempDir()}
 	s := NewScheduler(cfg, []string{"seen", "unseen"}, time.Hour, log)
-	s.stateManager.UpdateSiteState("seen", false, 3, "boom")
+	s.stateManager.UpdateSiteState("seen", false, 3, 0, "boom")
 
 	s.logSchedule()
 	out := buf.String()

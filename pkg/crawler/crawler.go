@@ -66,6 +66,7 @@ type Crawler struct {
 	workersWg        sync.WaitGroup
 	processedCounter atomic.Int64
 	succeededCounter atomic.Int64
+	unchangedCounter atomic.Int64
 	crawlCtx         context.Context
 	cancelCrawl      context.CancelFunc
 
@@ -220,6 +221,9 @@ func (c *Crawler) FoundSitemap(sitemapURL string) {
 type CrawlerProgress struct {
 	SiteKey        string
 	PagesProcessed int64
+	// PagesUnchanged counts incremental re-checks whose content hash matched;
+	// they are fetched but not reprocessed, so PagesProcessed excludes them.
+	PagesUnchanged int64
 	PagesQueued    int
 	IsRunning      bool
 }
@@ -228,6 +232,7 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 	return CrawlerProgress{
 		SiteKey:        c.siteKey,
 		PagesProcessed: c.processedCounter.Load(),
+		PagesUnchanged: c.unchangedCounter.Load(),
 		PagesQueued:    c.pq.Len(),
 		IsRunning:      c.crawlCtx.Err() == nil,
 	}
@@ -513,6 +518,7 @@ func (c *Crawler) reportProgress(runLog *slog.Logger, progTicker *time.Ticker, p
 				"page_queue_len", pqLen,
 				"sitemap_queue_len", smQLen,
 				"processed_tasks", procCount,
+				"unchanged_pages", c.unchangedCounter.Load(),
 			)
 			if c.progressCallback != nil {
 				c.progressCallback(procCount, int64(pqLen+smQLen))
@@ -655,8 +661,8 @@ func (c *Crawler) logRunSummary(overallStart time.Time, runLog *slog.Logger) {
 	summaryLog.Info("========================================================================")
 	summaryLog.Info("CRAWL FINISHED")
 	summaryLog.Info(fmt.Sprintf("Duration:         %v", duration))
-	summaryLog.Info(fmt.Sprintf("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Pages Saved (for YAML): %d",
-		finalVisitedCount, finalProcessedCount, c.output.PagesSaved()))
+	summaryLog.Info(fmt.Sprintf("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Unchanged Pages: %d, Pages Saved (for YAML): %d",
+		finalVisitedCount, finalProcessedCount, c.unchangedCounter.Load(), c.output.PagesSaved()))
 	summaryLog.Info("========================================================================")
 }
 
@@ -918,6 +924,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			// Continue processing despite hash check error
 		} else if exists && existingHash == contentHash {
 			taskLog.Info("Page content unchanged (hash match) - skipping processing")
+			c.unchangedCounter.Add(1)
 			skipped = true
 			return
 		} else if exists {

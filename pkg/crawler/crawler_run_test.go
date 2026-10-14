@@ -639,7 +639,7 @@ func (m *mutableDocServer) hitCount(path string) int {
 
 // runResumableCrawl drives Crawler.Run with an explicit resume flag, reusing the
 // same StateDir/OutputBaseDir across calls so incremental re-crawls see prior state.
-func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) {
+func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) CrawlerProgress {
 	t.Helper()
 	logger := silentLogger()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -653,6 +653,7 @@ func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.S
 	c, err := NewCrawlerWithOptions(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rl, ctx, cancel, resume, nil)
 	require.NoError(t, err)
 	require.NoError(t, c.Run(resume))
+	return c.GetProgress()
 }
 
 func mdFileIn(t *testing.T, dir string) string {
@@ -719,6 +720,31 @@ func TestCrawlerRun_IncrementalContentScoped(t *testing.T) {
 	assert.NotContains(t, string(body3), "ORIGINAL")
 	assert.NotEqual(t, info1.ModTime().UnixNano(), info3.ModTime().UnixNano(),
 		"changed content must rewrite the .md")
+}
+
+func TestCrawlerRun_IncrementalCountsUnchangedPages(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A1</p></main></body></html>`)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+	assert.EqualValues(t, 2, p.PagesProcessed, "fresh crawl")
+	assert.EqualValues(t, 0, p.PagesUnchanged, "fresh crawl")
+
+	p = runResumableCrawl(t, appCfg, siteCfg, true)
+	assert.EqualValues(t, 0, p.PagesProcessed, "nothing changed")
+	assert.EqualValues(t, 2, p.PagesUnchanged, "nothing changed")
+
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A2</p></main></body></html>`)
+	p = runResumableCrawl(t, appCfg, siteCfg, true)
+	assert.EqualValues(t, 1, p.PagesProcessed, "one page changed")
+	assert.EqualValues(t, 1, p.PagesUnchanged, "one page changed")
 }
 
 // TestCrawlerRun_IncrementalFollowsLinksOfUnchangedPages covers a new page

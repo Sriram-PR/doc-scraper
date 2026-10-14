@@ -71,7 +71,7 @@ func TestStateManager(t *testing.T) {
 	assert.True(t, sm.ShouldRun("test_site", time.Hour), "ShouldRun() should return true for new site")
 
 	// Test UpdateSiteState
-	sm.UpdateSiteState("test_site", true, 100, "")
+	sm.UpdateSiteState("test_site", true, 100, 40, "")
 
 	// Test ShouldRun after update (should not run immediately)
 	assert.False(t, sm.ShouldRun("test_site", time.Hour), "ShouldRun() should return false immediately after run")
@@ -81,6 +81,7 @@ func TestStateManager(t *testing.T) {
 	assert.True(t, ok, "GetSiteState() should return true for existing site")
 	assert.True(t, state.LastRunSuccess)
 	assert.Equal(t, int64(100), state.PagesProcessed)
+	assert.Equal(t, int64(40), state.PagesUnchanged)
 
 	// Test Save
 	require.NoError(t, sm.Save())
@@ -95,6 +96,7 @@ func TestStateManager(t *testing.T) {
 	state2, ok := sm2.GetSiteState("test_site")
 	assert.True(t, ok, "GetSiteState() should return true after Load()")
 	assert.Equal(t, int64(100), state2.PagesProcessed)
+	assert.Equal(t, int64(40), state2.PagesUnchanged)
 }
 
 func TestStateManagerGetNextRunTime(t *testing.T) {
@@ -109,7 +111,7 @@ func TestStateManagerGetNextRunTime(t *testing.T) {
 	assert.LessOrEqual(t, time.Since(nextRun), time.Second, "GetNextRunTime() for new site should be approximately now")
 
 	// Update site and check next run
-	sm.UpdateSiteState("existing_site", true, 100, "")
+	sm.UpdateSiteState("existing_site", true, 100, 0, "")
 	state, _ := sm.GetSiteState("existing_site")
 
 	expectedNextRun := state.LastRunTime.Add(interval)

@@ -107,7 +107,7 @@ func (s *Scheduler) runDueSites() {
 			if result.Error != nil {
 				errorMsg = result.Error.Error()
 			}
-			s.stateManager.UpdateSiteState(result.SiteKey, result.Success, result.PagesProcessed, errorMsg)
+			s.stateManager.UpdateSiteState(result.SiteKey, result.Success, result.PagesProcessed, result.PagesUnchanged, errorMsg)
 		}
 
 		if err := s.stateManager.Save(); err != nil {
@@ -150,11 +150,12 @@ func (s *Scheduler) logSchedule() {
 			if !state.LastRunSuccess {
 				status = "failed"
 			}
-			s.log.Info(fmt.Sprintf("  %s: last run %v (%s, %d pages), next run %v",
+			s.log.Info(fmt.Sprintf("  %s: last run %v (%s, %d pages, %d unchanged), next run %v",
 				siteKey,
 				state.LastRunTime.Format(time.RFC3339),
 				status,
 				state.PagesProcessed,
+				state.PagesUnchanged,
 				nextRun.Format(time.RFC3339)))
 		} else {
 			s.log.Info(fmt.Sprintf("  %s: never run, will run immediately", siteKey))

@@ -16,6 +16,7 @@ type SiteState struct {
 	LastRunTime    time.Time `json:"last_run_time"`
 	LastRunSuccess bool      `json:"last_run_success"`
 	PagesProcessed int64     `json:"pages_processed"`
+	PagesUnchanged int64     `json:"pages_unchanged"`
 	ErrorMessage   string    `json:"error_message,omitempty"`
 }
 
@@ -102,7 +103,7 @@ func (m *StateManager) GetSiteState(siteKey string) (SiteState, bool) {
 }
 
 // UpdateSiteState records the result of a crawl run for a site.
-func (m *StateManager) UpdateSiteState(siteKey string, success bool, pagesProcessed int64, errorMsg string) {
+func (m *StateManager) UpdateSiteState(siteKey string, success bool, pagesProcessed, pagesUnchanged int64, errorMsg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -110,6 +111,7 @@ func (m *StateManager) UpdateSiteState(siteKey string, success bool, pagesProces
 		LastRunTime:    time.Now(),
 		LastRunSuccess: success,
 		PagesProcessed: pagesProcessed,
+		PagesUnchanged: pagesUnchanged,
 		ErrorMessage:   errorMsg,
 	}
 }
