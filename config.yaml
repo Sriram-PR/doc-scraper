@@ -122,7 +122,7 @@ sites:
     link_extraction_selectors:
       - "nav#sidebar"
       - "nav.nav-wrapper"
-      - "main#content"
+      - "main"
 
     max_depth: 0                    # unlimited (see depth note above)
     delay_per_host: 500ms           # Default delay
