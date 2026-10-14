@@ -536,9 +536,7 @@ func TestListJobsOrderingIsTotalUnderTiedTimestamps(t *testing.T) {
 		created := make([]*Job, 0, 4)
 		for _, k := range []string{"alpha", "beta", "gamma", "delta"} {
 			j, err := m.CreateJob(k, false)
-			if err != nil {
-				t.Fatalf("CreateJob: %v", err)
-			}
+			require.NoError(t, err, "CreateJob")
 			created = append(created, j)
 		}
 		forceTiedTimestamps(created, tied)
@@ -554,17 +552,12 @@ func TestListJobsOrderingIsTotalUnderTiedTimestamps(t *testing.T) {
 			want = got
 			continue
 		}
-		for i := range got {
-			if got[i] != want[i] {
-				t.Fatalf("run %d ordering %v differs from %v; comparator is not a total order", run, got, want)
-			}
-		}
+		require.Equal(t, want, got, "run %d ordering differs; comparator is not a total order", run)
 	}
 
 	// Creation order must survive, not merely be stable: newest first.
-	if want[0] != "delta" || want[3] != "alpha" {
-		t.Errorf("tied timestamps lost creation order: got %v, want delta..alpha", want)
-	}
+	assert.Equal(t, "delta", want[0], "tied timestamps lost creation order: got %v", want)
+	assert.Equal(t, "alpha", want[3], "tied timestamps lost creation order: got %v", want)
 }
 
 // The pruner deletes jobs, so an unordered tie means deleting the wrong ones.
@@ -576,9 +569,7 @@ func TestPruneKeepsNewestUnderTiedTimestamps(t *testing.T) {
 		all := make([]*Job, 0, maxTerminalJobs+5)
 		for i := range maxTerminalJobs + 5 {
 			j, err := m.CreateJob(fmt.Sprintf("site-%03d", i), false)
-			if err != nil {
-				t.Fatalf("CreateJob: %v", err)
-			}
+			require.NoError(t, err, "CreateJob")
 			j.Status = JobStatusCompleted
 			all = append(all, j)
 		}
@@ -592,14 +583,10 @@ func TestPruneKeepsNewestUnderTiedTimestamps(t *testing.T) {
 		for _, j := range m.ListJobs() {
 			kept[j.Seq] = true
 		}
-		if len(kept) != maxTerminalJobs {
-			t.Fatalf("kept %d jobs, want %d", len(kept), maxTerminalJobs)
-		}
+		require.Len(t, kept, maxTerminalJobs, "kept jobs")
 		// The five lowest sequences are the oldest and must be the ones dropped.
 		for _, j := range all[:5] {
-			if kept[j.Seq] {
-				t.Fatalf("pruner kept an older job (seq %d) and dropped a newer one", j.Seq)
-			}
+			require.False(t, kept[j.Seq], "pruner kept an older job (seq %d) and dropped a newer one", j.Seq)
 		}
 	}
 }
@@ -613,9 +600,7 @@ func TestSeqResumesAfterReload(t *testing.T) {
 	var lastSeq uint64
 	for i := range 3 {
 		j, err := m1.CreateJob(fmt.Sprintf("site-%d", i), false)
-		if err != nil {
-			t.Fatalf("CreateJob: %v", err)
-		}
+		require.NoError(t, err, "CreateJob")
 		j.Status = JobStatusCompleted
 		lastSeq = j.Seq
 	}
@@ -625,12 +610,8 @@ func TestSeqResumesAfterReload(t *testing.T) {
 	m2 := NewJobManager(path, nil)
 	defer m2.Stop()
 	j, err := m2.CreateJob("after-restart", false)
-	if err != nil {
-		t.Fatalf("CreateJob after reload: %v", err)
-	}
-	if j.Seq <= lastSeq {
-		t.Errorf("seq restarted at %d, must exceed the persisted max of %d", j.Seq, lastSeq)
-	}
+	require.NoError(t, err, "CreateJob after reload")
+	assert.Greater(t, j.Seq, lastSeq, "seq must exceed the persisted max")
 }
 
 // Jobs persisted before Seq existed unmarshal to 0; ordering must stay total.
@@ -640,9 +621,7 @@ func TestLegacyJobsWithoutSeqStillOrderTotally(t *testing.T) {
 		{"id":"aaa","site_key":"a","status":"completed","started_at":"2026-08-30T12:00:00Z","completed_at":"2026-08-30T12:00:00Z"},
 		{"id":"bbb","site_key":"b","status":"completed","started_at":"2026-08-30T12:00:00Z","completed_at":"2026-08-30T12:00:00Z"},
 		{"id":"ccc","site_key":"c","status":"completed","started_at":"2026-08-30T12:00:00Z","completed_at":"2026-08-30T12:00:00Z"}]}`
-	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
-		t.Fatalf("write legacy jobs: %v", err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644), "write legacy jobs")
 
 	var want []string
 	for run := range 50 {
@@ -658,13 +637,7 @@ func TestLegacyJobsWithoutSeqStillOrderTotally(t *testing.T) {
 			want = got
 			continue
 		}
-		for i := range got {
-			if got[i] != want[i] {
-				t.Fatalf("legacy jobs ordering %v differs from %v", got, want)
-			}
-		}
+		require.Equal(t, want, got, "legacy jobs ordering differs")
 	}
-	if len(want) != 3 {
-		t.Fatalf("expected 3 legacy jobs, got %d", len(want))
-	}
+	require.Len(t, want, 3, "legacy jobs")
 }
