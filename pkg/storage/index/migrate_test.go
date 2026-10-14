@@ -7,10 +7,12 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func discardLog() *slog.Logger {
@@ -47,43 +49,29 @@ CREATE INDEX IF NOT EXISTS page_history_url ON page_history(url);
 func writeRawDB(t *testing.T, path, ddl string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+path)
-	if err != nil {
-		t.Fatalf("open raw db: %v", err)
-	}
+	require.NoError(t, err, "open raw db")
 	defer db.Close()
-	if _, err := db.Exec(ddl); err != nil {
-		t.Fatalf("apply raw ddl: %v", err)
-	}
+	_, err = db.Exec(ddl)
+	require.NoError(t, err, "apply raw ddl")
 }
 
 func TestMigrationsAreWellFormed(t *testing.T) {
-	if len(migrations) == 0 {
-		t.Fatal("no migrations declared")
-	}
+	require.NotEmpty(t, migrations, "no migrations declared")
 	seen := map[string]bool{}
 	for i, m := range migrations {
-		if m.version != i+1 {
-			t.Errorf("migration %d has version %d; versions must be contiguous from 1", i, m.version)
-		}
-		if m.name == "" {
-			t.Errorf("migration %d has no name", m.version)
-		}
-		if _, err := migrationFS.ReadFile(m.file); err != nil {
-			t.Errorf("migration %d declares %q which is not embedded: %v", m.version, m.file, err)
-		}
+		assert.Equal(t, i+1, m.version, "migration %d: versions must be contiguous from 1", i)
+		assert.NotEmpty(t, m.name, "migration %d has no name", m.version)
+		_, err := migrationFS.ReadFile(m.file)
+		require.NoError(t, err, "migration %d declares %q which is not embedded", m.version, m.file)
 		seen[m.file] = true
 	}
 
 	// Every embedded file must be declared, or a migration silently never runs.
 	entries, err := migrationFS.ReadDir("migrations")
-	if err != nil {
-		t.Fatalf("read migrations dir: %v", err)
-	}
+	require.NoError(t, err, "read migrations dir")
 	for _, e := range entries {
 		p := "migrations/" + e.Name()
-		if !seen[p] {
-			t.Errorf("%s is embedded but not declared in the migrations slice", p)
-		}
+		assert.True(t, seen[p], "%s is embedded but not declared in the migrations slice", p)
 	}
 }
 
@@ -91,19 +79,14 @@ func TestMigrateFreshDatabaseStampsLatest(t *testing.T) {
 	idx := newTestIndex(t, 5)
 
 	got, err := idx.SchemaVersion(context.Background())
-	if err != nil {
-		t.Fatalf("SchemaVersion: %v", err)
-	}
-	if got != latestVersion() {
-		t.Errorf("fresh database at version %d, want %d", got, latestVersion())
-	}
+	require.NoError(t, err, "SchemaVersion")
+	assert.Equal(t, latestVersion(), got, "fresh database version")
 
 	for _, table := range []string{"crawls", "page_history", "schema_version"} {
 		var n int
 		q := `SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`
-		if err := idx.db.QueryRow(q, table).Scan(&n); err != nil || n != 1 {
-			t.Errorf("table %q missing after migration (n=%d, err=%v)", table, n, err)
-		}
+		require.NoError(t, idx.db.QueryRow(q, table).Scan(&n), "table %q", table)
+		assert.Equal(t, 1, n, "table %q missing after migration", table)
 	}
 }
 
@@ -115,9 +98,7 @@ func TestMigrateAdoptsLegacyDatabaseWithoutDataLoss(t *testing.T) {
 
 	// Seed history the way a pre-migration build would have.
 	db, err := sql.Open("sqlite", "file:"+path)
-	if err != nil {
-		t.Fatalf("open raw: %v", err)
-	}
+	require.NoError(t, err, "open raw")
 	seedClosed := false
 	defer func() {
 		if !seedClosed {
@@ -126,60 +107,38 @@ func TestMigrateAdoptsLegacyDatabaseWithoutDataLoss(t *testing.T) {
 	}()
 	res, err := db.Exec(`INSERT INTO crawls(site_key,crawl_started_at,crawl_ended_at,total_pages,mode)
 	                     VALUES('docs','2026-05-01T10:00:00Z','2026-05-01T10:05:00Z',2,'full')`)
-	if err != nil {
-		t.Fatalf("seed crawl: %v", err)
-	}
+	require.NoError(t, err, "seed crawl")
 	id, _ := res.LastInsertId()
 	for _, p := range []struct{ url, hash string }{{"https://d/a", "h1"}, {"https://d/b", "h2"}} {
-		if _, err := db.Exec(`INSERT INTO page_history(crawl_id,url,title,content_hash,depth) VALUES(?,?,?,?,0)`,
-			id, p.url, "T", p.hash); err != nil {
-			t.Fatalf("seed page: %v", err)
-		}
+		_, err := db.Exec(`INSERT INTO page_history(crawl_id,url,title,content_hash,depth) VALUES(?,?,?,?,0)`,
+			id, p.url, "T", p.hash)
+		require.NoError(t, err, "seed page")
 	}
 	var before int
 	_ = db.QueryRow(`SELECT COALESCE(MAX(version),0) FROM schema_version`).Scan(&before)
-	if before != 0 {
-		t.Fatalf("legacy fixture should have no version row, got %d", before)
-	}
+	require.Equal(t, 0, before, "legacy fixture should have no version row")
 	// Must be closed before Open: Windows refuses to work with the file while
 	// another handle is live, and the migration takes a write lock.
-	if err := db.Close(); err != nil {
-		t.Fatalf("close seed db: %v", err)
-	}
+	require.NoError(t, db.Close(), "close seed db")
 	seedClosed = true
 
 	idx, err := Open(path, 5, discardLog())
-	if err != nil {
-		t.Fatalf("Open on legacy database: %v", err)
-	}
+	require.NoError(t, err, "Open on legacy database")
 	defer idx.Close()
 
 	v, err := idx.SchemaVersion(context.Background())
-	if err != nil {
-		t.Fatalf("SchemaVersion: %v", err)
-	}
-	if v != latestVersion() {
-		t.Errorf("legacy database stamped %d, want %d", v, latestVersion())
-	}
+	require.NoError(t, err, "SchemaVersion")
+	assert.Equal(t, latestVersion(), v, "legacy database stamp")
 
 	latest, err := idx.GetLatestCrawl(context.Background(), "docs")
-	if err != nil {
-		t.Fatalf("GetLatestCrawl: %v", err)
-	}
-	if latest == nil {
-		t.Fatal("pre-existing crawl history was lost by the migration")
-	}
-	if latest.TotalPages != 2 || latest.Mode != ModeFull {
-		t.Errorf("history altered: total_pages=%d mode=%q, want 2/full", latest.TotalPages, latest.Mode)
-	}
+	require.NoError(t, err, "GetLatestCrawl")
+	require.NotNil(t, latest, "pre-existing crawl history was lost by the migration")
+	assert.Equal(t, 2, latest.TotalPages, "history altered")
+	assert.Equal(t, ModeFull, latest.Mode, "history altered")
 
 	var pages int
-	if err := idx.db.QueryRow(`SELECT count(*) FROM page_history`).Scan(&pages); err != nil {
-		t.Fatalf("count page_history: %v", err)
-	}
-	if pages != 2 {
-		t.Errorf("page_history has %d rows, want 2", pages)
-	}
+	require.NoError(t, idx.db.QueryRow(`SELECT count(*) FROM page_history`).Scan(&pages), "count page_history")
+	assert.Equal(t, 2, pages, "page_history rows")
 }
 
 // Reopening must not re-apply a migration or add a duplicate version row.
@@ -187,17 +146,11 @@ func TestMigrateIsIdempotentAcrossReopens(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "index.db")
 	for i := range 3 {
 		idx, err := Open(path, 5, discardLog())
-		if err != nil {
-			t.Fatalf("Open #%d: %v", i+1, err)
-		}
+		require.NoError(t, err, "Open #%d", i+1)
 		t.Cleanup(func() { _ = idx.Close() })
 		var rows int
-		if err := idx.db.QueryRow(`SELECT count(*) FROM schema_version`).Scan(&rows); err != nil {
-			t.Fatalf("count schema_version: %v", err)
-		}
-		if rows != len(migrations) {
-			t.Errorf("after Open #%d schema_version has %d rows, want %d", i+1, rows, len(migrations))
-		}
+		require.NoError(t, idx.db.QueryRow(`SELECT count(*) FROM schema_version`).Scan(&rows), "count schema_version")
+		assert.Equal(t, len(migrations), rows, "after Open #%d schema_version rows", i+1)
 		idx.Close()
 	}
 }
@@ -207,9 +160,7 @@ func TestMigrateIsIdempotentAcrossReopens(t *testing.T) {
 func TestMigrateRefusesNewerSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "index.db")
 	idx, err := Open(path, 5, discardLog())
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	require.NoError(t, err, "Open")
 	stamped := false
 	defer func() {
 		if !stamped {
@@ -217,22 +168,15 @@ func TestMigrateRefusesNewerSchema(t *testing.T) {
 		}
 	}()
 	future := latestVersion() + 7
-	if _, err := idx.db.Exec(`INSERT INTO schema_version(version) VALUES(?)`, future); err != nil {
-		t.Fatalf("stamp future version: %v", err)
-	}
-	if err := idx.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
+	_, err = idx.db.Exec(`INSERT INTO schema_version(version) VALUES(?)`, future)
+	require.NoError(t, err, "stamp future version")
+	require.NoError(t, idx.Close(), "close")
 	stamped = true
 
 	_, err = Open(path, 5, discardLog())
-	if err == nil {
-		t.Fatal("expected Open to refuse a database from a newer build")
-	}
+	require.Error(t, err, "expected Open to refuse a database from a newer build")
 	for _, want := range []string{fmt.Sprint(future), "upgrade doc-scraper"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q should mention %q", err, want)
-		}
+		require.ErrorContains(t, err, want)
 	}
 }
 
@@ -241,9 +185,7 @@ func TestMigrateRefusesNewerSchema(t *testing.T) {
 func TestMigrateFailedStepRollsBackEntirely(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "index.db")
 	db, err := sql.Open("sqlite", "file:"+path)
-	if err != nil {
-		t.Fatalf("open raw: %v", err)
-	}
+	require.NoError(t, err, "open raw")
 	defer db.Close()
 
 	steps := append(append([]migration{}, migrations...), migration{
@@ -256,39 +198,23 @@ func TestMigrateFailedStepRollsBackEntirely(t *testing.T) {
 	})
 
 	err = migrateSteps(context.Background(), db, discardLog(), steps)
-	if err == nil {
-		t.Fatal("expected the broken migration to fail")
-	}
-	if !strings.Contains(err.Error(), "deliberately broken") {
-		t.Errorf("error should name the failing migration, got: %v", err)
-	}
+	require.Error(t, err, "expected the broken migration to fail")
+	require.ErrorContains(t, err, "deliberately broken", "error should name the failing migration")
 
 	var halfApplied int
 	q := `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='half_applied'`
-	if err := db.QueryRow(q).Scan(&halfApplied); err != nil {
-		t.Fatalf("probe half_applied: %v", err)
-	}
-	if halfApplied != 0 {
-		t.Error("a table created by the failed migration survived; the step was not atomic")
-	}
+	require.NoError(t, db.QueryRow(q).Scan(&halfApplied), "probe half_applied")
+	assert.Equal(t, 0, halfApplied, "a table created by the failed migration survived; the step was not atomic")
 
 	var version int
-	if err := db.QueryRow(`SELECT COALESCE(MAX(version),0) FROM schema_version`).Scan(&version); err != nil {
-		t.Fatalf("read version: %v", err)
-	}
-	if version != 0 {
-		t.Errorf("version stamped %d despite the migration failing, want 0", version)
-	}
+	require.NoError(t, db.QueryRow(`SELECT COALESCE(MAX(version),0) FROM schema_version`).Scan(&version), "read version")
+	assert.Equal(t, 0, version, "version stamped despite the migration failing")
 
 	// The whole batch rolled back, so the good steps must still be pending.
 	var crawls int
 	q = `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='crawls'`
-	if err := db.QueryRow(q).Scan(&crawls); err != nil {
-		t.Fatalf("probe crawls: %v", err)
-	}
-	if crawls != 0 {
-		t.Error("migration 1 persisted even though a later step in the same batch failed")
-	}
+	require.NoError(t, db.QueryRow(q).Scan(&crawls), "probe crawls")
+	assert.Equal(t, 0, crawls, "migration 1 persisted even though a later step in the same batch failed")
 }
 
 // After a failed migration the write lock must be released, or every later
@@ -296,9 +222,7 @@ func TestMigrateFailedStepRollsBackEntirely(t *testing.T) {
 func TestMigrateReleasesLockAfterFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "index.db")
 	db, err := sql.Open("sqlite", "file:"+path)
-	if err != nil {
-		t.Fatalf("open raw: %v", err)
-	}
+	require.NoError(t, err, "open raw")
 	brokenClosed := false
 	defer func() {
 		if !brokenClosed {
@@ -309,12 +233,8 @@ func TestMigrateReleasesLockAfterFailure(t *testing.T) {
 		version: latestVersion() + 1, name: "broken", file: "test://broken",
 		sql: `THIS IS NOT VALID SQL;`,
 	})
-	if err := migrateSteps(context.Background(), db, discardLog(), broken); err == nil {
-		t.Fatal("expected failure")
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close db: %v", err)
-	}
+	require.Error(t, migrateSteps(context.Background(), db, discardLog(), broken), "expected failure")
+	require.NoError(t, db.Close(), "close db")
 	brokenClosed = true
 
 	done := make(chan error, 1)
@@ -327,9 +247,7 @@ func TestMigrateReleasesLockAfterFailure(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("Open after failed migration: %v", err)
-		}
+		require.NoError(t, err, "Open after failed migration")
 	case <-time.After(3 * time.Second):
 		t.Fatal("Open blocked after a failed migration; the write lock was not released")
 	}
@@ -356,34 +274,24 @@ func TestMigrateConcurrentOpens(t *testing.T) {
 	wg.Wait()
 
 	for i, err := range errs {
-		if err != nil {
-			t.Errorf("concurrent Open #%d failed: %v", i, err)
+		if !assert.NoError(t, err, "concurrent Open #%d", i) {
 			continue
 		}
-		if err := idxs[i].Close(); err != nil {
-			t.Errorf("close #%d: %v", i, err)
-		}
+		assert.NoError(t, idxs[i].Close(), "close #%d", i)
 	}
 
 	idx, err := Open(path, 5, discardLog())
-	if err != nil {
-		t.Fatalf("final Open: %v", err)
-	}
+	require.NoError(t, err, "final Open")
 	defer idx.Close()
 	var rows int
-	if err := idx.db.QueryRow(`SELECT count(*) FROM schema_version`).Scan(&rows); err != nil {
-		t.Fatalf("count schema_version: %v", err)
-	}
-	if rows != len(migrations) {
-		t.Errorf("schema_version has %d rows after %d concurrent opens, want %d", rows, n, len(migrations))
-	}
+	require.NoError(t, idx.db.QueryRow(`SELECT count(*) FROM schema_version`).Scan(&rows), "count schema_version")
+	assert.Equal(t, len(migrations), rows, "schema_version rows after %d concurrent opens", n)
 }
 
 // SchemaVersion must tolerate a nil index, matching Close.
 func TestSchemaVersionNilReceiver(t *testing.T) {
 	var idx *Index
 	v, err := idx.SchemaVersion(context.Background())
-	if err != nil || v != 0 {
-		t.Errorf("nil receiver: got (%d, %v), want (0, nil)", v, err)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 0, v)
 }
