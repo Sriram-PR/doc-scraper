@@ -65,8 +65,8 @@ func TestGetDueSites(t *testing.T) {
 	cfg := &config.AppConfig{StateDir: t.TempDir()}
 	s := NewScheduler(cfg, []string{"fresh", "recent", "stale"}, time.Hour, discardLog())
 
-	s.stateManager.UpdateSiteState("recent", true, 5, 0, "")
-	s.stateManager.UpdateSiteState("stale", true, 5, 0, "")
+	s.stateManager.UpdateSiteState("recent", true, PageCounts{Saved: 5}, "")
+	s.stateManager.UpdateSiteState("stale", true, PageCounts{Saved: 5}, "")
 	st, ok := s.stateManager.GetSiteState("stale")
 	require.True(t, ok)
 	st.LastRunTime = time.Now().Add(-2 * time.Hour)
@@ -79,7 +79,7 @@ func TestGetDueSites(t *testing.T) {
 func TestSchedulerRunAndStop(t *testing.T) {
 	cfg := &config.AppConfig{StateDir: t.TempDir()}
 	s := NewScheduler(cfg, []string{"quiet"}, time.Hour, discardLog()).WithIndex(nil)
-	s.stateManager.UpdateSiteState("quiet", true, 1, 0, "")
+	s.stateManager.UpdateSiteState("quiet", true, PageCounts{Saved: 1}, "")
 
 	done := make(chan error, 1)
 	go func() { done <- s.Run() }()
@@ -112,7 +112,7 @@ func TestRunDueSites_CrawlsAndPersistsState(t *testing.T) {
 	state, ok := s.stateManager.GetSiteState("fixture")
 	require.True(t, ok, "site state recorded after scheduled crawl")
 	assert.True(t, state.LastRunSuccess)
-	assert.Positive(t, state.PagesProcessed)
+	assert.Positive(t, state.PagesSaved)
 
 	_, err := os.Stat(filepath.Join(cfg.StateDir, stateFileName))
 	require.NoError(t, err, "watch state persisted to disk")
@@ -134,6 +134,8 @@ func TestRunDueSites_DeadSiteRecordedAsFailure(t *testing.T) {
 	require.True(t, ok)
 	assert.False(t, state.LastRunSuccess, "nothing could be fetched")
 	assert.Contains(t, state.ErrorMessage, "zero successful pages")
+	assert.Zero(t, state.PagesSaved)
+	assert.EqualValues(t, 1, state.PagesFailed)
 }
 
 func TestRunDueSites_RecordsUnchangedPages(t *testing.T) {
@@ -157,7 +159,7 @@ func TestRunDueSites_RecordsUnchangedPages(t *testing.T) {
 
 	state, ok := s.stateManager.GetSiteState("fixture")
 	require.True(t, ok)
-	assert.EqualValues(t, 0, state.PagesProcessed, "second run changed nothing")
+	assert.EqualValues(t, 0, state.PagesSaved, "second run changed nothing")
 	assert.EqualValues(t, 1, state.PagesUnchanged, "second run re-checked the page")
 }
 
@@ -166,7 +168,7 @@ func TestLogScheduleAndNextRun(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	cfg := &config.AppConfig{StateDir: t.TempDir()}
 	s := NewScheduler(cfg, []string{"seen", "unseen"}, time.Hour, log)
-	s.stateManager.UpdateSiteState("seen", false, 3, 0, "boom")
+	s.stateManager.UpdateSiteState("seen", false, PageCounts{Saved: 3}, "boom")
 
 	s.logSchedule()
 	out := buf.String()

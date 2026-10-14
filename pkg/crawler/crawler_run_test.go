@@ -767,6 +767,22 @@ func TestCrawlerRun_IncrementalCountsUnchangedPages(t *testing.T) {
 	assert.EqualValues(t, 1, p.PagesUnchanged, "one page changed")
 }
 
+func TestCrawlerRun_CountsSavedAndFailedPages(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Index</title></head><body>
+		<a href="/docs/a.html">A</a><a href="/docs/gone.html">Gone</a><a href="/docs/print.html">Print</a></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body>A</body></html>`)
+	ms.set("/docs/print.html", `<html><head><title>P</title><meta name="robots" content="noindex"></head><body>P</body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+
+	assert.EqualValues(t, 4, p.PagesProcessed, "every attempted task")
+	assert.EqualValues(t, 2, p.PagesSaved, "index and a; the noindex page writes nothing")
+	assert.EqualValues(t, 1, p.PagesFailed, "gone.html 404s")
+}
+
 // TestCrawlerRun_IncrementalPartialFailureSucceeds keeps the degrade-not-fail
 // policy for a re-crawl where some pages still check out.
 func TestCrawlerRun_IncrementalPartialFailureSucceeds(t *testing.T) {

@@ -15,8 +15,9 @@ const stateFileName = "watch_state.json"
 type SiteState struct {
 	LastRunTime    time.Time `json:"last_run_time"`
 	LastRunSuccess bool      `json:"last_run_success"`
-	PagesProcessed int64     `json:"pages_processed"`
+	PagesSaved     int64     `json:"pages_saved"`
 	PagesUnchanged int64     `json:"pages_unchanged"`
+	PagesFailed    int64     `json:"pages_failed"`
 	ErrorMessage   string    `json:"error_message,omitempty"`
 }
 
@@ -102,16 +103,22 @@ func (m *StateManager) GetSiteState(siteKey string) (SiteState, bool) {
 	return state, ok
 }
 
+// PageCounts summarizes one run's pages for the watch state.
+type PageCounts struct {
+	Saved, Unchanged, Failed int64
+}
+
 // UpdateSiteState records the result of a crawl run for a site.
-func (m *StateManager) UpdateSiteState(siteKey string, success bool, pagesProcessed, pagesUnchanged int64, errorMsg string) {
+func (m *StateManager) UpdateSiteState(siteKey string, success bool, counts PageCounts, errorMsg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.state.Sites[siteKey] = SiteState{
 		LastRunTime:    time.Now(),
 		LastRunSuccess: success,
-		PagesProcessed: pagesProcessed,
-		PagesUnchanged: pagesUnchanged,
+		PagesSaved:     counts.Saved,
+		PagesUnchanged: counts.Unchanged,
+		PagesFailed:    counts.Failed,
 		ErrorMessage:   errorMsg,
 	}
 }

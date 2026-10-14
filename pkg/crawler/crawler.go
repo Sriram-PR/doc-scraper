@@ -67,6 +67,7 @@ type Crawler struct {
 	processedCounter atomic.Int64
 	succeededCounter atomic.Int64
 	unchangedCounter atomic.Int64
+	savedCounter     atomic.Int64
 	crawlCtx         context.Context
 	cancelCrawl      context.CancelFunc
 
@@ -219,8 +220,13 @@ func (c *Crawler) FoundSitemap(sitemapURL string) {
 }
 
 type CrawlerProgress struct {
-	SiteKey        string
+	SiteKey string
+	// PagesProcessed counts attempted page tasks, failed ones included.
 	PagesProcessed int64
+	// PagesSaved counts pages written to output this run; noindex pages
+	// succeed without being saved.
+	PagesSaved  int64
+	PagesFailed int64
 	// PagesUnchanged counts incremental re-checks whose content hash matched;
 	// they are fetched but not reprocessed, so PagesProcessed excludes them.
 	PagesUnchanged int64
@@ -232,6 +238,8 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 	return CrawlerProgress{
 		SiteKey:        c.siteKey,
 		PagesProcessed: c.processedCounter.Load(),
+		PagesSaved:     c.savedCounter.Load(),
+		PagesFailed:    c.processedCounter.Load() - c.succeededCounter.Load(),
 		PagesUnchanged: c.unchangedCounter.Load(),
 		PagesQueued:    c.pq.Len(),
 		IsRunning:      c.crawlCtx.Err() == nil,
@@ -946,6 +954,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 
 	if savedContentPath != "" {
 		c.output.RecordPageOutput(finalURL.String(), tempMarkdownBytes, pageTitle, currentDepth, taskLog)
+		c.savedCounter.Add(1)
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.
