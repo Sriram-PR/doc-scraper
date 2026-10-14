@@ -1,8 +1,10 @@
 package utils
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSanitizeFilename(t *testing.T) {
@@ -39,10 +41,7 @@ func TestSanitizeFilename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SanitizeFilename(tt.input)
-			if result != tt.expected {
-				t.Errorf("SanitizeFilename(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, SanitizeFilename(tt.input), "input %q", tt.input)
 		})
 	}
 }
@@ -54,10 +53,7 @@ func TestSanitizeFilename_LongNames(t *testing.T) {
 		longName += "a"
 	}
 
-	result := SanitizeFilename(longName)
-	if len(result) > 100 {
-		t.Errorf("SanitizeFilename(long) length = %d, want <= 100", len(result))
-	}
+	assert.LessOrEqual(t, len(SanitizeFilename(longName)), 100)
 }
 
 func TestCompileRegexPatterns_ValidPatterns(t *testing.T) {
@@ -68,34 +64,22 @@ func TestCompileRegexPatterns_ValidPatterns(t *testing.T) {
 	}
 
 	compiled, err := CompileRegexPatterns(patterns)
-	if err != nil {
-		t.Fatalf("CompileRegexPatterns() unexpected error: %v", err)
-	}
-	if len(compiled) != 3 {
-		t.Errorf("CompileRegexPatterns() returned %d patterns, want 3", len(compiled))
-	}
+	require.NoError(t, err)
+	assert.Len(t, compiled, 3)
 }
 
 func TestCompileRegexPatterns_EmptySlice(t *testing.T) {
 	compiled, err := CompileRegexPatterns([]string{})
-	if err != nil {
-		t.Fatalf("CompileRegexPatterns([]) unexpected error: %v", err)
-	}
-	if len(compiled) != 0 {
-		t.Errorf("CompileRegexPatterns([]) returned %d patterns, want 0", len(compiled))
-	}
+	require.NoError(t, err)
+	assert.Empty(t, compiled)
 }
 
 func TestCompileRegexPatterns_EmptyStringsSkipped(t *testing.T) {
 	patterns := []string{"valid", "", "also_valid", ""}
 
 	compiled, err := CompileRegexPatterns(patterns)
-	if err != nil {
-		t.Fatalf("CompileRegexPatterns() unexpected error: %v", err)
-	}
-	if len(compiled) != 2 {
-		t.Errorf("CompileRegexPatterns() returned %d patterns, want 2", len(compiled))
-	}
+	require.NoError(t, err)
+	assert.Len(t, compiled, 2)
 }
 
 func TestCompileRegexPatterns_InvalidPattern(t *testing.T) {
@@ -105,12 +89,7 @@ func TestCompileRegexPatterns_InvalidPattern(t *testing.T) {
 	}
 
 	_, err := CompileRegexPatterns(patterns)
-	if err == nil {
-		t.Fatal("CompileRegexPatterns() expected error for invalid pattern, got nil")
-	}
-	if !errors.Is(err, ErrConfigValidation) {
-		t.Errorf("CompileRegexPatterns() error = %v, want wrapped ErrConfigValidation", err)
-	}
+	require.ErrorIs(t, err, ErrConfigValidation)
 }
 
 func TestCalculateStringSHA256(t *testing.T) {
@@ -138,10 +117,7 @@ func TestCalculateStringSHA256(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := CalculateStringSHA256(tt.input)
-			if result != tt.expected {
-				t.Errorf("CalculateStringSHA256(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, CalculateStringSHA256(tt.input))
 		})
 	}
 }
