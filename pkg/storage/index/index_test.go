@@ -248,3 +248,60 @@ func TestNoOrphanedPageHistoryAcrossPooledConnections(t *testing.T) {
 		`SELECT COUNT(*) FROM page_history WHERE crawl_id NOT IN (SELECT id FROM crawls)`).Scan(&orphans))
 	require.Zero(t, orphans, "page_history rows must never outlive their crawl")
 }
+
+// The cutoff has one-second resolution, matching the whole-second
+// last_crawl_ended_at that get_freshness reports, and the latest crawl is chosen
+// by time. Comparing the stored RFC3339Nano text fails both: it drops trailing
+// zeros, so "10:00:01.1Z" sorts after "10:00:01.15Z".
+func TestCrawlAtOrBeforeComparesTimes(t *testing.T) {
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	record := func(idx *Index, ended time.Time) {
+		mustRecord(t, idx, CrawlRecord{SiteKey: "rust", CrawlStartedAt: ended.Add(-time.Minute), CrawlEndedAt: ended, Mode: ModeFull})
+	}
+
+	t.Run("FreshnessTimestampSelectsItsOwnCrawl", func(t *testing.T) {
+		idx := newTestIndex(t, 5)
+		ended := t0.Add(300 * time.Millisecond)
+		record(idx, ended)
+
+		got, err := idx.crawlAtOrBefore(ctx, "rust", ended.Truncate(time.Second))
+		require.NoError(t, err)
+		require.NotNil(t, got, "since=last_crawl_ended_at must select that crawl")
+		assert.True(t, got.CrawlEndedAt.Equal(ended))
+	})
+
+	t.Run("CrawlEndingInALaterSecondIsExcluded", func(t *testing.T) {
+		idx := newTestIndex(t, 5)
+		record(idx, t0.Add(1200*time.Millisecond))
+
+		got, err := idx.crawlAtOrBefore(ctx, "rust", t0)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("LatestBeforeCutoffWins", func(t *testing.T) {
+		idx := newTestIndex(t, 5)
+		// The later crawl gets the lower id, so only time ordering can pick it.
+		later := t0.Add(1150 * time.Millisecond)
+		record(idx, later)
+		record(idx, t0.Add(1100*time.Millisecond))
+
+		got, err := idx.crawlAtOrBefore(ctx, "rust", t0.Add(time.Minute))
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.True(t, got.CrawlEndedAt.Equal(later), "picked the crawl ending %v, want %v", got.CrawlEndedAt, later)
+	})
+
+	t.Run("TiedEndTimesPickTheNewestRecord", func(t *testing.T) {
+		idx := newTestIndex(t, 5)
+		ended := t0.Add(500 * time.Millisecond)
+		record(idx, ended)
+		record(idx, ended)
+
+		got, err := idx.crawlAtOrBefore(ctx, "rust", t0.Add(time.Minute))
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, int64(2), got.ID)
+	})
+}

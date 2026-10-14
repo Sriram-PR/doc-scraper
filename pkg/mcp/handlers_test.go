@@ -481,6 +481,40 @@ func TestHandleDiffCrawl_NoBaseline(t *testing.T) {
 	assert.Contains(t, got["note"], "No baseline crawl")
 }
 
+// The documented workflow: read last_crawl_ended_at from get_freshness, crawl
+// again, then diff with since set to that value. Freshness reports whole
+// seconds, so the crawl it describes must still be selected as the baseline.
+func TestHandleDiffCrawl_SinceFromFreshnessSelectsThatCrawl(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	idx := attachIndex(t, s)
+	ended := time.Date(2026, 1, 1, 10, 0, 0, 300_000_000, time.UTC)
+	record := func(end time.Time, hash string) {
+		require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+			SiteKey:        "docs",
+			CrawlStartedAt: end.Add(-time.Minute),
+			CrawlEndedAt:   end,
+			Mode:           index.ModeFull,
+			Pages:          []index.PageRecord{{URL: "https://docs.example.com/a", Title: "A", ContentHash: hash}},
+		}))
+	}
+	record(ended.Add(-time.Hour), "h0")
+	record(ended, "h1")
+
+	_, fresh := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "docs"})
+	require.NotNil(t, fresh)
+	since, ok := fresh["last_crawl_ended_at"].(string)
+	require.True(t, ok)
+
+	record(ended.Add(time.Hour), "h2")
+
+	_, got := callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs", "since": since})
+	require.NotNil(t, got)
+	baseline, ok := got["baseline_crawl"].(map[string]any)
+	require.True(t, ok, "expected a baseline crawl, got %v", got)
+	assert.EqualValues(t, 2, baseline["crawl_id"], "baseline should be the crawl get_freshness reported")
+	assert.EqualValues(t, 1, got["total"])
+}
+
 func TestHandleDiffCrawl_AddedRemovedChanged(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 	idx := attachIndex(t, s)
