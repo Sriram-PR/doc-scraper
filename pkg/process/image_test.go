@@ -605,6 +605,38 @@ func TestProcessImages_BoundsConcurrentDownloads(t *testing.T) {
 	assert.GreaterOrEqual(t, fetcher.maxSeen, 2, "expected the work to actually overlap")
 }
 
+// num_image_workers falls back to num_workers only when unset, so each value
+// must be observable on its own.
+func TestProcessImages_WorkerCountSource(t *testing.T) {
+	tests := []struct {
+		name         string
+		imageWorkers int
+		workers      int
+		wantMax      int
+	}{
+		{"ExplicitImageWorkers", 3, 1, 3},
+		{"UnsetFallsBackToWorkers", 0, 1, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetcher := &concurrencyFetcher{}
+			ip := newImageProcessorWithWorkers(t, newFakeImageStore(), fetcher, tt.workers)
+			ip.appCfg.NumImageWorkers = tt.imageWorkers
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			sel := imageDoc(t, imagesHTML(9))
+			pageURL, _ := url.Parse("https://e.com/page.html")
+			imgMap, _ := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), ctx)
+
+			assert.Len(t, imgMap, 9, "every image should download")
+			fetcher.mu.Lock()
+			defer fetcher.mu.Unlock()
+			assert.Equal(t, tt.wantMax, fetcher.maxSeen, "peak concurrent downloads")
+		})
+	}
+}
+
 func TestProcessImages_CancelledContextStopsDispatch(t *testing.T) {
 	store := newFakeImageStore()
 	fetcher := &concurrencyFetcher{}
