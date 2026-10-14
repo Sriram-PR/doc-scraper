@@ -12,7 +12,9 @@ sidebar:
 - Change detection is **content-scoped**: it hashes the extracted content-selector region, not the raw page. Churn in the page shell (navigation, analytics, build timestamps, CSRF tokens) outside the content selector does **not** count as a change.
 - Pages whose content region is **unchanged** are skipped without re-converting, re-downloading images, or rewriting output.
 - Pages whose content region **changed** are fully reprocessed and their output is rewritten.
+- Unchanged pages still have their links followed, so a page newly linked from the navigation is found.
 - A page that now returns an error (e.g. 404) on re-crawl leaves its previously-crawled output **as-is**; nothing is pruned.
+- If every page fails and none checks out unchanged (the site is down, for example), the run fails and exits `1`. The existing output is kept, and the run is not recorded in crawl history, so `get_freshness` still reports the last good crawl.
 
 Because there is no conditional-request support yet, incremental mode still performs the HTTP fetch for each known page; the savings come from skipping the downstream processing of unchanged pages.
 

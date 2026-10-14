@@ -654,6 +654,13 @@ func (m *mutableDocServer) hitCount(path string) int {
 // same StateDir/OutputBaseDir across calls so incremental re-crawls see prior state.
 func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) CrawlerProgress {
 	t.Helper()
+	p, err := runResumableCrawlErr(t, appCfg, siteCfg, resume)
+	require.NoError(t, err)
+	return p
+}
+
+func runResumableCrawlErr(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) (CrawlerProgress, error) {
+	t.Helper()
 	logger := silentLogger()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -665,8 +672,8 @@ func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.S
 	rl := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logger)
 	c, err := NewCrawlerWithOptions(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rl, ctx, cancel, resume, nil)
 	require.NoError(t, err)
-	require.NoError(t, c.Run(resume))
-	return c.GetProgress()
+	err = c.Run(resume)
+	return c.GetProgress(), err
 }
 
 func mdFileIn(t *testing.T, dir string) string {
@@ -760,6 +767,59 @@ func TestCrawlerRun_IncrementalCountsUnchangedPages(t *testing.T) {
 	assert.EqualValues(t, 1, p.PagesUnchanged, "one page changed")
 }
 
+// TestCrawlerRun_IncrementalPartialFailureSucceeds keeps the degrade-not-fail
+// policy for a re-crawl where some pages still check out.
+func TestCrawlerRun_IncrementalPartialFailureSucceeds(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	ms.remove("/docs/a.html")
+	p := runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.EqualValues(t, 1, p.PagesUnchanged)
+}
+
+// TestCrawlerRun_ResumeRetryingOnlyFailedPagesSucceeds keeps today's rule for
+// a non-incremental resume: the corpus from the earlier run is intact, so a
+// page that still fails on retry does not fail the run.
+func TestCrawlerRun_ResumeRetryingOnlyFailedPagesSucceeds(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/gone.html">gone</a></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	require.Equal(t, 1, ms.hitCount("/docs/gone.html"))
+
+	p := runResumableCrawl(t, appCfg, siteCfg, true)
+
+	require.Equal(t, 2, ms.hitCount("/docs/gone.html"), "resume retries the failed page")
+	assert.EqualValues(t, 1, p.PagesProcessed)
+}
+
+// TestCrawlerRun_FirstWatchStyleRunOfDeadSiteFails covers watch's first run:
+// resume and incremental are both on, there is no prior corpus, and nothing
+// could be fetched.
+func TestCrawlerRun_FirstWatchStyleRunOfDeadSiteFails(t *testing.T) {
+	server, _ := newMutableDocServer(t) // serves nothing
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	_, err := runResumableCrawlErr(t, appCfg, siteCfg, true)
+
+	require.ErrorContains(t, err, "zero successful pages")
+}
+
 // TestCrawlerRun_IncrementalFollowsLinksOfUnchangedPages covers a new page
 // linked only from the page shell (a docs sidebar gaining a chapter): the
 // content hash still matches, but the new link must be discovered.
@@ -790,6 +850,7 @@ func TestCrawlerRun_IncrementalFollowsLinksOfUnchangedPages(t *testing.T) {
 
 // TestCrawlerRun_Incremental404LeavesOutput verifies that when a previously-crawled
 // page returns 404 on an incremental re-crawl, its existing output is left as-is.
+// It is the only page, so nothing was re-checked and the run reports failure.
 func TestCrawlerRun_Incremental404LeavesOutput(t *testing.T) {
 	server, ms := newMutableDocServer(t)
 	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body><main id="c"><p>KEEP ME</p></main></body></html>`)
@@ -807,7 +868,8 @@ func TestCrawlerRun_Incremental404LeavesOutput(t *testing.T) {
 
 	// Page now 404s on the incremental re-crawl.
 	ms.remove("/docs/index.html")
-	runResumableCrawl(t, appCfg, siteCfg, true) // must not fail the crawl
+	_, err := runResumableCrawlErr(t, appCfg, siteCfg, true)
+	require.ErrorContains(t, err, "zero successful pages")
 
 	assert.FileExists(t, md, "existing output must be left as-is when a page now 404s")
 	body, err := os.ReadFile(md)

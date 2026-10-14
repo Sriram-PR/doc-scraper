@@ -120,6 +120,22 @@ func TestRunDueSites_CrawlsAndPersistsState(t *testing.T) {
 	assert.Empty(t, s.getDueSites(), "freshly crawled site is no longer due")
 }
 
+func TestRunDueSites_DeadSiteRecordedAsFailure(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+
+	s := NewScheduler(schedulerConfig(t, srv.URL), []string{"fixture"}, time.Hour, discardLog())
+	require.NoError(t, s.stateManager.Load())
+
+	s.runDueSites()
+	s.wg.Wait()
+
+	state, ok := s.stateManager.GetSiteState("fixture")
+	require.True(t, ok)
+	assert.False(t, state.LastRunSuccess, "nothing could be fetched")
+	assert.Contains(t, state.ErrorMessage, "zero successful pages")
+}
+
 func TestRunDueSites_RecordsUnchangedPages(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

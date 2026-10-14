@@ -305,13 +305,13 @@ func (c *Crawler) Run(resume bool) (err error) {
 	c.logRunSummary(overallStart, runLog)
 	// A drained queue is not success if every attempted page failed: without
 	// this, a fully unreachable site produces an empty corpus and exit code 0.
-	// Scoped to fresh crawls only; resume/incremental runs keep a prior corpus,
-	// where individual failures (a page now 404ing, a transient outage during a
-	// scheduled re-crawl) intentionally degrade instead of failing the run.
 	// A continued staged crawl counts pages saved by earlier runs, so it fails
-	// only when staging would be swapped in empty.
+	// only when staging would be swapped in empty. An incremental re-crawl
+	// degrades on individual failures (a page now 404ing) but fails when no page
+	// even checked out unchanged, so an outage is not recorded as a fresh crawl.
 	noPages := !resume || (c.stage != nil && c.stage.Staged && c.output.PagesSaved() == 0)
-	if noPages && c.crawlCtx.Err() == nil && c.processedCounter.Load() > 0 && c.succeededCounter.Load() == 0 {
+	nothingChecked := c.appCfg.EnableIncremental && c.unchangedCounter.Load() == 0
+	if (noPages || nothingChecked) && c.crawlCtx.Err() == nil && c.processedCounter.Load() > 0 && c.succeededCounter.Load() == 0 {
 		return fmt.Errorf("crawl completed with zero successful pages: all %d attempted page tasks failed", c.processedCounter.Load())
 	}
 	return c.crawlCtx.Err()
