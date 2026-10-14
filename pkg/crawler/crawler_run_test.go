@@ -316,6 +316,77 @@ func TestCrawlerRun_MaxDepth(t *testing.T) {
 	assert.False(t, rec.wasRequested("/docs/grandchild.html"), "over-depth page must not be fetched")
 }
 
+// newSitemapDocServer serves /docs/index.html, which links nowhere, and
+// /docs/orphan.html, reachable only through a sitemap at sitemapPath. A
+// non-empty robots body is served at /robots.txt.
+func newSitemapDocServer(t *testing.T, sitemapPath, robots string) (*httptest.Server, *requestRecorder) {
+	t.Helper()
+	rec := &requestRecorder{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.record(r.URL.Path)
+		origin := "http://" + r.Host
+		switch r.URL.Path {
+		case "/robots.txt":
+			if robots == "" {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = io.WriteString(w, strings.ReplaceAll(robots, "{origin}", origin))
+		case sitemapPath:
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>`+
+				origin+`/docs/orphan.html</loc></url></urlset>`)
+		case "/docs/index.html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<html><head><title>Index</title></head><body>No links.</body></html>`)
+		case "/docs/orphan.html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<html><head><title>Orphan</title></head><body>Only in the sitemap.</body></html>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server, rec
+}
+
+func TestCrawlerRun_ProbesProjectPathSitemapWithoutRobots(t *testing.T) {
+	server, rec := newSitemapDocServer(t, "/docs/sitemap-index.xml", "")
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "orphan.md"))
+	assert.True(t, rec.wasRequested("/sitemap.xml"), "root candidates are probed first")
+	assert.False(t, rec.wasRequested("/docs/sitemap_index.xml"), "probing stops at the first sitemap found")
+}
+
+func TestCrawlerRun_ProbingHonorsRobotsDisallow(t *testing.T) {
+	server, rec := newSitemapDocServer(t, "/docs/sitemap-index.xml", "User-agent: *\nDisallow: /sitemap.xml\n")
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "orphan.md"))
+	assert.False(t, rec.wasRequested("/sitemap.xml"), "a candidate disallowed by robots.txt must not be probed")
+	assert.True(t, rec.wasRequested("/sitemap-index.xml"))
+}
+
+func TestCrawlerRun_RobotsSitemapSkipsProbing(t *testing.T) {
+	server, rec := newSitemapDocServer(t, "/maps/docs.xml", "User-agent: *\nAllow: /\n\nSitemap: {origin}/maps/docs.xml\n")
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "orphan.md"))
+	for _, p := range []string{"/sitemap.xml", "/docs/sitemap.xml"} {
+		assert.False(t, rec.wasRequested(p), "%s must not be probed when robots.txt announces a sitemap", p)
+	}
+}
+
 func TestCrawlerRun_NoValidStartURLs(t *testing.T) {
 	appCfg := newTestAppConfig(t)
 	siteCfg := &config.SiteConfig{

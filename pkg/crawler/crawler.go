@@ -460,8 +460,9 @@ func (c *Crawler) startWorkers(runLog *slog.Logger) {
 
 // runWaiter manages the startup-and-completion sequence: it starts the progress
 // reporter, performs the initial robots.txt fetch, queues sitemaps discovered
-// there, waits for all tasks to finish (or the context to cancel), and then
-// closes the work queues. It closes waiterDone when it returns.
+// there (or probes the conventional locations when there are none), waits for
+// all tasks to finish (or the context to cancel), and then closes the work
+// queues. It closes waiterDone when it returns.
 func (c *Crawler) runWaiter(firstValidParsedURL *url.URL, runLog *slog.Logger, waiterDone chan struct{}) {
 	defer close(waiterDone)
 
@@ -475,7 +476,9 @@ func (c *Crawler) runWaiter(firstValidParsedURL *url.URL, runLog *slog.Logger, w
 	go c.reportProgress(runLog, progTicker, progDone)
 
 	if c.fetchInitialRobots(firstValidParsedURL, runLog) {
-		c.queueInitialSitemaps(runLog)
+		if !c.queueInitialSitemaps(runLog) && firstValidParsedURL != nil {
+			c.probeSitemap(firstValidParsedURL, runLog)
+		}
 		c.awaitTasks(runLog)
 	}
 	// Workers blocked in Pop only exit once the queue is closed, so it must
@@ -539,9 +542,12 @@ func (c *Crawler) fetchInitialRobots(firstValidParsedURL *url.URL, runLog *slog.
 	}
 }
 
-func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) {
+// queueInitialSitemaps queues the sitemaps robots.txt announced and reports
+// whether it announced any.
+func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) bool {
 	runLog.Info("Waiter: Processing initially discovered sitemaps...")
 	c.foundSitemapsMu.Lock()
+	announced := len(c.foundSitemaps) > 0
 	var initialSitemapsToQueue []string
 	for smURL := range c.foundSitemaps {
 		if c.sitemapProcessor.MarkSitemapProcessed(smURL) {
@@ -552,7 +558,7 @@ func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) {
 
 	if len(initialSitemapsToQueue) == 0 {
 		runLog.Info("Waiter: No new initial sitemaps found to queue from robots.txt.")
-		return
+		return announced
 	}
 	runLog.Info(fmt.Sprintf("Waiter: Found %d initial sitemaps to queue.", len(initialSitemapsToQueue)))
 	for _, smURL := range initialSitemapsToQueue {
@@ -567,6 +573,24 @@ func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) {
 			runLog.Error(fmt.Sprintf("Waiter: Timeout sending initial sitemap %s. Undoing WG.", smURL))
 			c.wg.Done()
 		}
+	}
+	return announced
+}
+
+// probeSitemap looks for a sitemap at the locations `add` checks, so sites
+// that publish one under a project path without announcing it in robots.txt
+// (GitHub and GitLab Pages) are not crawled by link following alone.
+func (c *Crawler) probeSitemap(startURL *url.URL, runLog *slog.Logger) {
+	var candidates []string
+	for _, cand := range parse.SitemapCandidates(startURL) {
+		if u, err := url.Parse(cand); err == nil && c.robotsHandler.TestAgent(u, c.resolved.UserAgent, c.crawlCtx) {
+			candidates = append(candidates, cand)
+		}
+	}
+	if smURL, ok := c.sitemapProcessor.Probe(c.crawlCtx, candidates); ok {
+		runLog.Info(fmt.Sprintf("Waiter: Using sitemap found by probing: %s", smURL))
+	} else {
+		runLog.Info("Waiter: No sitemap found at the conventional locations.")
 	}
 }
 

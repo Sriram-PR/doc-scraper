@@ -2,6 +2,7 @@ package parse
 
 import (
 	"encoding/xml"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -209,4 +210,36 @@ func TestXMLSitemapIndex_UnmarshalWithLastMod(t *testing.T) {
 	// Second sitemap has no lastmod
 	assert.Equal(t, "https://example.com/sitemap2.xml", idx.Sitemaps[1].Loc)
 	assert.Empty(t, idx.Sitemaps[1].LastMod)
+}
+
+func TestSitemapCandidates(t *testing.T) {
+	names := func(dirs ...string) []string {
+		files := []string{"sitemap.xml", "sitemap-index.xml", "sitemap_index.xml"}
+		out := make([]string, 0, len(dirs)*len(files))
+		for _, d := range dirs {
+			for _, n := range files {
+				out = append(out, "https://example.com"+d+n)
+			}
+		}
+		return out
+	}
+	tests := []struct {
+		name string
+		path string
+		want []string
+	}{
+		{"Root", "/", names("/")},
+		{"EmptyPath", "", names("/")},
+		{"RootFile", "/index.html", names("/")},
+		{"ProjectDir", "/project/", names("/", "/project/")},
+		{"ProjectFile", "/project/guide.html", names("/", "/project/")},
+		{"CappedAtTwoLevels", "/group/project/docs/page/", names("/", "/group/", "/group/project/")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u, err := url.Parse("https://example.com" + tt.path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, SitemapCandidates(u))
+		})
+	}
 }

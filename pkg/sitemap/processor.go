@@ -40,6 +40,7 @@ type SitemapProcessor struct {
 	wg                         *sync.WaitGroup // main crawler WaitGroup
 	sitemapsProcessed          map[string]bool
 	sitemapsProcessedMu        sync.Mutex
+	backlog                    *sitemapBacklog
 }
 
 func NewSitemapProcessor(
@@ -70,6 +71,7 @@ func NewSitemapProcessor(
 		log:                        log.With("component", "sitemap_processor"),
 		wg:                         wg,
 		sitemapsProcessed:          make(map[string]bool),
+		backlog:                    newSitemapBacklog(),
 	}
 }
 
@@ -158,7 +160,7 @@ func (sp *SitemapProcessor) workerCount() int {
 // bounded regardless of sitemap-index size. It returns once the ingress ends
 // (queue closed or context cancelled) and the backlog is fully drained.
 func (sp *SitemapProcessor) run(ctx context.Context) {
-	backlog := newSitemapBacklog()
+	backlog := sp.backlog
 
 	go func() {
 		for {
@@ -216,38 +218,17 @@ func (sp *SitemapProcessor) recoverPanic(smURL string) {
 	}
 }
 
-// processSitemap acquires the per-host and global request slots, fetches one
-// sitemap, and dispatches on whether it is a sitemap index or a URL set.
+// processSitemap fetches one sitemap and dispatches on whether it is a
+// sitemap index or a URL set.
 func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string, backlog *sitemapBacklog) {
 	sitemapLog := sp.log.With("sitemap_url", smURL)
 	sitemapLog.Info("Processing sitemap")
 
-	parsedSitemapURL, err := url.Parse(smURL)
+	sitemapBytes, err := sp.fetchSitemap(ctx, smURL, sitemapLog)
 	if err != nil {
-		sitemapLog.Error(fmt.Sprintf("Failed parse URL: %v", err))
-		return
-	}
-	sitemapHost := parsedSitemapURL.Hostname()
-
-	// Host slot first, then global, matching the page, image, and robots.txt
-	// fetch paths. Without it the sitemap pool issues up to max_requests
-	// concurrent requests to a single host regardless of max_requests_per_host.
-	if sp.hostSemPool != nil {
-		if !sp.acquireHostSlot(ctx, sitemapHost, sitemapLog) {
-			return
+		if !errors.Is(err, errNoSlot) {
+			sitemapLog.Error(fmt.Sprintf("Fetch failed: %v", err))
 		}
-		defer sp.hostSemPool.Release(sitemapHost)
-	}
-
-	if !sp.acquireGlobalSlot(ctx, sitemapLog) {
-		return
-	}
-	defer sp.globalSemaphore.Release(1)
-
-	sp.rateLimiter.ApplyDelay(ctx, sitemapHost, sp.appCfg.DefaultDelayPerHost)
-
-	sitemapBytes, ok := sp.fetchSitemap(ctx, smURL, sitemapLog)
-	if !ok {
 		return
 	}
 
@@ -257,7 +238,52 @@ func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string, ba
 		sp.handleSitemapIndex(index, backlog, sitemapLog)
 		return
 	}
-	sp.handleURLSet(sitemapBytes, errIndex, sitemapLog)
+	var urlSet parse.XMLURLSet
+	if errURLSet := xml.Unmarshal(sitemapBytes, &urlSet); errURLSet != nil {
+		// Only surface an error if it also failed to parse as an index.
+		if errIndex != nil {
+			sitemapLog.Error(fmt.Sprintf("Failed parse XML (Index err=%v; URLSet err=%v)", errIndex, errURLSet))
+		} else {
+			sitemapLog.Warn(fmt.Sprintf("Content was not a valid Sitemap Index or URL Set (URLSet err=%v)", errURLSet))
+		}
+		return
+	}
+	sp.handleURLSet(urlSet, sitemapLog)
+}
+
+// Probe tries candidates in order and processes the first one that is a
+// non-empty sitemap, reporting its URL. Misses are expected, so they are
+// logged at debug level. Run it while the processor is started and before
+// the sitemap queue is closed.
+func (sp *SitemapProcessor) Probe(ctx context.Context, candidates []string) (string, bool) {
+	for _, smURL := range candidates {
+		if ctx.Err() != nil {
+			return "", false
+		}
+		if !sp.MarkSitemapProcessed(smURL) {
+			continue
+		}
+		probeLog := sp.log.With("sitemap_url", smURL)
+		sitemapBytes, err := sp.fetchSitemap(ctx, smURL, probeLog)
+		if err != nil {
+			probeLog.Debug(fmt.Sprintf("Sitemap probe missed: %v", err))
+			continue
+		}
+		var index parse.XMLSitemapIndex
+		if xml.Unmarshal(sitemapBytes, &index) == nil && len(index.Sitemaps) > 0 {
+			probeLog.Info("Found sitemap by probing")
+			sp.handleSitemapIndex(index, sp.backlog, probeLog)
+			return smURL, true
+		}
+		var urlSet parse.XMLURLSet
+		if xml.Unmarshal(sitemapBytes, &urlSet) == nil && len(urlSet.URLs) > 0 {
+			probeLog.Info("Found sitemap by probing")
+			sp.handleURLSet(urlSet, probeLog)
+			return smURL, true
+		}
+		probeLog.Debug("Sitemap probe missed: not a non-empty sitemap")
+	}
+	return "", false
 }
 
 func (sp *SitemapProcessor) acquireHostSlot(ctx context.Context, host string, sitemapLog *slog.Logger) bool {
@@ -295,34 +321,58 @@ func logSlotFailure(ctx context.Context, sitemapLog *slog.Logger, which string, 
 	}
 }
 
-// fetchSitemap retrieves and reads the sitemap body, capped at 10 MB. The
-// second return is false if the request could not be completed.
-func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, sitemapLog *slog.Logger) ([]byte, bool) {
+// errNoSlot means a request slot could not be acquired; the cause is already
+// logged.
+var errNoSlot = errors.New("no request slot")
+
+// fetchSitemap acquires the per-host and global request slots and reads the
+// sitemap body, capped at 10 MB.
+func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, sitemapLog *slog.Logger) ([]byte, error) {
+	parsedSitemapURL, err := url.Parse(smURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse URL: %w", err)
+	}
+	sitemapHost := parsedSitemapURL.Hostname()
+
+	// Host slot first, then global, matching the page, image, and robots.txt
+	// fetch paths. Without it the sitemap pool issues up to max_requests
+	// concurrent requests to a single host regardless of max_requests_per_host.
+	if sp.hostSemPool != nil {
+		if !sp.acquireHostSlot(ctx, sitemapHost, sitemapLog) {
+			return nil, errNoSlot
+		}
+		defer sp.hostSemPool.Release(sitemapHost)
+	}
+
+	if !sp.acquireGlobalSlot(ctx, sitemapLog) {
+		return nil, errNoSlot
+	}
+	defer sp.globalSemaphore.Release(1)
+
+	sp.rateLimiter.ApplyDelay(ctx, sitemapHost, sp.appCfg.DefaultDelayPerHost)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, smURL, nil)
 	if err != nil {
-		sitemapLog.Error(fmt.Sprintf("Req Create error: %v", err))
-		return nil, false
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("User-Agent", sp.appCfg.DefaultUserAgent)
 
-	resp, fetchErr := sp.fetcher.FetchWithRetry(req, ctx)
-	if fetchErr != nil {
-		sitemapLog.Error(fmt.Sprintf("Fetch failed: %v", fetchErr))
+	resp, err := sp.fetcher.FetchWithRetry(req, ctx)
+	if err != nil {
 		if resp != nil {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
-		return nil, false
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	const maxSitemapSize = 10 * 1024 * 1024 // 10 MB
-	sitemapBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxSitemapSize))
-	if readErr != nil {
-		sitemapLog.Error(fmt.Sprintf("Read body error: %v", readErr))
-		return nil, false
+	sitemapBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxSitemapSize))
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
 	}
-	return sitemapBytes, true
+	return sitemapBytes, nil
 }
 
 // handleSitemapIndex queues each valid, not-yet-seen nested sitemap onto the
@@ -349,20 +399,8 @@ func (sp *SitemapProcessor) handleSitemapIndex(index parse.XMLSitemapIndex, back
 	sitemapLog.Info(fmt.Sprintf("Queued %d nested sitemaps.", queuedCount))
 }
 
-// handleURLSet parses a <urlset> and enqueues every in-scope, new page URL.
-func (sp *SitemapProcessor) handleURLSet(sitemapBytes []byte, errIndex error, sitemapLog *slog.Logger) {
-	var urlSet parse.XMLURLSet
-	errURLSet := xml.Unmarshal(sitemapBytes, &urlSet)
-	if errURLSet != nil {
-		// Only surface an error if it also failed to parse as an index.
-		if errIndex != nil {
-			sitemapLog.Error(fmt.Sprintf("Failed parse XML (Index err=%v; URLSet err=%v)", errIndex, errURLSet))
-		} else {
-			sitemapLog.Warn(fmt.Sprintf("Content was not a valid Sitemap Index or URL Set (URLSet err=%v)", errURLSet))
-		}
-		return
-	}
-
+// handleURLSet enqueues every in-scope, new page URL of a <urlset>.
+func (sp *SitemapProcessor) handleURLSet(urlSet parse.XMLURLSet, sitemapLog *slog.Logger) {
 	sitemapLog.Info(fmt.Sprintf("Parsed as URL Set, found %d URLs.", len(urlSet.URLs)))
 	queuedCount := 0
 	dbErrorCount := 0

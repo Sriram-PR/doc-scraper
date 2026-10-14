@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
@@ -597,4 +599,46 @@ func TestProcessSitemapDistinctHostsNotSerialized(t *testing.T) {
 			t.Fatalf("host %s never reached its own limit; hosts appear serialized (peak %d)", host, f.peakFor(host))
 		}
 	}
+}
+
+func TestProbe_SkipsNonSitemapsAndProcessesFirstIndex(t *testing.T) {
+	const ns = `xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"`
+	routes := map[string]string{
+		"https://example.com/sitemap.xml":        `<html><body>Soft 404</body></html>`,
+		"https://example.com/docs/sitemap.xml":   `<?xml version="1.0"?><sitemapindex ` + ns + `><sitemap><loc>https://example.com/docs/sitemap-0.xml</loc></sitemap></sitemapindex>`,
+		"https://example.com/docs/sitemap-0.xml": `<?xml version="1.0"?><urlset ` + ns + `><url><loc>https://example.com/docs/page</loc></url></urlset>`,
+	}
+	store := newMockPageStore()
+	sp, _, pq, wg := newTestProcessor(t, &routeFetcher{routes}, store, defaultSiteCfg(), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	got, ok := sp.Probe(ctx, []string{
+		"https://example.com/sitemap.xml",
+		"https://example.com/sitemap-index.xml", // empty body
+		"https://example.com/docs/sitemap.xml",
+		"https://example.com/docs/sitemap_index.xml",
+	})
+	require.True(t, ok)
+	assert.Equal(t, "https://example.com/docs/sitemap.xml", got)
+
+	waitForPQLen(t, pq, 1, 5*time.Second)
+	items := drainPQAndBalance(pq, wg)
+	wg.Wait()
+	require.Len(t, items, 1)
+	assert.Equal(t, "https://example.com/docs/page", items[0].URL)
+	assert.True(t, sp.MarkSitemapProcessed("https://example.com/docs/sitemap_index.xml"), "probing must stop at the first sitemap")
+}
+
+func TestProbe_NoSitemapFound(t *testing.T) {
+	sp, _, pq, _ := newTestProcessor(t, &routeFetcher{map[string]string{}}, newMockPageStore(), defaultSiteCfg(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	_, ok := sp.Probe(ctx, []string{"https://example.com/sitemap.xml"})
+	assert.False(t, ok)
+	assert.Equal(t, 0, pq.Len())
 }
