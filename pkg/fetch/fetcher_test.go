@@ -2,7 +2,6 @@ package fetch
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -11,6 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
@@ -77,20 +79,12 @@ func TestFetchWithRetry_Success(t *testing.T) {
 
 			resp, err := fetcher.FetchWithRetry(req, context.Background())
 
-			if err != nil {
-				t.Fatalf("expected no error, got: %v", err)
-			}
-			if resp == nil {
-				t.Fatal("expected response, got nil")
-			}
+			require.NoError(t, err)
+			require.NotNil(t, resp)
 			defer resp.Body.Close()
 
-			if resp.StatusCode != tt.statusCode {
-				t.Errorf("expected status %d, got %d", tt.statusCode, resp.StatusCode)
-			}
-			if attempts.Load() != 1 {
-				t.Errorf("expected 1 attempt, got %d", attempts.Load())
-			}
+			assert.Equal(t, tt.statusCode, resp.StatusCode)
+			assert.Equal(t, int32(1), attempts.Load())
 		})
 	}
 }
@@ -104,20 +98,12 @@ func TestFetchWithRetry_ServerError_RetrySuccess(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, context.Background())
 
-	if err != nil {
-		t.Fatalf("expected no error after retry, got: %v", err)
-	}
-	if resp == nil {
-		t.Fatal("expected response, got nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, resp)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200, got %d", resp.StatusCode)
-	}
-	if attempts.Load() != 3 {
-		t.Errorf("expected 3 attempts, got %d", attempts.Load())
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int32(3), attempts.Load())
 }
 
 func TestFetchWithRetry_ServerError_AllRetriesFail(t *testing.T) {
@@ -129,22 +115,14 @@ func TestFetchWithRetry_ServerError_AllRetriesFail(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, context.Background())
 
-	if err == nil {
-		t.Fatal("expected error after all retries failed")
-	}
+	require.Error(t, err)
 	if resp != nil {
 		resp.Body.Close()
-		t.Error("expected nil response when all retries fail")
 	}
-	if !errors.Is(err, utils.ErrRetryFailed) {
-		t.Errorf("expected ErrRetryFailed, got: %v", err)
-	}
-	if !errors.Is(err, utils.ErrServerHTTPError) {
-		t.Errorf("expected wrapped ErrServerHTTPError, got: %v", err)
-	}
-	if attempts.Load() != 4 {
-		t.Errorf("expected 4 attempts (initial + 3 retries), got %d", attempts.Load())
-	}
+	assert.Nil(t, resp)
+	require.ErrorIs(t, err, utils.ErrRetryFailed)
+	require.ErrorIs(t, err, utils.ErrServerHTTPError)
+	assert.Equal(t, int32(4), attempts.Load())
 }
 
 func TestFetchWithRetry_RateLimit_RetrySuccess(t *testing.T) {
@@ -156,20 +134,12 @@ func TestFetchWithRetry_RateLimit_RetrySuccess(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, context.Background())
 
-	if err != nil {
-		t.Fatalf("expected no error after retry, got: %v", err)
-	}
-	if resp == nil {
-		t.Fatal("expected response, got nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, resp)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200, got %d", resp.StatusCode)
-	}
-	if attempts.Load() != 2 {
-		t.Errorf("expected 2 attempts, got %d", attempts.Load())
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int32(2), attempts.Load())
 }
 
 func TestFetchWithRetry_RateLimit_AllRetriesFail(t *testing.T) {
@@ -181,19 +151,13 @@ func TestFetchWithRetry_RateLimit_AllRetriesFail(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, context.Background())
 
-	if err == nil {
-		t.Fatal("expected error after all retries failed")
-	}
+	require.Error(t, err)
 	if resp != nil {
 		resp.Body.Close()
-		t.Error("expected nil response when all retries fail")
 	}
-	if !errors.Is(err, utils.ErrRetryFailed) {
-		t.Errorf("expected ErrRetryFailed, got: %v", err)
-	}
-	if attempts.Load() != 4 {
-		t.Errorf("expected 4 attempts, got %d", attempts.Load())
-	}
+	assert.Nil(t, resp)
+	require.ErrorIs(t, err, utils.ErrRetryFailed)
+	assert.Equal(t, int32(4), attempts.Load())
 }
 
 func TestFetchWithRetry_ClientError_NoRetry(t *testing.T) {
@@ -217,24 +181,13 @@ func TestFetchWithRetry_ClientError_NoRetry(t *testing.T) {
 			resp, err := fetcher.FetchWithRetry(req, context.Background())
 
 			// 4xx errors return both response AND error (caller may need response)
-			if err == nil {
-				t.Fatal("expected error for 4xx status")
-			}
-			if !errors.Is(err, utils.ErrClientHTTPError) {
-				t.Errorf("expected ErrClientHTTPError, got: %v", err)
-			}
-			if resp == nil {
-				t.Fatal("expected response for 4xx (caller may need to inspect)")
-			}
+			require.ErrorIs(t, err, utils.ErrClientHTTPError)
+			require.NotNil(t, resp)
 			defer resp.Body.Close()
 
-			if resp.StatusCode != tt.statusCode {
-				t.Errorf("expected status %d, got %d", tt.statusCode, resp.StatusCode)
-			}
+			assert.Equal(t, tt.statusCode, resp.StatusCode)
 			// No retry for 4xx (except 429)
-			if attempts.Load() != 1 {
-				t.Errorf("expected 1 attempt (no retry for 4xx), got %d", attempts.Load())
-			}
+			assert.Equal(t, int32(1), attempts.Load())
 		})
 	}
 }
@@ -248,20 +201,11 @@ func TestFetchWithRetry_OtherStatus(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, context.Background())
 
-	if err == nil {
-		t.Fatal("expected error for non-2xx status")
-	}
-	if !errors.Is(err, utils.ErrOtherHTTPError) {
-		t.Errorf("expected ErrOtherHTTPError, got: %v", err)
-	}
-	if resp == nil {
-		t.Fatal("expected response for non-2xx")
-	}
+	require.ErrorIs(t, err, utils.ErrOtherHTTPError)
+	require.NotNil(t, resp)
 	defer resp.Body.Close()
 
-	if attempts.Load() != 1 {
-		t.Errorf("expected 1 attempt (no retry for 3xx), got %d", attempts.Load())
-	}
+	assert.Equal(t, int32(1), attempts.Load())
 }
 
 func TestFetchWithRetry_ContextCancelled_BeforeAttempt(t *testing.T) {
@@ -276,19 +220,12 @@ func TestFetchWithRetry_ContextCancelled_BeforeAttempt(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, ctx)
 
-	if err == nil {
-		t.Fatal("expected error for cancelled context")
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("expected context.Canceled, got: %v", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 	if resp != nil {
 		resp.Body.Close()
-		t.Error("expected nil response for cancelled context")
 	}
-	if attempts.Load() != 0 {
-		t.Errorf("expected 0 attempts (cancelled before first attempt), got %d", attempts.Load())
-	}
+	assert.Nil(t, resp)
+	assert.Equal(t, int32(0), attempts.Load())
 }
 
 func TestFetchWithRetry_ContextTimeout_DuringBackoff(t *testing.T) {
@@ -315,17 +252,13 @@ func TestFetchWithRetry_ContextTimeout_DuringBackoff(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, ctx)
 
-	if err == nil {
-		t.Fatal("expected error for timed out context")
-	}
+	require.Error(t, err)
 	if resp != nil {
 		resp.Body.Close()
-		t.Error("expected nil response")
 	}
+	assert.Nil(t, resp)
 	// Should have made exactly 1 attempt before timeout during backoff
-	if attemptCount.Load() != 1 {
-		t.Errorf("expected 1 attempt before timeout, got %d", attemptCount.Load())
-	}
+	assert.Equal(t, int32(1), attemptCount.Load())
 }
 
 func TestFetchWithRetry_ContextTimeout_DuringRequest(t *testing.T) {
@@ -344,17 +277,13 @@ func TestFetchWithRetry_ContextTimeout_DuringRequest(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, ctx)
 
-	if err == nil {
-		t.Fatal("expected error for timeout")
-	}
+	require.Error(t, err)
 	if resp != nil {
 		resp.Body.Close()
-		t.Error("expected nil response")
 	}
+	assert.Nil(t, resp)
 	// Context timeout should be detected
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("expected context.DeadlineExceeded, got: %v", err)
-	}
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestFetchWithRetry_NetworkError_RetrySuccess(t *testing.T) {
@@ -366,8 +295,8 @@ func TestFetchWithRetry_NetworkError_RetrySuccess(t *testing.T) {
 		if attempt == 1 {
 			// Close connection to simulate network error
 			hj, ok := w.(http.Hijacker)
-			if !ok {
-				t.Fatal("server doesn't support hijacking")
+			if !assert.True(t, ok, "server doesn't support hijacking") {
+				return
 			}
 			conn, _, _ := hj.Hijack()
 			conn.Close()
@@ -382,20 +311,12 @@ func TestFetchWithRetry_NetworkError_RetrySuccess(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, context.Background())
 
-	if err != nil {
-		t.Fatalf("expected success after retry, got: %v", err)
-	}
-	if resp == nil {
-		t.Fatal("expected response")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, resp)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200, got %d", resp.StatusCode)
-	}
-	if attemptCount.Load() != 2 {
-		t.Errorf("expected 2 attempts, got %d", attemptCount.Load())
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int32(2), attemptCount.Load())
 }
 
 func TestFetchWithRetry_MixedErrors(t *testing.T) {
@@ -407,20 +328,12 @@ func TestFetchWithRetry_MixedErrors(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, context.Background())
 
-	if err != nil {
-		t.Fatalf("expected success after retries, got: %v", err)
-	}
-	if resp == nil {
-		t.Fatal("expected response")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, resp)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200, got %d", resp.StatusCode)
-	}
-	if attempts.Load() != 4 {
-		t.Errorf("expected 4 attempts, got %d", attempts.Load())
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int32(4), attempts.Load())
 }
 
 func TestFetchWithRetry_ZeroRetries(t *testing.T) {
@@ -432,18 +345,12 @@ func TestFetchWithRetry_ZeroRetries(t *testing.T) {
 
 	resp, err := fetcher.FetchWithRetry(req, context.Background())
 
-	if err == nil {
-		t.Fatal("expected error with no retries")
-	}
+	require.Error(t, err)
 	if resp != nil {
 		resp.Body.Close()
 	}
-	if !errors.Is(err, utils.ErrRetryFailed) {
-		t.Errorf("expected ErrRetryFailed, got: %v", err)
-	}
-	if attempts.Load() != 1 {
-		t.Errorf("expected 1 attempt (no retries), got %d", attempts.Load())
-	}
+	require.ErrorIs(t, err, utils.ErrRetryFailed)
+	assert.Equal(t, int32(1), attempts.Load())
 }
 
 type errTransport struct {
@@ -466,12 +373,9 @@ func TestFetchWithRetry_DNSNotFound_FailsFast(t *testing.T) {
 		resp.Body.Close()
 	}
 	var dnsErr *net.DNSError
-	if !errors.As(err, &dnsErr) || !dnsErr.IsNotFound {
-		t.Fatalf("expected DNS not-found error, got %v", err)
-	}
-	if got := tr.calls.Load(); got != 1 {
-		t.Errorf("expected 1 attempt for NXDOMAIN, got %d", got)
-	}
+	require.ErrorAs(t, err, &dnsErr)
+	assert.True(t, dnsErr.IsNotFound)
+	assert.Equal(t, int32(1), tr.calls.Load())
 }
 
 func TestFetchWithRetry_DNSTemporary_Retries(t *testing.T) {
@@ -483,10 +387,6 @@ func TestFetchWithRetry_DNSTemporary_Retries(t *testing.T) {
 	if resp != nil {
 		resp.Body.Close()
 	}
-	if !errors.Is(err, utils.ErrRetryFailed) {
-		t.Fatalf("expected ErrRetryFailed, got %v", err)
-	}
-	if got := tr.calls.Load(); got != 3 {
-		t.Errorf("expected 3 attempts for temporary DNS error, got %d", got)
-	}
+	require.ErrorIs(t, err, utils.ErrRetryFailed)
+	assert.Equal(t, int32(3), tr.calls.Load())
 }

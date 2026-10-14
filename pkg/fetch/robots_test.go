@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/temoto/robotstxt"
 	"golang.org/x/sync/semaphore"
 
@@ -27,23 +29,20 @@ func newTestRobotsHandler() *RobotsHandler {
 
 func TestRobotsCache_MissWhenEmpty(t *testing.T) {
 	rh := newTestRobotsHandler()
-	if data, found := rh.lookupCache("example.com"); found || data != nil {
-		t.Fatalf("expected miss on empty cache, got found=%v data=%v", found, data)
-	}
+	data, found := rh.lookupCache("example.com")
+	assert.False(t, found)
+	assert.Nil(t, data)
 }
 
 func TestRobotsCache_SuccessCachedIndefinitely(t *testing.T) {
 	rh := newTestRobotsHandler()
 	data, err := robotstxt.FromBytes([]byte("User-agent: *\nDisallow: /private\n"))
-	if err != nil {
-		t.Fatalf("FromBytes: %v", err)
-	}
+	require.NoError(t, err)
 	rh.cacheSuccess("example.com", data)
 
 	got, found := rh.lookupCache("example.com")
-	if !found || got != data {
-		t.Fatalf("expected cached success entry, got found=%v", found)
-	}
+	assert.True(t, found)
+	assert.Same(t, data, got)
 }
 
 func TestRobotsCache_FailureLivesWithinTTL(t *testing.T) {
@@ -51,21 +50,16 @@ func TestRobotsCache_FailureLivesWithinTTL(t *testing.T) {
 	rh.cacheFailure("example.com")
 
 	data, found := rh.lookupCache("example.com")
-	if !found {
-		t.Fatal("expected fresh negative entry to be reported as present (fail-open)")
-	}
-	if data != nil {
-		t.Fatalf("expected nil data for negative entry, got %v", data)
-	}
+	assert.True(t, found, "fresh negative entry should be reported as present (fail-open)")
+	assert.Nil(t, data)
 }
 
 func TestRobotsCache_FailureReattemptedAfterTTL(t *testing.T) {
 	rh := newTestRobotsHandler()
 	rh.robotsCache["example.com"] = robotsCacheEntry{expires: time.Now().Add(-time.Minute)}
 
-	if _, found := rh.lookupCache("example.com"); found {
-		t.Fatal("expected expired negative entry to be reported absent so it re-fetches")
-	}
+	_, found := rh.lookupCache("example.com")
+	assert.False(t, found, "expired negative entry should be reported absent so it re-fetches")
 }
 
 // countingRobotsFetcher records how many robots.txt requests actually go out
@@ -120,9 +114,7 @@ func TestGetRobotsData_ConcurrentMissesFetchOnce(t *testing.T) {
 	rh := newFetchingRobotsHandler(f)
 
 	target, err := url.Parse("https://example.com/docs/page.html")
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
+	require.NoError(t, err)
 
 	const callers = 8
 	var wg sync.WaitGroup
@@ -136,13 +128,9 @@ func TestGetRobotsData_ConcurrentMissesFetchOnce(t *testing.T) {
 	}
 	wg.Wait()
 
-	if got := f.count("https://example.com/robots.txt"); got != 1 {
-		t.Errorf("robots.txt fetched %d times, want 1", got)
-	}
+	assert.Equal(t, 1, f.count("https://example.com/robots.txt"))
 	for i, r := range results {
-		if r == nil {
-			t.Errorf("caller %d got nil robots data", i)
-		}
+		assert.NotNil(t, r, "caller %d got nil robots data", i)
 	}
 }
 
@@ -163,15 +151,11 @@ func TestGetRobotsData_ConcurrentMissesFetchOnceOn404(t *testing.T) {
 	}
 	wg.Wait()
 
-	if got := f.count("https://example.com/robots.txt"); got != 1 {
-		t.Errorf("robots.txt fetched %d times on 404, want 1", got)
-	}
+	assert.Equal(t, 1, f.count("https://example.com/robots.txt"))
 
 	// Subsequent calls are served by the negative cache, not refetched.
 	rh.GetRobotsData(target, nil, context.Background())
-	if got := f.count("https://example.com/robots.txt"); got != 1 {
-		t.Errorf("robots.txt fetched %d times after negative caching, want 1", got)
-	}
+	assert.Equal(t, 1, f.count("https://example.com/robots.txt"), "refetched after negative caching")
 }
 
 // Distinct hosts must not share a singleflight slot.
@@ -192,12 +176,8 @@ func TestGetRobotsData_DistinctHostsFetchSeparately(t *testing.T) {
 	}
 	wg.Wait()
 
-	if got := f.count("https://a.example.com/robots.txt"); got != 1 {
-		t.Errorf("a.example.com fetched %d times, want 1", got)
-	}
-	if got := f.count("https://b.example.com/robots.txt"); got != 1 {
-		t.Errorf("b.example.com fetched %d times, want 1", got)
-	}
+	assert.Equal(t, 1, f.count("https://a.example.com/robots.txt"))
+	assert.Equal(t, 1, f.count("https://b.example.com/robots.txt"))
 }
 
 // The same host on different ports is a different origin and needs its own fetch.
@@ -211,10 +191,6 @@ func TestGetRobotsData_PortIsPartOfCacheKey(t *testing.T) {
 	rh.GetRobotsData(p1, nil, context.Background())
 	rh.GetRobotsData(p2, nil, context.Background())
 
-	if got := f.count("http://example.com:8080/robots.txt"); got != 1 {
-		t.Errorf(":8080 fetched %d times, want 1", got)
-	}
-	if got := f.count("http://example.com:9090/robots.txt"); got != 1 {
-		t.Errorf(":9090 fetched %d times, want 1", got)
-	}
+	assert.Equal(t, 1, f.count("http://example.com:8080/robots.txt"))
+	assert.Equal(t, 1, f.count("http://example.com:9090/robots.txt"))
 }
