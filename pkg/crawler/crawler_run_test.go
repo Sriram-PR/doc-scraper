@@ -721,6 +721,34 @@ func TestCrawlerRun_IncrementalContentScoped(t *testing.T) {
 		"changed content must rewrite the .md")
 }
 
+// TestCrawlerRun_IncrementalFollowsLinksOfUnchangedPages covers a new page
+// linked only from the page shell (a docs sidebar gaining a chapter): the
+// content hash still matches, but the new link must be discovered.
+func TestCrawlerRun_IncrementalFollowsLinksOfUnchangedPages(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	page := func(nav string) string {
+		return `<html><head><title>Doc</title></head><body><nav>` + nav + `</nav>` +
+			`<main id="c"><p>SAME</p></main></body></html>`
+	}
+	ms.set("/docs/index.html", page(`<a href="/docs/a.html">a</a>`))
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A</p></main></body></html>`)
+	ms.set("/docs/b.html", `<html><head><title>B</title></head><body><main id="c"><p>NEW CHAPTER</p></main></body></html>`)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	require.Equal(t, 0, ms.hitCount("/docs/b.html"))
+
+	ms.set("/docs/index.html", page(`<a href="/docs/a.html">a</a><a href="/docs/b.html">b</a>`))
+	runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.Equal(t, 1, ms.hitCount("/docs/b.html"), "link added outside the content region must be followed")
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/b.html"))
+}
+
 // TestCrawlerRun_Incremental404LeavesOutput verifies that when a previously-crawled
 // page returns 404 on an incremental re-crawl, its existing output is left as-is.
 func TestCrawlerRun_Incremental404LeavesOutput(t *testing.T) {

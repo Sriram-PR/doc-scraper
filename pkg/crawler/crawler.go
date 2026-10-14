@@ -897,6 +897,20 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	}
 	contentHash = utils.CalculateStringSHA256(contentRegionHTML)
 
+	// Release semaphores early: HTTP fetch is done, remaining work is local
+	// computation + image downloads (which acquire their own semaphores). The
+	// deferred cleanupResources is still in place as a safety net for error
+	// paths above this point.
+	cleanupResources()
+
+	// Links come from the whole page, not just the hashed content region, so
+	// they are extracted before the unchanged-content skip: a sidebar can gain
+	// a page while every content hash stays the same.
+	// Non-critical errors (e.g., DB error during link check) are logged within linkProcessor.
+	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
+		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
+	}
+
 	if c.appCfg.EnableIncremental {
 		existingHash, exists, hashErr := c.store.GetPageContentHash(normalizedURLString)
 		if hashErr != nil {
@@ -911,17 +925,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		} else {
 			taskLog.Debug("New page (no previous hash) - will process")
 		}
-	}
-
-	// Release semaphores early: HTTP fetch is done, remaining work is local
-	// computation + image downloads (which acquire their own semaphores). The
-	// deferred cleanupResources is still in place as a safety net for error
-	// paths above this point.
-	cleanupResources()
-
-	// Non-critical errors (e.g., DB error during link check) are logged within linkProcessor.
-	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
-		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
 	}
 
 	var tempSavedPath string
