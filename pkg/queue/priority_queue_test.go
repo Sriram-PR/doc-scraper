@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 )
 
@@ -17,12 +20,8 @@ func testLogger() *slog.Logger {
 
 func TestNewThreadSafePriorityQueue(t *testing.T) {
 	pq := NewThreadSafePriorityQueue(testLogger())
-	if pq == nil {
-		t.Fatal("NewThreadSafePriorityQueue() returned nil")
-	}
-	if pq.Len() != 0 {
-		t.Errorf("New queue Len() = %d, want 0", pq.Len())
-	}
+	require.NotNil(t, pq)
+	assert.Equal(t, 0, pq.Len())
 }
 
 func TestThreadSafePriorityQueue_AddAndPop(t *testing.T) {
@@ -31,20 +30,12 @@ func TestThreadSafePriorityQueue_AddAndPop(t *testing.T) {
 	item := &models.WorkItem{URL: "http://example.com", Depth: 0}
 	pq.Add(item)
 
-	if pq.Len() != 1 {
-		t.Errorf("After Add, Len() = %d, want 1", pq.Len())
-	}
+	assert.Equal(t, 1, pq.Len())
 
 	result, ok := pq.Pop()
-	if !ok {
-		t.Fatal("Pop() returned ok=false, want true")
-	}
-	if result.URL != item.URL {
-		t.Errorf("Pop() URL = %q, want %q", result.URL, item.URL)
-	}
-	if pq.Len() != 0 {
-		t.Errorf("After Pop, Len() = %d, want 0", pq.Len())
-	}
+	require.True(t, ok)
+	assert.Equal(t, item.URL, result.URL)
+	assert.Equal(t, 0, pq.Len())
 }
 
 func TestThreadSafePriorityQueue_PriorityOrdering(t *testing.T) {
@@ -60,12 +51,8 @@ func TestThreadSafePriorityQueue_PriorityOrdering(t *testing.T) {
 	expectedOrder := []string{"depth0", "depth1", "depth2", "depth3"}
 	for i, expected := range expectedOrder {
 		item, ok := pq.Pop()
-		if !ok {
-			t.Fatalf("Pop() #%d returned ok=false", i)
-		}
-		if item.URL != expected {
-			t.Errorf("Pop() #%d URL = %q, want %q", i, item.URL, expected)
-		}
+		require.True(t, ok, "Pop() #%d", i)
+		assert.Equal(t, expected, item.URL, "Pop() #%d", i)
 	}
 }
 
@@ -81,20 +68,11 @@ func TestThreadSafePriorityQueue_SamePriority(t *testing.T) {
 	urls := make(map[string]bool)
 	for i := range 3 {
 		item, ok := pq.Pop()
-		if !ok {
-			t.Fatalf("Pop() #%d returned ok=false", i)
-		}
+		require.True(t, ok, "Pop() #%d", i)
 		urls[item.URL] = true
 	}
 
-	if len(urls) != 3 {
-		t.Errorf("Expected 3 unique URLs, got %d", len(urls))
-	}
-	for _, url := range []string{"a", "b", "c"} {
-		if !urls[url] {
-			t.Errorf("URL %q was not retrieved", url)
-		}
-	}
+	assert.Equal(t, map[string]bool{"a": true, "b": true, "c": true}, urls)
 }
 
 func TestThreadSafePriorityQueue_Close(t *testing.T) {
@@ -103,12 +81,8 @@ func TestThreadSafePriorityQueue_Close(t *testing.T) {
 
 	// Pop on closed empty queue should return false
 	item, ok := pq.Pop()
-	if ok {
-		t.Error("Pop() on closed empty queue returned ok=true, want false")
-	}
-	if item != nil {
-		t.Errorf("Pop() on closed empty queue returned item %v, want nil", item)
-	}
+	assert.False(t, ok)
+	assert.Nil(t, item)
 }
 
 func TestThreadSafePriorityQueue_CloseWithItems(t *testing.T) {
@@ -119,24 +93,16 @@ func TestThreadSafePriorityQueue_CloseWithItems(t *testing.T) {
 	pq.Close()
 
 	// Should still be able to pop existing items
-	item1, ok1 := pq.Pop()
-	if !ok1 || item1 == nil {
-		t.Error("Pop() after Close should return existing items")
-	}
-
-	item2, ok2 := pq.Pop()
-	if !ok2 || item2 == nil {
-		t.Error("Pop() after Close should return existing items")
+	for range 2 {
+		item, ok := pq.Pop()
+		assert.True(t, ok, "Pop() after Close should return existing items")
+		assert.NotNil(t, item)
 	}
 
 	// Now queue is empty and closed
-	item3, ok3 := pq.Pop()
-	if ok3 {
-		t.Error("Pop() on closed empty queue returned ok=true")
-	}
-	if item3 != nil {
-		t.Error("Pop() on closed empty queue returned non-nil item")
-	}
+	item, ok := pq.Pop()
+	assert.False(t, ok)
+	assert.Nil(t, item)
 }
 
 func TestThreadSafePriorityQueue_AddAfterClose(t *testing.T) {
@@ -146,9 +112,7 @@ func TestThreadSafePriorityQueue_AddAfterClose(t *testing.T) {
 	// Add after close should be a no-op (with warning log)
 	pq.Add(&models.WorkItem{URL: "test", Depth: 0})
 
-	if pq.Len() != 0 {
-		t.Errorf("Add after Close: Len() = %d, want 0", pq.Len())
-	}
+	assert.Equal(t, 0, pq.Len())
 }
 
 func TestThreadSafePriorityQueue_DoubleClose(t *testing.T) {
@@ -189,11 +153,8 @@ func TestThreadSafePriorityQueue_PopBlocks(t *testing.T) {
 	// Should receive result now
 	select {
 	case item := <-resultChan:
-		if item == nil {
-			t.Error("Pop() returned nil after Add()")
-		} else if item.URL != "unblock" {
-			t.Errorf("Pop() URL = %q, want %q", item.URL, "unblock")
-		}
+		require.NotNil(t, item, "Pop() returned nil after Add()")
+		assert.Equal(t, "unblock", item.URL)
 	case <-time.After(1 * time.Second):
 		t.Fatal("Pop() did not return after Add()")
 	}
@@ -238,9 +199,7 @@ func TestThreadSafePriorityQueue_CloseUnblocksWaiters(t *testing.T) {
 	// All should have returned false (queue closed and empty)
 	close(results)
 	for ok := range results {
-		if ok {
-			t.Error("Blocked Pop() returned ok=true after Close()")
-		}
+		assert.False(t, ok, "Blocked Pop() returned ok=true after Close()")
 	}
 }
 
@@ -261,9 +220,7 @@ func TestThreadSafePriorityQueue_ConcurrentAdd(t *testing.T) {
 
 	wg.Wait()
 
-	if pq.Len() != numItems {
-		t.Errorf("After concurrent Add, Len() = %d, want %d", pq.Len(), numItems)
-	}
+	assert.Equal(t, numItems, pq.Len())
 }
 
 func TestThreadSafePriorityQueue_ConcurrentAddPop(t *testing.T) {
@@ -330,9 +287,7 @@ func TestThreadSafePriorityQueue_ConcurrentAddPop(t *testing.T) {
 	}
 
 	countMu.Lock()
-	if int(poppedCount) != totalItems {
-		t.Errorf("Popped %d items, want %d", poppedCount, totalItems)
-	}
+	assert.Equal(t, totalItems, int(poppedCount))
 	countMu.Unlock()
 }
 
@@ -341,15 +296,11 @@ func TestThreadSafePriorityQueue_LenAccuracy(t *testing.T) {
 
 	for i := range 10 {
 		pq.Add(&models.WorkItem{URL: "url", Depth: i})
-		if pq.Len() != i+1 {
-			t.Errorf("After Add #%d, Len() = %d, want %d", i, pq.Len(), i+1)
-		}
+		assert.Equal(t, i+1, pq.Len(), "after Add #%d", i)
 	}
 
 	for i := 10; i > 0; i-- {
 		pq.Pop()
-		if pq.Len() != i-1 {
-			t.Errorf("After Pop (remaining=%d), Len() = %d, want %d", i-1, pq.Len(), i-1)
-		}
+		assert.Equal(t, i-1, pq.Len(), "after Pop")
 	}
 }
