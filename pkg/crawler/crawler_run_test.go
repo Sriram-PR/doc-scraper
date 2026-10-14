@@ -309,12 +309,25 @@ func TestCrawlerRun_MaxDepth(t *testing.T) {
 	assert.FileExists(t, filepath.Join(outDir, "child.md"))
 	assert.NoFileExists(t, filepath.Join(outDir, "grandchild.md"))
 
-	// Characterization note: the depth-2 link IS extracted and queued (the
-	// extraction-time check only skips extraction when next_depth > MaxDepth,
-	// and here next_depth == MaxDepth == 2). The queued task is instead
-	// rejected by runPolicyChecks' depth >= MaxDepth check, which runs before
-	// any HTTP fetch -- so the server never actually sees the request.
 	assert.False(t, rec.wasRequested("/docs/grandchild.html"), "over-depth page must not be fetched")
+}
+
+// TestCrawlerRun_MaxDepthQueuesNoOverDepthTasks pins that links one level past
+// the bound are never queued, so they are not recorded as failed tasks (and
+// requeued as failures on every resume).
+func TestCrawlerRun_MaxDepthQueuesNoOverDepthTasks(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Index</title></head><body>
+		<a href="/docs/a.html">A</a><a href="/docs/b.html">B</a></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body>A</body></html>`)
+	ms.set("/docs/b.html", `<html><head><title>B</title></head><body>B</body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.MaxDepth = 1
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+
+	assert.EqualValues(t, 1, p.PagesProcessed, "only the start page is a task")
 }
 
 // newSitemapDocServer serves /docs/index.html, which links nowhere, and

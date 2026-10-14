@@ -216,6 +216,39 @@ func TestProcessURLSet(t *testing.T) {
 	}
 }
 
+func TestProcessURLSetMaxDepthOneQueuesNothing(t *testing.T) {
+	xmlBody := `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/docs/page1</loc></url>
+</urlset>`
+
+	store := newMockPageStore()
+	siteCfg := defaultSiteCfg()
+	siteCfg.MaxDepth = 1 // start pages only; sitemap URLs sit at depth 1
+	sp, sitemapQueue, pq, wg := newTestProcessor(t, newMockFetcher(xmlBody), store, siteCfg, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/sitemap.xml"
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	var queued []*models.WorkItem
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		// A queued page holds the WaitGroup open; balance it so the test fails
+		// on the assertions below instead of hanging.
+		queued = drainPQAndBalance(pq, wg)
+		<-done
+	}
+
+	assert.Empty(t, queued, "over-depth sitemap URLs must not be queued")
+	assert.Zero(t, store.visitedCount(), "over-depth sitemap URLs must not be marked visited")
+}
+
 func TestProcessURLSetDisallowedPath(t *testing.T) {
 	xmlBody := `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

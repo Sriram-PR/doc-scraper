@@ -400,8 +400,16 @@ func (sp *SitemapProcessor) handleSitemapIndex(index parse.XMLSitemapIndex, back
 }
 
 // handleURLSet enqueues every in-scope, new page URL of a <urlset>.
+// Sitemap URLs have no link-graph depth; they sit one hop from the root so
+// max_depth still bounds them and max_depth=1 stays start-only.
+const sitemapURLDepth = 1
+
 func (sp *SitemapProcessor) handleURLSet(urlSet parse.XMLURLSet, sitemapLog *slog.Logger) {
 	sitemapLog.Info(fmt.Sprintf("Parsed as URL Set, found %d URLs.", len(urlSet.URLs)))
+	if sp.siteCfg.MaxDepth > 0 && sitemapURLDepth >= sp.siteCfg.MaxDepth {
+		sitemapLog.Info(fmt.Sprintf("max_depth %d keeps the crawl to start pages; not queueing sitemap URLs.", sp.siteCfg.MaxDepth))
+		return
+	}
 	queuedCount := 0
 	dbErrorCount := 0
 	for _, urlEntry := range urlSet.URLs {
@@ -425,9 +433,7 @@ func (sp *SitemapProcessor) handleURLSet(urlSet parse.XMLURLSet, sitemapLog *slo
 		}
 		if added {
 			sp.wg.Add(1)
-			// Sitemap URLs have no link-graph depth; seed at depth 1 (one hop from
-			// the root) so max_depth still bounds them and max_depth=1 stays start-only.
-			sp.pq.Add(&models.WorkItem{URL: normalizedPageURL, Depth: 1})
+			sp.pq.Add(&models.WorkItem{URL: normalizedPageURL, Depth: sitemapURLDepth})
 			queuedCount++
 		}
 	}

@@ -73,7 +73,7 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 	taskLog.Debug("Extracting and queueing links...")
 	var firstDBError error
 
-	if siteCfg.MaxDepth > 0 && nextDepth > siteCfg.MaxDepth {
+	if siteCfg.MaxDepth > 0 && nextDepth >= siteCfg.MaxDepth {
 		taskLog.Debug(fmt.Sprintf("Max depth (%d) reached/exceeded for next level (%d), skipping link extraction.", siteCfg.MaxDepth, nextDepth))
 		return 0, nil
 	}

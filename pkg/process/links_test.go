@@ -216,7 +216,10 @@ func TestExtractAndQueueLinks_MaxDepth(t *testing.T) {
 	}{
 		{"UnlimitedDepth", 0, 99, 1},
 		{"NextDepthWithinLimit", 2, 0, 1},
-		{"NextDepthAtLimit", 1, 0, 1},
+		// max_depth is exclusive: a link landing at depth == max_depth would only
+		// be rejected after queueing, so it is never queued.
+		{"NextDepthAtLimit", 1, 0, 0},
+		{"NextDepthAtLimitDeeper", 3, 2, 0},
 		{"NextDepthExceedsLimit", 1, 1, 0},
 		{"WellPastLimit", 2, 5, 0},
 	}
