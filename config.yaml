@@ -116,7 +116,7 @@ sites:
     allowed_path_prefix: "/book/"
 
     # EXPLICIT: mdBook content selector
-    content_selector: "#content, main"
+    content_selector: "main"
 
     # mdBook navigation structure
     link_extraction_selectors:
