@@ -200,8 +200,13 @@ func TestMultiSiteIsolation(t *testing.T) {
 
 func TestRecordCrawlValidation(t *testing.T) {
 	idx := newTestIndex(t, 5)
-	require.Error(t, idx.RecordCrawl(context.Background(), CrawlRecord{}), "expected error on empty site_key")
-	require.Error(t, idx.RecordCrawl(context.Background(), CrawlRecord{SiteKey: "x"}), "expected error on empty mode")
+	ctx := context.Background()
+	require.ErrorContains(t, idx.RecordCrawl(ctx, CrawlRecord{Mode: ModeFull}), "site_key is required")
+	require.ErrorContains(t, idx.RecordCrawl(ctx, CrawlRecord{SiteKey: "x"}), "mode is required")
+
+	var crawls int
+	require.NoError(t, idx.db.QueryRow(`SELECT COUNT(*) FROM crawls`).Scan(&crawls))
+	assert.Zero(t, crawls, "a rejected record must not be written")
 }
 
 func TestNoOrphanedPageHistoryAcrossPooledConnections(t *testing.T) {
