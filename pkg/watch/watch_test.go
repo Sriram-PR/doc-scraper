@@ -1,10 +1,12 @@
 package watch
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseInterval(t *testing.T) {
@@ -47,18 +49,11 @@ func TestParseInterval(t *testing.T) {
 		t.Run(tt.input, func(t *testing.T) {
 			got, err := ParseInterval(tt.input)
 			if tt.wantErr {
-				if err == nil {
-					t.Errorf("ParseInterval(%q) expected error, got nil", tt.input)
-				}
+				assert.Error(t, err)
 				return
 			}
-			if err != nil {
-				t.Errorf("ParseInterval(%q) unexpected error: %v", tt.input, err)
-				return
-			}
-			if got != tt.expected {
-				t.Errorf("ParseInterval(%q) = %v, want %v", tt.input, got, tt.expected)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, got)
 		})
 	}
 }
@@ -70,59 +65,36 @@ func TestStateManager(t *testing.T) {
 	sm := NewStateManager(tmpDir)
 
 	// Test initial state
-	if err := sm.Load(); err != nil {
-		t.Fatalf("Load() failed: %v", err)
-	}
+	require.NoError(t, sm.Load())
 
 	// Test ShouldRun for new site
-	if !sm.ShouldRun("test_site", time.Hour) {
-		t.Error("ShouldRun() should return true for new site")
-	}
+	assert.True(t, sm.ShouldRun("test_site", time.Hour), "ShouldRun() should return true for new site")
 
 	// Test UpdateSiteState
 	sm.UpdateSiteState("test_site", true, 100, "")
 
 	// Test ShouldRun after update (should not run immediately)
-	if sm.ShouldRun("test_site", time.Hour) {
-		t.Error("ShouldRun() should return false immediately after run")
-	}
+	assert.False(t, sm.ShouldRun("test_site", time.Hour), "ShouldRun() should return false immediately after run")
 
 	// Test GetSiteState
 	state, ok := sm.GetSiteState("test_site")
-	if !ok {
-		t.Error("GetSiteState() should return true for existing site")
-	}
-	if !state.LastRunSuccess {
-		t.Error("LastRunSuccess should be true")
-	}
-	if state.PagesProcessed != 100 {
-		t.Errorf("PagesProcessed = %d, want 100", state.PagesProcessed)
-	}
+	assert.True(t, ok, "GetSiteState() should return true for existing site")
+	assert.True(t, state.LastRunSuccess)
+	assert.Equal(t, int64(100), state.PagesProcessed)
 
 	// Test Save
-	if err := sm.Save(); err != nil {
-		t.Fatalf("Save() failed: %v", err)
-	}
+	require.NoError(t, sm.Save())
 
 	// Verify state file exists
-	statePath := filepath.Join(tmpDir, stateFileName)
-	if _, err := os.Stat(statePath); os.IsNotExist(err) {
-		t.Error("State file should exist after Save()")
-	}
+	assert.FileExists(t, filepath.Join(tmpDir, stateFileName))
 
 	// Test Load from saved state
 	sm2 := NewStateManager(tmpDir)
-	if err := sm2.Load(); err != nil {
-		t.Fatalf("Load() from saved state failed: %v", err)
-	}
+	require.NoError(t, sm2.Load())
 
 	state2, ok := sm2.GetSiteState("test_site")
-	if !ok {
-		t.Error("GetSiteState() should return true after Load()")
-	}
-	if state2.PagesProcessed != 100 {
-		t.Errorf("Loaded PagesProcessed = %d, want 100", state2.PagesProcessed)
-	}
+	assert.True(t, ok, "GetSiteState() should return true after Load()")
+	assert.Equal(t, int64(100), state2.PagesProcessed)
 }
 
 func TestStateManagerGetNextRunTime(t *testing.T) {
@@ -134,9 +106,7 @@ func TestStateManagerGetNextRunTime(t *testing.T) {
 
 	// New site should return now
 	nextRun := sm.GetNextRunTime("new_site", interval)
-	if time.Since(nextRun) > time.Second {
-		t.Error("GetNextRunTime() for new site should be approximately now")
-	}
+	assert.LessOrEqual(t, time.Since(nextRun), time.Second, "GetNextRunTime() for new site should be approximately now")
 
 	// Update site and check next run
 	sm.UpdateSiteState("existing_site", true, 100, "")
@@ -145,7 +115,5 @@ func TestStateManagerGetNextRunTime(t *testing.T) {
 	expectedNextRun := state.LastRunTime.Add(interval)
 	actualNextRun := sm.GetNextRunTime("existing_site", interval)
 
-	if actualNextRun.Sub(expectedNextRun) > time.Millisecond {
-		t.Errorf("GetNextRunTime() = %v, want %v", actualNextRun, expectedNextRun)
-	}
+	assert.LessOrEqual(t, actualNextRun.Sub(expectedNextRun), time.Millisecond)
 }
