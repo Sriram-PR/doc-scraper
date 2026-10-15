@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,6 +43,38 @@ func TestSanitizeFilename(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, SanitizeFilename(tt.input), "input %q", tt.input)
+		})
+	}
+}
+
+func TestIsWithinDir(t *testing.T) {
+	sep := string(filepath.Separator)
+	dir := filepath.FromSlash("/out/site")
+	tests := []struct {
+		name string
+		dir  string
+		path string
+		want bool
+	}{
+		{"Child", dir, filepath.FromSlash("/out/site/page.md"), true},
+		{"Nested", dir, filepath.FromSlash("/out/site/a/b/page.md"), true},
+		{"DirWithTrailingSeparator", dir + sep, filepath.FromSlash("/out/site/page.md"), true},
+		{"UncleanedChild", dir, filepath.FromSlash("/out/site/a/../page.md"), true},
+		{"UncleanedDir", filepath.FromSlash("/out/x/../site"), filepath.FromSlash("/out/site/page.md"), true},
+		{"DirItself", dir, dir, false},
+		{"DirItselfUncleaned", dir, filepath.FromSlash("/out/site/a/.."), false},
+		{"Parent", dir, filepath.FromSlash("/out"), false},
+		{"Sibling", dir, filepath.FromSlash("/out/other/page.md"), false},
+		{"SiblingSharingPrefix", dir, filepath.FromSlash("/out/site-evil/page.md"), false},
+		{"EscapeViaDotDot", dir, filepath.FromSlash("/out/site/../../etc/passwd"), false},
+		{"UnderRoot", sep, filepath.FromSlash("/etc/passwd"), true},
+		{"RootItself", sep, sep, false},
+		{"RelativeChild", "out", filepath.FromSlash("out/site"), true},
+		{"RelativeEscape", "out", filepath.FromSlash("out/../site"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsWithinDir(tt.dir, tt.path), "IsWithinDir(%q, %q)", tt.dir, tt.path)
 		})
 	}
 }

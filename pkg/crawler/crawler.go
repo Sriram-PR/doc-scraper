@@ -718,10 +718,7 @@ func (c *Crawler) cleanSiteOutputDir() error {
 		return fmt.Errorf("safety check failed (resolving site path '%s'): %w", c.siteOutputDir, errSite)
 	}
 
-	// Ensure site path is truly a subdirectory of the base output directory.
-	// Also check it's not empty and not the same as the base path.
-	absBaseSeparator := absBase + string(filepath.Separator) // Ensure trailing separator for prefix check
-	if absSite != "" && absSite != absBase && strings.HasPrefix(absSite, absBaseSeparator) {
+	if utils.IsWithinDir(absBase, absSite) {
 		c.log.Debug(fmt.Sprintf("Safety check passed for RemoveAll. BaseAbs: '%s', SiteAbs: '%s'", absBase, absSite))
 		err := os.RemoveAll(c.siteOutputDir)
 		if err != nil && !errors.Is(err, os.ErrNotExist) { // ErrNotExist is fine
