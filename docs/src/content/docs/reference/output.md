@@ -35,7 +35,7 @@ Each generated Markdown file begins with a YAML frontmatter block carrying page 
 
 - **YAML frontmatter** (delimited by `---`) with `title`, `url` (source URL), `crawled_at` (RFC3339 timestamp), `content_hash` (SHA-256 of the content, matching the JSONL record), and `depth`
 - Clean content converted from HTML to GitHub-Flavored Markdown, preserving tables
-- Relative links to other pages (when within the allowed domain)
+- Relative links to other crawled pages (within the allowed domain and path prefix); links to pages outside that scope are made absolute
 - Local image references (if images are enabled)
 
 Example:
