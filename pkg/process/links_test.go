@@ -160,6 +160,8 @@ func TestExtractAndQueueLinks_FiltersOutOfScope(t *testing.T) {
 		{"Subdomain", `<a href="https://other.example.com/x.html">x</a>`},
 		{"MailtoScheme", `<a href="mailto:hi@example.com">mail</a>`},
 		{"JavascriptScheme", `<a href="javascript:void(0)">js</a>`},
+		{"FTPSameHost", `<a href="ftp://docs.example.com/guide/x.html">ftp</a>`},
+		{"WebSocketSameHost", `<a href="wss://docs.example.com/guide/live">ws</a>`},
 		{"ResourceExtension", `<a href="/guide/logo.png">img</a>`},
 		{"EmptyHref", `<a href="">empty</a>`},
 		{"StylesheetExtension", `<a href="/guide/theme.css">css</a>`},
