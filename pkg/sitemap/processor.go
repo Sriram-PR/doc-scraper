@@ -1,6 +1,8 @@
 package sitemap
 
 import (
+	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -367,8 +369,29 @@ func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, site
 	}
 	defer resp.Body.Close()
 
-	const maxSitemapSize = 10 * 1024 * 1024 // 10 MB
-	sitemapBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxSitemapSize))
+	return readSitemapBody(resp.Body)
+}
+
+// maxSitemapSize caps how much sitemap data is read, measured after
+// decompression for gzipped sitemaps.
+const maxSitemapSize = 10 * 1024 * 1024 // 10 MB
+
+// readSitemapBody reads a sitemap body, capped at maxSitemapSize. A body that
+// starts with the gzip magic bytes (a .xml.gz file served without
+// Content-Encoding, which the HTTP client does not decode) is decompressed
+// first, and the cap applies to the decompressed bytes.
+func readSitemapBody(body io.Reader) ([]byte, error) {
+	br := bufio.NewReader(io.LimitReader(body, maxSitemapSize))
+	var r io.Reader = br
+	if magic, err := br.Peek(2); err == nil && magic[0] == 0x1f && magic[1] == 0x8b {
+		zr, err := gzip.NewReader(br)
+		if err != nil {
+			return nil, fmt.Errorf("open gzip body: %w", err)
+		}
+		defer func() { _ = zr.Close() }()
+		r = zr
+	}
+	sitemapBytes, err := io.ReadAll(io.LimitReader(r, maxSitemapSize))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}

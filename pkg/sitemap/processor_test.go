@@ -2,6 +2,7 @@ package sitemap
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -652,4 +653,106 @@ func TestProbe_StopsOnCancelledContext(t *testing.T) {
 	_, ok := sp.Probe(ctx, []string{"https://example.com/sitemap.xml"})
 	assert.False(t, ok)
 	assert.Equal(t, 0, pq.Len())
+}
+
+func gzipBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, err := zw.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}
+
+func TestProcessGzippedURLSet(t *testing.T) {
+	xmlBody := `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/docs/page1</loc></url>
+  <url><loc>https://example.com/docs/page2</loc></url>
+</urlset>`
+
+	store := newMockPageStore()
+	f := &mockFetcher{body: gzipBytes(t, []byte(xmlBody))}
+	sp, sitemapQueue, pq, wg := newTestProcessor(t, f, store, defaultSiteCfg(), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/sitemap.xml.gz"
+
+	waitForPQLen(t, pq, 2, 5*time.Second)
+	items := drainPQAndBalance(pq, wg)
+	wg.Wait()
+
+	assert.Len(t, items, 2)
+}
+
+func TestProcessGzippedSitemapIndex(t *testing.T) {
+	index := `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://example.com/sitemap-docs.xml.gz</loc></sitemap>
+</sitemapindex>`
+	nested := `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/docs/a</loc></url>
+  <url><loc>https://example.com/docs/b</loc></url>
+  <url><loc>https://example.com/docs/c</loc></url>
+</urlset>`
+
+	store := newMockPageStore()
+	f := &routeFetcher{routes: map[string]string{
+		"https://example.com/sitemap_index.xml.gz": string(gzipBytes(t, []byte(index))),
+		"https://example.com/sitemap-docs.xml.gz":  string(gzipBytes(t, []byte(nested))),
+	}}
+	sp, sitemapQueue, pq, wg := newTestProcessor(t, f, store, defaultSiteCfg(), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/sitemap_index.xml.gz"
+
+	waitForPQLen(t, pq, 3, 5*time.Second)
+	items := drainPQAndBalance(pq, wg)
+	wg.Wait()
+
+	assert.Len(t, items, 3)
+}
+
+func TestProcessCorruptGzipSitemapQueuesNothing(t *testing.T) {
+	store := newMockPageStore()
+	// Valid gzip magic bytes followed by garbage.
+	f := &mockFetcher{body: []byte{0x1f, 0x8b, 0x00, 0x01, 0x02, 0x03, 0x04}}
+	sp, sitemapQueue, pq, wg := newTestProcessor(t, f, store, defaultSiteCfg(), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/sitemap.xml.gz"
+	wg.Wait()
+
+	assert.Empty(t, drainPQ(pq))
+	assert.Equal(t, 0, store.visitedCount())
+}
+
+func TestReadSitemapBodyCapsDecompressedSize(t *testing.T) {
+	// ~10 KB compressed, 3x the cap once decompressed.
+	compressed := gzipBytes(t, bytes.Repeat([]byte{' '}, 3*maxSitemapSize))
+	require.Less(t, len(compressed), maxSitemapSize)
+
+	got, err := readSitemapBody(bytes.NewReader(compressed))
+	require.NoError(t, err)
+	assert.Len(t, got, maxSitemapSize)
+}
+
+func TestReadSitemapBodyPlainUnchanged(t *testing.T) {
+	got, err := readSitemapBody(strings.NewReader("<urlset/>"))
+	require.NoError(t, err)
+	assert.Equal(t, "<urlset/>", string(got))
 }
