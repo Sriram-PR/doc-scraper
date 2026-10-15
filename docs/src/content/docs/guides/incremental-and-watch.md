@@ -66,9 +66,9 @@ level=INFO msg="Watch schedule:"
 level=INFO msg="  rust_cli_book: never run, will run immediately"
 level=INFO msg="Running crawl for 1 due sites: [rust_cli_book]"
 ...
-level=INFO msg="  rust_cli_book: SUCCESS - 17 pages saved, 0 unchanged, 0 failed, in 492.044415ms"
+level=INFO msg="  rust_cli_book: SUCCESS - 17 pages saved, 0 unchanged, 0 failed, in 3.374338083s"
 ...
-level=INFO msg="Next crawl: rust_cli_book in 24h0m0s (at 02:58:45)"
+level=INFO msg="Next crawl: rust_cli_book in 24h0m0s (at 14:54:01)"
 ```
 
 After a restart, the schedule picks up from the saved state:
@@ -76,17 +76,17 @@ After a restart, the schedule picks up from the saved state:
 ```
 level=INFO msg="Starting watch mode for 1 sites with interval 24h0m0s"
 level=INFO msg="Watch schedule:"
-level=INFO msg="  rust_cli_book: last run 2026-10-15T02:58:45+11:00 (success, 17 pages saved, 0 unchanged, 0 failed), next run 2026-10-16T02:58:45+11:00"
-level=INFO msg="Next crawl: rust_cli_book in 23h59m31s (at 02:58:45)"
+level=INFO msg="  rust_cli_book: last run 2026-10-15T14:54:01+11:00 (success, 17 pages saved, 0 unchanged, 0 failed), next run 2026-10-16T14:54:01+11:00"
+level=INFO msg="Next crawl: rust_cli_book in 23h59m59s (at 14:54:01)"
 ```
 
 A later run with nothing changed on the site re-checks every page and reprocesses none:
 
 ```
-level=INFO msg="  rust_cli_book: SUCCESS - 0 pages saved, 17 unchanged, 0 failed, in 423.533313ms"
+level=INFO msg="  rust_cli_book: SUCCESS - 0 pages saved, 17 unchanged, 0 failed, in 168.335008ms"
 ```
 
-Output from doc-scraper 2.12.0 (built from `main`), 2026-10-15.
+Output from doc-scraper 2.13.0, 2026-10-15.
 
 ### Graceful Shutdown
 
