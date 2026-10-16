@@ -9,21 +9,30 @@ import (
 	"time"
 )
 
+const crawlColumns = `id, site_key, crawl_started_at, crawl_ended_at, total_pages, mode`
+
 // GetLatestCrawl returns the most recent crawl for siteKey, or (nil, nil) if
 // none exists.
 func (i *Index) GetLatestCrawl(ctx context.Context, siteKey string) (*LatestCrawl, error) {
 	row := i.db.QueryRowContext(ctx,
-		`SELECT id, site_key, crawl_started_at, crawl_ended_at, total_pages, mode
-		 FROM crawls WHERE site_key = ? ORDER BY id DESC LIMIT 1`,
+		`SELECT `+crawlColumns+` FROM crawls WHERE site_key = ? ORDER BY id DESC LIMIT 1`,
 		siteKey,
 	)
+	lc, err := scanCrawl(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scan latest crawl: %w", err)
+	}
+	return lc, nil
+}
+
+func scanCrawl(row interface{ Scan(...any) error }) (*LatestCrawl, error) {
 	var lc LatestCrawl
 	var startedAt, endedAt, mode string
 	if err := row.Scan(&lc.ID, &lc.SiteKey, &startedAt, &endedAt, &lc.TotalPages, &mode); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("scan latest crawl: %w", err)
+		return nil, err
 	}
 	t, err := parseRFC3339(startedAt)
 	if err != nil {
@@ -104,35 +113,34 @@ func (i *Index) DiffSince(ctx context.Context, siteKey string, since time.Time, 
 }
 
 // crawlAtOrBefore returns the most recent crawl whose crawl_ended_at <= cutoff,
-// or (nil, nil) if none exists.
+// or (nil, nil) if none exists. Compared as parsed times because RFC3339Nano
+// text does not sort chronologically, and at whole seconds because that is
+// the precision get_freshness reports.
 func (i *Index) crawlAtOrBefore(ctx context.Context, siteKey string, cutoff time.Time) (*LatestCrawl, error) {
-	row := i.db.QueryRowContext(ctx,
-		`SELECT id, site_key, crawl_started_at, crawl_ended_at, total_pages, mode
-		 FROM crawls
-		 WHERE site_key = ? AND crawl_ended_at <= ?
-		 ORDER BY crawl_ended_at DESC, id DESC LIMIT 1`,
-		siteKey, cutoff.UTC().Format(time.RFC3339Nano),
-	)
-	var lc LatestCrawl
-	var startedAt, endedAt, mode string
-	if err := row.Scan(&lc.ID, &lc.SiteKey, &startedAt, &endedAt, &lc.TotalPages, &mode); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+	rows, err := i.db.QueryContext(ctx, `SELECT `+crawlColumns+` FROM crawls WHERE site_key = ?`, siteKey)
+	if err != nil {
+		return nil, fmt.Errorf("query crawls: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var best *LatestCrawl
+	for rows.Next() {
+		lc, err := scanCrawl(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan baseline crawl: %w", err)
 		}
-		return nil, fmt.Errorf("scan baseline crawl: %w", err)
+		if lc.CrawlEndedAt.Truncate(time.Second).After(cutoff) {
+			continue
+		}
+		if best == nil || lc.CrawlEndedAt.After(best.CrawlEndedAt) ||
+			(lc.CrawlEndedAt.Equal(best.CrawlEndedAt) && lc.ID > best.ID) {
+			best = lc
+		}
 	}
-	t, err := parseRFC3339(startedAt)
-	if err != nil {
-		return nil, fmt.Errorf("parse crawl_started_at: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate crawls: %w", err)
 	}
-	lc.CrawlStartedAt = t
-	t, err = parseRFC3339(endedAt)
-	if err != nil {
-		return nil, fmt.Errorf("parse crawl_ended_at: %w", err)
-	}
-	lc.CrawlEndedAt = t
-	lc.Mode = Mode(mode)
-	return &lc, nil
+	return best, nil
 }
 
 // pagesFor returns the page_history rows for crawlID keyed by URL.

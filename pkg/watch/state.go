@@ -11,11 +11,17 @@ import (
 
 const stateFileName = "watch_state.json"
 
+// failedRetryDelay is how soon a failed run is retried when the interval is
+// longer, so an outage or a bad deploy is not left in place for a full day.
+const failedRetryDelay = 15 * time.Minute
+
 // SiteState records the last run result for a site.
 type SiteState struct {
 	LastRunTime    time.Time `json:"last_run_time"`
 	LastRunSuccess bool      `json:"last_run_success"`
-	PagesProcessed int64     `json:"pages_processed"`
+	PagesSaved     int64     `json:"pages_saved"`
+	PagesUnchanged int64     `json:"pages_unchanged"`
+	PagesFailed    int64     `json:"pages_failed"`
 	ErrorMessage   string    `json:"error_message,omitempty"`
 }
 
@@ -101,15 +107,22 @@ func (m *StateManager) GetSiteState(siteKey string) (SiteState, bool) {
 	return state, ok
 }
 
+// PageCounts summarizes one run's pages for the watch state.
+type PageCounts struct {
+	Saved, Unchanged, Failed int64
+}
+
 // UpdateSiteState records the result of a crawl run for a site.
-func (m *StateManager) UpdateSiteState(siteKey string, success bool, pagesProcessed int64, errorMsg string) {
+func (m *StateManager) UpdateSiteState(siteKey string, success bool, counts PageCounts, errorMsg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.state.Sites[siteKey] = SiteState{
 		LastRunTime:    time.Now(),
 		LastRunSuccess: success,
-		PagesProcessed: pagesProcessed,
+		PagesSaved:     counts.Saved,
+		PagesUnchanged: counts.Unchanged,
+		PagesFailed:    counts.Failed,
 		ErrorMessage:   errorMsg,
 	}
 }
@@ -123,7 +136,14 @@ func (m *StateManager) ShouldRun(siteKey string, interval time.Duration) bool {
 	if !ok {
 		return true // never run before
 	}
-	return time.Since(state.LastRunTime) >= interval
+	return !time.Now().Before(state.nextRun(interval))
+}
+
+func (s SiteState) nextRun(interval time.Duration) time.Time {
+	if !s.LastRunSuccess && failedRetryDelay < interval {
+		interval = failedRetryDelay
+	}
+	return s.LastRunTime.Add(interval)
 }
 
 // GetNextRunTime returns when the site should next run.
@@ -136,5 +156,5 @@ func (m *StateManager) GetNextRunTime(siteKey string, interval time.Duration) ti
 		return time.Now()
 	}
 
-	return state.LastRunTime.Add(interval)
+	return state.nextRun(interval)
 }

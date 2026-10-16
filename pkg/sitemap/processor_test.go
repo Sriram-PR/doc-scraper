@@ -2,6 +2,7 @@ package sitemap
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
@@ -142,14 +145,8 @@ func newTestProcessor(
 // waitForPQLen polls the priority queue length until it reaches want or the timeout expires.
 func waitForPQLen(t *testing.T, pq *queue.ThreadSafePriorityQueue, want int, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if pq.Len() >= want {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for PQ length %d, got %d", want, pq.Len())
+	require.Eventuallyf(t, func() bool { return pq.Len() >= want }, timeout, 5*time.Millisecond,
+		"timed out waiting for PQ length %d", want)
 }
 
 // drainPQ closes the queue and pops all items.
@@ -181,15 +178,9 @@ func TestMarkSitemapProcessed(t *testing.T) {
 	f := newMockFetcher("")
 	sp, _, _, _ := newTestProcessor(t, f, store, defaultSiteCfg(), nil)
 
-	if !sp.MarkSitemapProcessed("http://example.com/sitemap.xml") {
-		t.Fatal("first call should return true")
-	}
-	if sp.MarkSitemapProcessed("http://example.com/sitemap.xml") {
-		t.Fatal("second call should return false")
-	}
-	if !sp.MarkSitemapProcessed("http://example.com/sitemap2.xml") {
-		t.Fatal("different URL should return true")
-	}
+	assert.True(t, sp.MarkSitemapProcessed("http://example.com/sitemap.xml"), "first call")
+	assert.False(t, sp.MarkSitemapProcessed("http://example.com/sitemap.xml"), "second call")
+	assert.True(t, sp.MarkSitemapProcessed("http://example.com/sitemap2.xml"), "different URL")
 }
 
 func TestProcessURLSet(t *testing.T) {
@@ -218,12 +209,45 @@ func TestProcessURLSet(t *testing.T) {
 	items := drainPQAndBalance(pq, wg)
 	wg.Wait()
 
-	if len(items) != 2 {
-		t.Fatalf("expected 2 queued items, got %d", len(items))
+	assert.Len(t, items, 2)
+	assert.Equal(t, 2, store.visitedCount())
+	// Sitemap URLs sit one hop from the root, so max_depth still bounds them.
+	for _, item := range items {
+		assert.Equal(t, 1, item.Depth, item.URL)
 	}
-	if store.visitedCount() != 2 {
-		t.Fatalf("expected 2 visited entries, got %d", store.visitedCount())
+}
+
+func TestProcessURLSetMaxDepthOneQueuesNothing(t *testing.T) {
+	xmlBody := `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/docs/page1</loc></url>
+</urlset>`
+
+	store := newMockPageStore()
+	siteCfg := defaultSiteCfg()
+	siteCfg.MaxDepth = 1 // start pages only; sitemap URLs sit at depth 1
+	sp, sitemapQueue, pq, wg := newTestProcessor(t, newMockFetcher(xmlBody), store, siteCfg, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/sitemap.xml"
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	var queued []*models.WorkItem
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		// A queued page holds the WaitGroup open; balance it so the test fails
+		// on the assertions below instead of hanging.
+		queued = drainPQAndBalance(pq, wg)
+		<-done
 	}
+
+	assert.Empty(t, queued, "over-depth sitemap URLs must not be queued")
+	assert.Zero(t, store.visitedCount(), "over-depth sitemap URLs must not be marked visited")
 }
 
 func TestProcessURLSetDisallowedPath(t *testing.T) {
@@ -249,9 +273,7 @@ func TestProcessURLSetDisallowedPath(t *testing.T) {
 	items := drainPQAndBalance(pq, wg)
 	wg.Wait()
 
-	if len(items) != 1 {
-		t.Fatalf("expected 1 queued item (disallowed filtered), got %d", len(items))
-	}
+	assert.Len(t, items, 1, "disallowed URL must be filtered")
 }
 
 func TestProcessSitemapIndex(t *testing.T) {
@@ -280,12 +302,8 @@ func TestProcessSitemapIndex(t *testing.T) {
 	// So wg naturally balances to 0.
 	wg.Wait()
 
-	if sp.MarkSitemapProcessed("https://example.com/sitemap-pages.xml") {
-		t.Fatal("sitemap-pages.xml should already be marked processed")
-	}
-	if sp.MarkSitemapProcessed("https://example.com/sitemap-blog.xml") {
-		t.Fatal("sitemap-blog.xml should already be marked processed")
-	}
+	assert.False(t, sp.MarkSitemapProcessed("https://example.com/sitemap-pages.xml"), "sitemap-pages.xml should already be marked processed")
+	assert.False(t, sp.MarkSitemapProcessed("https://example.com/sitemap-blog.xml"), "sitemap-blog.xml should already be marked processed")
 }
 
 func TestProcessSitemapFetchError(t *testing.T) {
@@ -303,12 +321,8 @@ func TestProcessSitemapFetchError(t *testing.T) {
 	wg.Wait()
 
 	items := drainPQ(pq)
-	if len(items) != 0 {
-		t.Fatalf("expected 0 queued items on fetch error, got %d", len(items))
-	}
-	if store.visitedCount() != 0 {
-		t.Fatalf("expected 0 visited entries on fetch error, got %d", store.visitedCount())
-	}
+	assert.Empty(t, items)
+	assert.Equal(t, 0, store.visitedCount())
 }
 
 func TestProcessSitemapInvalidXML(t *testing.T) {
@@ -326,9 +340,7 @@ func TestProcessSitemapInvalidXML(t *testing.T) {
 	wg.Wait()
 
 	items := drainPQ(pq)
-	if len(items) != 0 {
-		t.Fatalf("expected 0 queued items for invalid XML, got %d", len(items))
-	}
+	assert.Empty(t, items)
 }
 
 // blockingFetcher reports when a fetch starts and holds it until the request
@@ -400,12 +412,8 @@ func TestProcessURLSetDBError(t *testing.T) {
 	wg.Wait()
 
 	items := drainPQ(pq)
-	if len(items) != 0 {
-		t.Fatalf("expected 0 queued items when DB errors, got %d", len(items))
-	}
-	if store.visitedCount() != 0 {
-		t.Fatalf("expected 0 visited entries when DB errors, got %d", store.visitedCount())
-	}
+	assert.Empty(t, items)
+	assert.Equal(t, 0, store.visitedCount())
 }
 
 func TestProcessSitemapIndexFanOut(t *testing.T) {
@@ -449,12 +457,8 @@ func TestProcessSitemapIndexFanOut(t *testing.T) {
 	items := drainPQAndBalance(pq, &wg)
 	wg.Wait()
 
-	if len(items) != n {
-		t.Fatalf("expected %d queued pages, got %d", n, len(items))
-	}
-	if store.visitedCount() != n {
-		t.Fatalf("expected %d visited entries, got %d", n, store.visitedCount())
-	}
+	assert.Len(t, items, n)
+	assert.Equal(t, n, store.visitedCount())
 }
 
 // hostConcurrencyFetcher records the peak number of simultaneous in-flight
@@ -565,9 +569,7 @@ func TestProcessSitemapRespectsPerHostLimit(t *testing.T) {
 	drainPQAndBalance(pq, wg)
 	wg.Wait()
 
-	if got := f.peakFor("example.com"); got > perHost {
-		t.Fatalf("sitemap fetches exceeded max_requests_per_host: peak %d, limit %d", got, perHost)
-	}
+	assert.LessOrEqual(t, f.peakFor("example.com"), perHost, "sitemap fetches exceeded max_requests_per_host")
 }
 
 func TestProcessSitemapDistinctHostsNotSerialized(t *testing.T) {
@@ -590,11 +592,167 @@ func TestProcessSitemapDistinctHostsNotSerialized(t *testing.T) {
 	wg.Wait()
 
 	for _, host := range hosts {
-		if got := f.peakFor(host); got > perHost {
-			t.Fatalf("host %s exceeded per-host limit: peak %d, limit %d", host, got, perHost)
-		}
-		if f.peakFor(host) < 2 {
-			t.Fatalf("host %s never reached its own limit; hosts appear serialized (peak %d)", host, f.peakFor(host))
-		}
+		assert.LessOrEqual(t, f.peakFor(host), perHost, "host %s exceeded per-host limit", host)
+		assert.GreaterOrEqual(t, f.peakFor(host), 2, "host %s never reached its own limit; hosts appear serialized", host)
 	}
+}
+
+func TestProbe_SkipsNonSitemapsAndProcessesFirstIndex(t *testing.T) {
+	const ns = `xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"`
+	routes := map[string]string{
+		"https://example.com/sitemap.xml":        `<html><body>Soft 404</body></html>`,
+		"https://example.com/sitemap_index.xml":  `<?xml version="1.0"?><urlset ` + ns + `></urlset>`,
+		"https://example.com/docs/sitemap.xml":   `<?xml version="1.0"?><sitemapindex ` + ns + `><sitemap><loc>https://example.com/docs/sitemap-0.xml</loc></sitemap></sitemapindex>`,
+		"https://example.com/docs/sitemap-0.xml": `<?xml version="1.0"?><urlset ` + ns + `><url><loc>https://example.com/docs/page</loc></url></urlset>`,
+	}
+	store := newMockPageStore()
+	sp, _, pq, wg := newTestProcessor(t, &routeFetcher{routes}, store, defaultSiteCfg(), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	got, ok := sp.Probe(ctx, []string{
+		"https://example.com/sitemap.xml",
+		"https://example.com/sitemap-index.xml", // empty body
+		"https://example.com/sitemap_index.xml", // empty urlset
+		"https://example.com/docs/sitemap.xml",
+		"https://example.com/docs/sitemap_index.xml",
+	})
+	require.True(t, ok)
+	assert.Equal(t, "https://example.com/docs/sitemap.xml", got)
+
+	waitForPQLen(t, pq, 1, 5*time.Second)
+	items := drainPQAndBalance(pq, wg)
+	wg.Wait()
+	require.Len(t, items, 1)
+	assert.Equal(t, "https://example.com/docs/page", items[0].URL)
+	assert.True(t, sp.MarkSitemapProcessed("https://example.com/docs/sitemap_index.xml"), "probing must stop at the first sitemap")
+}
+
+func TestProbe_NoSitemapFound(t *testing.T) {
+	sp, _, pq, _ := newTestProcessor(t, &routeFetcher{map[string]string{}}, newMockPageStore(), defaultSiteCfg(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	_, ok := sp.Probe(ctx, []string{"https://example.com/sitemap.xml"})
+	assert.False(t, ok)
+	assert.Equal(t, 0, pq.Len())
+}
+
+func TestProbe_StopsOnCancelledContext(t *testing.T) {
+	routes := map[string]string{
+		"https://example.com/sitemap.xml": `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/docs/page</loc></url></urlset>`,
+	}
+	sp, _, pq, _ := newTestProcessor(t, &routeFetcher{routes}, newMockPageStore(), defaultSiteCfg(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	sp.Start(ctx)
+	cancel()
+
+	_, ok := sp.Probe(ctx, []string{"https://example.com/sitemap.xml"})
+	assert.False(t, ok)
+	assert.Equal(t, 0, pq.Len())
+}
+
+func gzipBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, err := zw.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}
+
+func TestProcessGzippedURLSet(t *testing.T) {
+	xmlBody := `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/docs/page1</loc></url>
+  <url><loc>https://example.com/docs/page2</loc></url>
+</urlset>`
+
+	store := newMockPageStore()
+	f := &mockFetcher{body: gzipBytes(t, []byte(xmlBody))}
+	sp, sitemapQueue, pq, wg := newTestProcessor(t, f, store, defaultSiteCfg(), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/sitemap.xml.gz"
+
+	waitForPQLen(t, pq, 2, 5*time.Second)
+	items := drainPQAndBalance(pq, wg)
+	wg.Wait()
+
+	assert.Len(t, items, 2)
+}
+
+func TestProcessGzippedSitemapIndex(t *testing.T) {
+	index := `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://example.com/sitemap-docs.xml.gz</loc></sitemap>
+</sitemapindex>`
+	nested := `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/docs/a</loc></url>
+  <url><loc>https://example.com/docs/b</loc></url>
+  <url><loc>https://example.com/docs/c</loc></url>
+</urlset>`
+
+	store := newMockPageStore()
+	f := &routeFetcher{routes: map[string]string{
+		"https://example.com/sitemap_index.xml.gz": string(gzipBytes(t, []byte(index))),
+		"https://example.com/sitemap-docs.xml.gz":  string(gzipBytes(t, []byte(nested))),
+	}}
+	sp, sitemapQueue, pq, wg := newTestProcessor(t, f, store, defaultSiteCfg(), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/sitemap_index.xml.gz"
+
+	waitForPQLen(t, pq, 3, 5*time.Second)
+	items := drainPQAndBalance(pq, wg)
+	wg.Wait()
+
+	assert.Len(t, items, 3)
+}
+
+func TestProcessCorruptGzipSitemapQueuesNothing(t *testing.T) {
+	store := newMockPageStore()
+	// Valid gzip magic bytes followed by garbage.
+	f := &mockFetcher{body: []byte{0x1f, 0x8b, 0x00, 0x01, 0x02, 0x03, 0x04}}
+	sp, sitemapQueue, pq, wg := newTestProcessor(t, f, store, defaultSiteCfg(), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/sitemap.xml.gz"
+	wg.Wait()
+
+	assert.Empty(t, drainPQ(pq))
+	assert.Equal(t, 0, store.visitedCount())
+}
+
+func TestReadSitemapBodyCapsDecompressedSize(t *testing.T) {
+	// ~10 KB compressed, 3x the cap once decompressed.
+	compressed := gzipBytes(t, bytes.Repeat([]byte{' '}, 3*maxSitemapSize))
+	require.Less(t, len(compressed), maxSitemapSize)
+
+	got, err := readSitemapBody(bytes.NewReader(compressed))
+	require.NoError(t, err)
+	assert.Len(t, got, maxSitemapSize)
+}
+
+func TestReadSitemapBodyPlainUnchanged(t *testing.T) {
+	got, err := readSitemapBody(strings.NewReader("<urlset/>"))
+	require.NoError(t, err)
+	assert.Equal(t, "<urlset/>", string(got))
 }

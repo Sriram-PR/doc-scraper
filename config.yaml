@@ -71,6 +71,7 @@ sites:
     max_depth: 2
     delay_per_host: 500ms           # Polite crawling
     respect_nofollow: true
+    respect_noindex: true           # Skip pages marked noindex (default)
 
     # Image handling: opt in to downloading images for this site
     skip_images: false
@@ -116,13 +117,13 @@ sites:
     allowed_path_prefix: "/book/"
 
     # EXPLICIT: mdBook content selector
-    content_selector: "#content, main"
+    content_selector: "main"
 
     # mdBook navigation structure
     link_extraction_selectors:
       - "nav#sidebar"
       - "nav.nav-wrapper"
-      - "main#content"
+      - "main"
 
     max_depth: 0                    # unlimited (see depth note above)
     delay_per_host: 500ms           # Default delay

@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -103,11 +104,16 @@ func (s *Scheduler) runDueSites() {
 		results := orch.Run()
 
 		for _, result := range results {
+			if s.ctx.Err() != nil && errors.Is(result.Error, context.Canceled) {
+				s.log.Info(fmt.Sprintf("Crawl for %s interrupted by shutdown; it runs again on the next start", result.SiteKey))
+				continue
+			}
 			errorMsg := ""
 			if result.Error != nil {
 				errorMsg = result.Error.Error()
 			}
-			s.stateManager.UpdateSiteState(result.SiteKey, result.Success, result.PagesProcessed, errorMsg)
+			s.stateManager.UpdateSiteState(result.SiteKey, result.Success,
+				PageCounts{Saved: result.PagesSaved, Unchanged: result.PagesUnchanged, Failed: result.PagesFailed}, errorMsg)
 		}
 
 		if err := s.stateManager.Save(); err != nil {
@@ -150,11 +156,13 @@ func (s *Scheduler) logSchedule() {
 			if !state.LastRunSuccess {
 				status = "failed"
 			}
-			s.log.Info(fmt.Sprintf("  %s: last run %v (%s, %d pages), next run %v",
+			s.log.Info(fmt.Sprintf("  %s: last run %v (%s, %d pages saved, %d unchanged, %d failed), next run %v",
 				siteKey,
 				state.LastRunTime.Format(time.RFC3339),
 				status,
-				state.PagesProcessed,
+				state.PagesSaved,
+				state.PagesUnchanged,
+				state.PagesFailed,
 				nextRun.Format(time.RFC3339)))
 		} else {
 			s.log.Info(fmt.Sprintf("  %s: never run, will run immediately", siteKey))

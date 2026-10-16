@@ -5,14 +5,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func mustURL(t *testing.T, s string) *url.URL {
 	t.Helper()
 	u, err := url.Parse(s)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return u
 }
 

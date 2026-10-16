@@ -8,9 +8,9 @@ Fixes #
 
 <!-- The commands you ran, and for a bug fix the test that failed before the change. -->
 
-## AI assistance
+## AI assistance (optional)
 
-<!-- None, or which tools you used and for what. See CONTRIBUTING.md#ai-assisted-contributions. -->
+<!-- Leave blank, or point reviewers at anything an agent wrote that deserves a closer look. See CONTRIBUTING.md#ai-assisted-contributions. -->
 
 ## Checklist
 
@@ -18,4 +18,4 @@ Fixes #
 - [ ] `make check` passes locally.
 - [ ] New or changed behavior has tests; a bug fix includes a test that fails without the fix.
 - [ ] The docs site (`docs/src/content/docs/`) is updated if a flag, config key, MCP tool, or output format changed.
-- [ ] I reviewed every line of this change and can answer questions about it.
+- [ ] I understand this change and can answer questions about it.

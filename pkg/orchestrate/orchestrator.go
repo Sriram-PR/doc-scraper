@@ -20,7 +20,9 @@ type SiteResult struct {
 	SiteKey        string
 	Success        bool
 	Error          error
-	PagesProcessed int64
+	PagesSaved     int64
+	PagesUnchanged int64
+	PagesFailed    int64
 	Duration       time.Duration
 }
 
@@ -160,7 +162,9 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	}
 
 	progress := c.GetProgress()
-	result.PagesProcessed = progress.PagesProcessed
+	result.PagesSaved = progress.PagesSaved
+	result.PagesUnchanged = progress.PagesUnchanged
+	result.PagesFailed = progress.PagesFailed
 	result.Duration = time.Since(startTime)
 
 	return result
@@ -176,7 +180,7 @@ func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 	o.log.Info(fmt.Sprintf("Parallel crawl completed in %v", totalDuration))
 	o.log.Info("Site Results:")
 
-	var totalPages int64
+	var totalSaved, totalUnchanged, totalFailed int64
 	successCount := 0
 	failCount := 0
 
@@ -188,16 +192,19 @@ func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 		} else {
 			successCount++
 		}
-		totalPages += r.PagesProcessed
+		totalSaved += r.PagesSaved
+		totalUnchanged += r.PagesUnchanged
+		totalFailed += r.PagesFailed
 
-		o.log.Info(fmt.Sprintf("  %s: %s - %d pages in %v", r.SiteKey, status, r.PagesProcessed, r.Duration))
+		o.log.Info(fmt.Sprintf("  %s: %s - %d pages saved, %d unchanged, %d failed, in %v",
+			r.SiteKey, status, r.PagesSaved, r.PagesUnchanged, r.PagesFailed, r.Duration))
 		if r.Error != nil {
 			o.log.Info(fmt.Sprintf("    Error: %v", r.Error))
 		}
 	}
 
 	o.log.Info("--------------------------------------------")
-	o.log.Info(fmt.Sprintf("Total: %d sites (%d success, %d failed), %d pages processed",
-		len(o.results), successCount, failCount, totalPages))
+	o.log.Info(fmt.Sprintf("Total: %d sites (%d success, %d failed), %d pages saved, %d unchanged, %d failed",
+		len(o.results), successCount, failCount, totalSaved, totalUnchanged, totalFailed))
 	o.log.Info("============================================")
 }

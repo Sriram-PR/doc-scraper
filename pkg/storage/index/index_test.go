@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,48 +17,32 @@ func newTestIndex(t *testing.T, retention int) *Index {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "index.db")
 	idx, err := Open(path, retention, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	require.NoError(t, err, "Open")
 	t.Cleanup(func() { _ = idx.Close() })
 	return idx
 }
 
 func mustRecord(t *testing.T, idx *Index, cr CrawlRecord) {
 	t.Helper()
-	if err := idx.RecordCrawl(context.Background(), cr); err != nil {
-		t.Fatalf("RecordCrawl: %v", err)
-	}
+	require.NoError(t, idx.RecordCrawl(context.Background(), cr), "RecordCrawl")
 }
 
 func TestOpenIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "index.db")
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	idx1, err := Open(path, 5, log)
-	if err != nil {
-		t.Fatalf("first Open: %v", err)
-	}
-	if err := idx1.Close(); err != nil {
-		t.Fatalf("first Close: %v", err)
-	}
+	require.NoError(t, err, "first Open")
+	require.NoError(t, idx1.Close(), "first Close")
 	idx2, err := Open(path, 5, log)
-	if err != nil {
-		t.Fatalf("second Open (existing schema): %v", err)
-	}
-	if err := idx2.Close(); err != nil {
-		t.Fatalf("second Close: %v", err)
-	}
+	require.NoError(t, err, "second Open (existing schema)")
+	require.NoError(t, idx2.Close(), "second Close")
 }
 
 func TestGetLatestCrawlNoRows(t *testing.T) {
 	idx := newTestIndex(t, 5)
 	lc, err := idx.GetLatestCrawl(context.Background(), "ghost")
-	if err != nil {
-		t.Fatalf("GetLatestCrawl: %v", err)
-	}
-	if lc != nil {
-		t.Fatalf("expected nil, got %+v", lc)
-	}
+	require.NoError(t, err, "GetLatestCrawl")
+	require.Nil(t, lc)
 }
 
 func TestRecordAndGetLatest(t *testing.T) {
@@ -75,18 +60,12 @@ func TestRecordAndGetLatest(t *testing.T) {
 		},
 	})
 	lc, err := idx.GetLatestCrawl(context.Background(), "rust")
-	if err != nil {
-		t.Fatalf("GetLatestCrawl: %v", err)
-	}
-	if lc == nil {
-		t.Fatalf("expected a row")
-	}
-	if lc.TotalPages != 2 || lc.Mode != ModeFull {
-		t.Fatalf("unexpected: %+v", lc)
-	}
-	if !lc.CrawlStartedAt.Equal(start) || !lc.CrawlEndedAt.Equal(end) {
-		t.Fatalf("timestamps round-trip wrong: started=%v ended=%v", lc.CrawlStartedAt, lc.CrawlEndedAt)
-	}
+	require.NoError(t, err, "GetLatestCrawl")
+	require.NotNil(t, lc, "expected a row")
+	require.Equal(t, 2, lc.TotalPages)
+	require.Equal(t, ModeFull, lc.Mode)
+	require.True(t, lc.CrawlStartedAt.Equal(start), "started round-trip: got %v", lc.CrawlStartedAt)
+	require.True(t, lc.CrawlEndedAt.Equal(end), "ended round-trip: got %v", lc.CrawlEndedAt)
 }
 
 func TestDiffSinceNoPriorCrawl(t *testing.T) {
@@ -102,18 +81,10 @@ func TestDiffSinceNoPriorCrawl(t *testing.T) {
 	})
 	// since predates the only crawl → no baseline
 	res, err := idx.DiffSince(context.Background(), "rust", start.Add(-time.Hour), 100, 0)
-	if err != nil {
-		t.Fatalf("DiffSince: %v", err)
-	}
-	if res.BaselineCrawl != nil {
-		t.Fatalf("expected nil baseline, got %+v", res.BaselineCrawl)
-	}
-	if res.CurrentCrawl == nil {
-		t.Fatalf("expected current crawl")
-	}
-	if len(res.Entries) != 0 {
-		t.Fatalf("expected empty entries, got %d", len(res.Entries))
-	}
+	require.NoError(t, err, "DiffSince")
+	require.Nil(t, res.BaselineCrawl)
+	require.NotNil(t, res.CurrentCrawl)
+	require.Empty(t, res.Entries)
 }
 
 func TestDiffSinceAddedChangedRemoved(t *testing.T) {
@@ -145,18 +116,12 @@ func TestDiffSinceAddedChangedRemoved(t *testing.T) {
 	})
 
 	res, err := idx.DiffSince(context.Background(), "rust", t0.Add(2*time.Minute), 100, 0)
-	if err != nil {
-		t.Fatalf("DiffSince: %v", err)
-	}
-	if res.BaselineCrawl == nil || res.CurrentCrawl == nil {
-		t.Fatalf("expected both crawls present")
-	}
-	if res.UnchangedCount != 1 {
-		t.Fatalf("expected 1 unchanged (C), got %d", res.UnchangedCount)
-	}
-	if res.Total != 3 || len(res.Entries) != 3 {
-		t.Fatalf("expected 3 entries, got total=%d len=%d", res.Total, len(res.Entries))
-	}
+	require.NoError(t, err, "DiffSince")
+	require.NotNil(t, res.BaselineCrawl)
+	require.NotNil(t, res.CurrentCrawl)
+	require.Equal(t, 1, res.UnchangedCount, "expected 1 unchanged (C)")
+	require.Equal(t, 3, res.Total)
+	require.Len(t, res.Entries, 3)
 	// Sort is kind asc then URL asc → added, changed, removed
 	want := []DiffEntry{
 		{Kind: "added", URL: "https://d/", Title: "D", ContentHash: "hd-v1"},
@@ -165,9 +130,10 @@ func TestDiffSinceAddedChangedRemoved(t *testing.T) {
 	}
 	for i, w := range want {
 		got := res.Entries[i]
-		if got.Kind != w.Kind || got.URL != w.URL || got.ContentHash != w.ContentHash || got.PriorHash != w.PriorHash {
-			t.Errorf("entry %d: got %+v want %+v", i, got, w)
-		}
+		assert.Equal(t, w.Kind, got.Kind, "entry %d", i)
+		assert.Equal(t, w.URL, got.URL, "entry %d", i)
+		assert.Equal(t, w.ContentHash, got.ContentHash, "entry %d", i)
+		assert.Equal(t, w.PriorHash, got.PriorHash, "entry %d", i)
 	}
 }
 
@@ -183,18 +149,12 @@ func TestDiffSinceBaselineEqualsCurrent(t *testing.T) {
 	})
 	// since is after the crawl ended → baseline picks up the same crawl as current → no diff
 	res, err := idx.DiffSince(context.Background(), "rust", t0.Add(time.Hour), 100, 0)
-	if err != nil {
-		t.Fatalf("DiffSince: %v", err)
-	}
-	if res.BaselineCrawl == nil || res.CurrentCrawl == nil {
-		t.Fatalf("expected both crawls present")
-	}
-	if res.BaselineCrawl.ID != res.CurrentCrawl.ID {
-		t.Fatalf("expected same crawl id")
-	}
-	if len(res.Entries) != 0 || res.UnchangedCount != 0 {
-		t.Fatalf("expected empty diff, got entries=%d unchanged=%d", len(res.Entries), res.UnchangedCount)
-	}
+	require.NoError(t, err, "DiffSince")
+	require.NotNil(t, res.BaselineCrawl)
+	require.NotNil(t, res.CurrentCrawl)
+	require.Equal(t, res.CurrentCrawl.ID, res.BaselineCrawl.ID, "expected same crawl id")
+	require.Empty(t, res.Entries)
+	require.Zero(t, res.UnchangedCount)
 }
 
 func TestRetentionPruning(t *testing.T) {
@@ -211,21 +171,13 @@ func TestRetentionPruning(t *testing.T) {
 	}
 	var count int
 	row := idx.db.QueryRow(`SELECT COUNT(*) FROM crawls WHERE site_key = ?`, "rust")
-	if err := row.Scan(&count); err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("expected retention to leave 2 rows, got %d", count)
-	}
+	require.NoError(t, row.Scan(&count), "count")
+	require.Equal(t, 2, count, "expected retention to leave 2 rows")
 	// page_history rows should be FK-cascaded
 	var pages int
 	row = idx.db.QueryRow(`SELECT COUNT(*) FROM page_history`)
-	if err := row.Scan(&pages); err != nil {
-		t.Fatalf("count pages: %v", err)
-	}
-	if pages != 2 {
-		t.Fatalf("expected 2 page rows (one per surviving crawl), got %d", pages)
-	}
+	require.NoError(t, row.Scan(&pages), "count pages")
+	require.Equal(t, 2, pages, "expected 2 page rows (one per surviving crawl)")
 }
 
 func TestMultiSiteIsolation(t *testing.T) {
@@ -241,19 +193,48 @@ func TestMultiSiteIsolation(t *testing.T) {
 	})
 	a, _ := idx.GetLatestCrawl(context.Background(), "siteA")
 	b, _ := idx.GetLatestCrawl(context.Background(), "siteB")
-	if a == nil || b == nil || a.ID == b.ID {
-		t.Fatalf("expected distinct crawls per site, got a=%+v b=%+v", a, b)
-	}
+	require.NotNil(t, a)
+	require.NotNil(t, b)
+	require.NotEqual(t, a.ID, b.ID, "expected distinct crawls per site")
 }
 
 func TestRecordCrawlValidation(t *testing.T) {
 	idx := newTestIndex(t, 5)
-	if err := idx.RecordCrawl(context.Background(), CrawlRecord{}); err == nil {
-		t.Fatalf("expected error on empty site_key")
+	ctx := context.Background()
+	require.ErrorContains(t, idx.RecordCrawl(ctx, CrawlRecord{Mode: ModeFull}), "site_key is required")
+	require.ErrorContains(t, idx.RecordCrawl(ctx, CrawlRecord{SiteKey: "x"}), "mode is required")
+
+	var crawls int
+	require.NoError(t, idx.db.QueryRow(`SELECT COUNT(*) FROM crawls`).Scan(&crawls))
+	assert.Zero(t, crawls, "a rejected record must not be written")
+}
+
+func TestDeleteSiteHistoryRemovesOnlyThatSite(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	for _, key := range []string{"off", "on"} {
+		for i := range 2 {
+			mustRecord(t, idx, CrawlRecord{
+				SiteKey: key, CrawlStartedAt: t0.Add(time.Duration(i) * time.Hour), CrawlEndedAt: t0.Add(time.Duration(i)*time.Hour + time.Minute),
+				Mode: ModeFull, Pages: []PageRecord{{URL: "https://" + key + "/", ContentHash: "h"}},
+			})
+		}
 	}
-	if err := idx.RecordCrawl(context.Background(), CrawlRecord{SiteKey: "x"}); err == nil {
-		t.Fatalf("expected error on empty mode")
-	}
+
+	require.NoError(t, idx.DeleteSiteHistory(ctx, "off"))
+
+	off, err := idx.GetLatestCrawl(ctx, "off")
+	require.NoError(t, err)
+	assert.Nil(t, off)
+	on, err := idx.GetLatestCrawl(ctx, "on")
+	require.NoError(t, err)
+	assert.NotNil(t, on)
+	var pages int
+	require.NoError(t, idx.db.QueryRow(`SELECT COUNT(*) FROM page_history`).Scan(&pages))
+	assert.Equal(t, 2, pages, "page rows of the deleted crawls cascade away")
+
+	require.NoError(t, idx.DeleteSiteHistory(ctx, "off"), "deleting an empty site is a no-op")
 }
 
 func TestNoOrphanedPageHistoryAcrossPooledConnections(t *testing.T) {
@@ -294,4 +275,61 @@ func TestNoOrphanedPageHistoryAcrossPooledConnections(t *testing.T) {
 	require.NoError(t, idx.db.QueryRow(
 		`SELECT COUNT(*) FROM page_history WHERE crawl_id NOT IN (SELECT id FROM crawls)`).Scan(&orphans))
 	require.Zero(t, orphans, "page_history rows must never outlive their crawl")
+}
+
+// The cutoff has one-second resolution, matching the whole-second
+// last_crawl_ended_at that get_freshness reports, and the latest crawl is chosen
+// by time. Comparing the stored RFC3339Nano text fails both: it drops trailing
+// zeros, so "10:00:01.1Z" sorts after "10:00:01.15Z".
+func TestCrawlAtOrBeforeComparesTimes(t *testing.T) {
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	record := func(idx *Index, ended time.Time) {
+		mustRecord(t, idx, CrawlRecord{SiteKey: "rust", CrawlStartedAt: ended.Add(-time.Minute), CrawlEndedAt: ended, Mode: ModeFull})
+	}
+
+	t.Run("FreshnessTimestampSelectsItsOwnCrawl", func(t *testing.T) {
+		idx := newTestIndex(t, 5)
+		ended := t0.Add(300 * time.Millisecond)
+		record(idx, ended)
+
+		got, err := idx.crawlAtOrBefore(ctx, "rust", ended.Truncate(time.Second))
+		require.NoError(t, err)
+		require.NotNil(t, got, "since=last_crawl_ended_at must select that crawl")
+		assert.True(t, got.CrawlEndedAt.Equal(ended))
+	})
+
+	t.Run("CrawlEndingInALaterSecondIsExcluded", func(t *testing.T) {
+		idx := newTestIndex(t, 5)
+		record(idx, t0.Add(1200*time.Millisecond))
+
+		got, err := idx.crawlAtOrBefore(ctx, "rust", t0)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("LatestBeforeCutoffWins", func(t *testing.T) {
+		idx := newTestIndex(t, 5)
+		// The later crawl gets the lower id, so only time ordering can pick it.
+		later := t0.Add(1150 * time.Millisecond)
+		record(idx, later)
+		record(idx, t0.Add(1100*time.Millisecond))
+
+		got, err := idx.crawlAtOrBefore(ctx, "rust", t0.Add(time.Minute))
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.True(t, got.CrawlEndedAt.Equal(later), "picked the crawl ending %v, want %v", got.CrawlEndedAt, later)
+	})
+
+	t.Run("TiedEndTimesPickTheNewestRecord", func(t *testing.T) {
+		idx := newTestIndex(t, 5)
+		ended := t0.Add(500 * time.Millisecond)
+		record(idx, ended)
+		record(idx, ended)
+
+		got, err := idx.crawlAtOrBefore(ctx, "rust", t0.Add(time.Minute))
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, int64(2), got.ID)
+	})
 }

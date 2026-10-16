@@ -2,7 +2,11 @@ package parse
 
 import (
 	"encoding/xml"
+	"net/url"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestXMLURL_Unmarshal(t *testing.T) {
@@ -35,16 +39,9 @@ func TestXMLURL_Unmarshal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var u XMLURL
-			err := xml.Unmarshal([]byte(tt.xmlData), &u)
-			if err != nil {
-				t.Fatalf("xml.Unmarshal() error = %v", err)
-			}
-			if u.Loc != tt.expectedLoc {
-				t.Errorf("XMLURL.Loc = %q, want %q", u.Loc, tt.expectedLoc)
-			}
-			if u.LastMod != tt.expectedLastMod {
-				t.Errorf("XMLURL.LastMod = %q, want %q", u.LastMod, tt.expectedLastMod)
-			}
+			require.NoError(t, xml.Unmarshal([]byte(tt.xmlData), &u))
+			assert.Equal(t, tt.expectedLoc, u.Loc)
+			assert.Equal(t, tt.expectedLastMod, u.LastMod)
 		})
 	}
 }
@@ -85,13 +82,8 @@ func TestXMLURLSet_Unmarshal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var urlSet XMLURLSet
-			err := xml.Unmarshal([]byte(tt.xmlData), &urlSet)
-			if err != nil {
-				t.Fatalf("xml.Unmarshal() error = %v", err)
-			}
-			if len(urlSet.URLs) != tt.expectedURLs {
-				t.Errorf("len(XMLURLSet.URLs) = %d, want %d", len(urlSet.URLs), tt.expectedURLs)
-			}
+			require.NoError(t, xml.Unmarshal([]byte(tt.xmlData), &urlSet))
+			assert.Len(t, urlSet.URLs, tt.expectedURLs)
 		})
 	}
 }
@@ -109,30 +101,17 @@ func TestXMLURLSet_UnmarshalWithLastMod(t *testing.T) {
 </urlset>`
 
 	var urlSet XMLURLSet
-	err := xml.Unmarshal([]byte(xmlData), &urlSet)
-	if err != nil {
-		t.Fatalf("xml.Unmarshal() error = %v", err)
-	}
+	require.NoError(t, xml.Unmarshal([]byte(xmlData), &urlSet))
 
-	if len(urlSet.URLs) != 2 {
-		t.Fatalf("len(XMLURLSet.URLs) = %d, want 2", len(urlSet.URLs))
-	}
+	require.Len(t, urlSet.URLs, 2)
 
 	// First URL has lastmod
-	if urlSet.URLs[0].Loc != "https://example.com/page1" {
-		t.Errorf("URLs[0].Loc = %q, want %q", urlSet.URLs[0].Loc, "https://example.com/page1")
-	}
-	if urlSet.URLs[0].LastMod != "2024-01-01" {
-		t.Errorf("URLs[0].LastMod = %q, want %q", urlSet.URLs[0].LastMod, "2024-01-01")
-	}
+	assert.Equal(t, "https://example.com/page1", urlSet.URLs[0].Loc)
+	assert.Equal(t, "2024-01-01", urlSet.URLs[0].LastMod)
 
 	// Second URL has no lastmod
-	if urlSet.URLs[1].Loc != "https://example.com/page2" {
-		t.Errorf("URLs[1].Loc = %q, want %q", urlSet.URLs[1].Loc, "https://example.com/page2")
-	}
-	if urlSet.URLs[1].LastMod != "" {
-		t.Errorf("URLs[1].LastMod = %q, want empty", urlSet.URLs[1].LastMod)
-	}
+	assert.Equal(t, "https://example.com/page2", urlSet.URLs[1].Loc)
+	assert.Empty(t, urlSet.URLs[1].LastMod)
 }
 
 func TestXMLSitemap_Unmarshal(t *testing.T) {
@@ -159,16 +138,9 @@ func TestXMLSitemap_Unmarshal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var s XMLSitemap
-			err := xml.Unmarshal([]byte(tt.xmlData), &s)
-			if err != nil {
-				t.Fatalf("xml.Unmarshal() error = %v", err)
-			}
-			if s.Loc != tt.expectedLoc {
-				t.Errorf("XMLSitemap.Loc = %q, want %q", s.Loc, tt.expectedLoc)
-			}
-			if s.LastMod != tt.expectedLastMod {
-				t.Errorf("XMLSitemap.LastMod = %q, want %q", s.LastMod, tt.expectedLastMod)
-			}
+			require.NoError(t, xml.Unmarshal([]byte(tt.xmlData), &s))
+			assert.Equal(t, tt.expectedLoc, s.Loc)
+			assert.Equal(t, tt.expectedLastMod, s.LastMod)
 		})
 	}
 }
@@ -208,13 +180,8 @@ func TestXMLSitemapIndex_Unmarshal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var idx XMLSitemapIndex
-			err := xml.Unmarshal([]byte(tt.xmlData), &idx)
-			if err != nil {
-				t.Fatalf("xml.Unmarshal() error = %v", err)
-			}
-			if len(idx.Sitemaps) != tt.expectedSitemaps {
-				t.Errorf("len(XMLSitemapIndex.Sitemaps) = %d, want %d", len(idx.Sitemaps), tt.expectedSitemaps)
-			}
+			require.NoError(t, xml.Unmarshal([]byte(tt.xmlData), &idx))
+			assert.Len(t, idx.Sitemaps, tt.expectedSitemaps)
 		})
 	}
 }
@@ -232,28 +199,47 @@ func TestXMLSitemapIndex_UnmarshalWithLastMod(t *testing.T) {
 </sitemapindex>`
 
 	var idx XMLSitemapIndex
-	err := xml.Unmarshal([]byte(xmlData), &idx)
-	if err != nil {
-		t.Fatalf("xml.Unmarshal() error = %v", err)
-	}
+	require.NoError(t, xml.Unmarshal([]byte(xmlData), &idx))
 
-	if len(idx.Sitemaps) != 2 {
-		t.Fatalf("len(XMLSitemapIndex.Sitemaps) = %d, want 2", len(idx.Sitemaps))
-	}
+	require.Len(t, idx.Sitemaps, 2)
 
 	// First sitemap has lastmod
-	if idx.Sitemaps[0].Loc != "https://example.com/sitemap1.xml" {
-		t.Errorf("Sitemaps[0].Loc = %q, want %q", idx.Sitemaps[0].Loc, "https://example.com/sitemap1.xml")
-	}
-	if idx.Sitemaps[0].LastMod != "2024-01-15T10:30:00Z" {
-		t.Errorf("Sitemaps[0].LastMod = %q, want %q", idx.Sitemaps[0].LastMod, "2024-01-15T10:30:00Z")
-	}
+	assert.Equal(t, "https://example.com/sitemap1.xml", idx.Sitemaps[0].Loc)
+	assert.Equal(t, "2024-01-15T10:30:00Z", idx.Sitemaps[0].LastMod)
 
 	// Second sitemap has no lastmod
-	if idx.Sitemaps[1].Loc != "https://example.com/sitemap2.xml" {
-		t.Errorf("Sitemaps[1].Loc = %q, want %q", idx.Sitemaps[1].Loc, "https://example.com/sitemap2.xml")
+	assert.Equal(t, "https://example.com/sitemap2.xml", idx.Sitemaps[1].Loc)
+	assert.Empty(t, idx.Sitemaps[1].LastMod)
+}
+
+func TestSitemapCandidates(t *testing.T) {
+	names := func(dirs ...string) []string {
+		files := []string{"sitemap.xml", "sitemap-index.xml", "sitemap_index.xml"}
+		out := make([]string, 0, len(dirs)*len(files))
+		for _, d := range dirs {
+			for _, n := range files {
+				out = append(out, "https://example.com"+d+n)
+			}
+		}
+		return out
 	}
-	if idx.Sitemaps[1].LastMod != "" {
-		t.Errorf("Sitemaps[1].LastMod = %q, want empty", idx.Sitemaps[1].LastMod)
+	tests := []struct {
+		name string
+		path string
+		want []string
+	}{
+		{"Root", "/", names("/")},
+		{"EmptyPath", "", names("/")},
+		{"RootFile", "/index.html", names("/")},
+		{"ProjectDir", "/project/", names("/", "/project/")},
+		{"ProjectFile", "/project/guide.html", names("/", "/project/")},
+		{"CappedAtTwoLevels", "/group/project/docs/page/", names("/", "/group/", "/group/project/")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u, err := url.Parse("https://example.com" + tt.path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, SitemapCandidates(u))
+		})
 	}
 }

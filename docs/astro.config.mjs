@@ -11,6 +11,7 @@ export default defineConfig({
 			title: 'doc-scraper',
 			description: 'Turn documentation sites into an offline, searchable corpus for coding agents over MCP.',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/Sriram-PR/doc-scraper' }],
+			lastUpdated: true,
 			editLink: { baseUrl: 'https://github.com/Sriram-PR/doc-scraper/edit/main/docs/' },
 			plugins: [starlightLinksValidator()],
 			sidebar: [

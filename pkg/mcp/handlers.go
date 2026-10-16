@@ -207,7 +207,7 @@ func (s *Server) jsonlDisabled(siteKey string) bool {
 }
 
 // unindexedOptOuts lists opted-out sites with nothing in the search index;
-// chunks indexed before a site opted out are still searched.
+// chunks indexed before a site opted out are searched until its next crawl.
 func (s *Server) unindexedOptOuts(ctx context.Context) []string {
 	var off []string
 	for _, key := range config.GetAllSiteKeys(s.cfg.AppConfig) {

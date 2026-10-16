@@ -2,7 +2,6 @@ package fetch
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
@@ -60,21 +62,15 @@ func TestIsBlockedAddr(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			addr, err := netip.ParseAddr(tt.addr)
-			if err != nil {
-				t.Fatalf("ParseAddr(%q): %v", tt.addr, err)
-			}
-			if got := IsBlockedAddr(addr.Unmap()); got != tt.blocked {
-				t.Errorf("IsBlockedAddr(%s) = %v, want %v", tt.addr, got, tt.blocked)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.blocked, IsBlockedAddr(addr.Unmap()))
 		})
 	}
 }
 
 func TestIsBlockedAddr_InvalidAddr(t *testing.T) {
 	var zero netip.Addr // zero value is invalid
-	if !IsBlockedAddr(zero) {
-		t.Error("IsBlockedAddr(zero netip.Addr) = false, want true (invalid addr should be blocked)")
-	}
+	assert.True(t, IsBlockedAddr(zero), "invalid addr should be blocked")
 }
 
 func TestSafeDialContext_BlocksIPLiteral(t *testing.T) {
@@ -96,11 +92,8 @@ func TestSafeDialContext_BlocksIPLiteral(t *testing.T) {
 			conn, err := dial(ctx, "tcp", addr)
 			if err == nil {
 				conn.Close()
-				t.Fatalf("SafeDialContext(%q) returned conn, want blocked error", addr)
 			}
-			if !errors.Is(err, utils.ErrBlockedAddress) {
-				t.Errorf("SafeDialContext(%q) error = %q, want ErrBlockedAddress", addr, err)
-			}
+			assert.ErrorIs(t, err, utils.ErrBlockedAddress)
 		})
 	}
 }
@@ -111,7 +104,7 @@ func TestSafeDialContext_BlocksIPLiteral(t *testing.T) {
 func TestSafeDialContext_BlocksRedirectToLoopback(t *testing.T) {
 	// Loopback target server — should never be reached via the guarded client.
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("loopback target was reached; SSRF guard failed to block redirect")
+		assert.Fail(t, "loopback target was reached; SSRF guard failed to block redirect")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer target.Close()
@@ -127,7 +120,9 @@ func TestSafeDialContext_BlocksRedirectToLoopback(t *testing.T) {
 
 	// Strip scheme from target.URL to get host:port.
 	addr := strings.TrimPrefix(target.URL, "http://")
-	if _, err := dial(ctx, "tcp", addr); err == nil {
-		t.Fatalf("SafeDialContext allowed dial to httptest loopback %s", addr)
+	conn, err := dial(ctx, "tcp", addr)
+	if err == nil {
+		conn.Close()
 	}
+	require.Error(t, err, "SafeDialContext allowed dial to httptest loopback %s", addr)
 }

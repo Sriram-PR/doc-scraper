@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 )
 
 // SitemapInfo carries the URL inventory pulled from the site's sitemap.
@@ -25,25 +27,13 @@ const (
 	maxSitemapURLs   = 50000
 	maxSitemapShards = 2
 	maxSitemapBytes  = 64 << 20
-	// Covers /project/ (GitHub Pages) and /group/project/ (GitLab Pages).
-	maxSitemapDirDepth = 2
 )
 
-// Astro's default integration serves sitemap-index.xml.
-var sitemapNames = []string{"sitemap.xml", "sitemap-index.xml", "sitemap_index.xml"}
-
 // fetchSitemap locates the sitemap and flattens it, recursing one level into
-// an index. Order: robots.txt directives, the host root, then the seed's
-// ancestor directories shallowest first, since project-pages sites publish
-// their sitemap under the project path.
+// an index. robots.txt directives are tried before the conventional
+// locations.
 func (d *Discoverer) fetchSitemap(ctx context.Context, finalURL *url.URL, robotsSitemaps []string) SitemapInfo {
-	base := finalURL.Scheme + "://" + finalURL.Host
-	candidates := append([]string{}, robotsSitemaps...)
-	for _, dir := range sitemapDirs(finalURL.Path) {
-		for _, name := range sitemapNames {
-			candidates = append(candidates, base+dir+name)
-		}
-	}
+	candidates := append(append([]string{}, robotsSitemaps...), parse.SitemapCandidates(finalURL)...)
 
 	seen := map[string]struct{}{}
 	for _, c := range candidates {
@@ -56,22 +46,6 @@ func (d *Discoverer) fetchSitemap(ctx context.Context, finalURL *url.URL, robots
 		}
 	}
 	return SitemapInfo{}
-}
-
-// sitemapDirs returns "/" followed by up to maxSitemapDirDepth ancestor
-// directories of p. A final segment without a trailing slash is a file.
-func sitemapDirs(p string) []string {
-	dirs := []string{"/"}
-	p = p[:strings.LastIndex(p, "/")+1]
-	cur := "/"
-	for i, s := range strings.Split(strings.Trim(p, "/"), "/") {
-		if s == "" || i >= maxSitemapDirDepth {
-			break
-		}
-		cur += s + "/"
-		dirs = append(dirs, cur)
-	}
-	return dirs
 }
 
 func (d *Discoverer) loadSitemap(ctx context.Context, sitemapURL string) (SitemapInfo, bool) {

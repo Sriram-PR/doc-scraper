@@ -289,7 +289,7 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		),
 		mcp.WithString("since",
 			mcp.Required(),
-			mcp.Description("RFC3339 timestamp; the most recent crawl whose crawl_ended_at <= since is the baseline (e.g. 2026-05-23T22:00:00Z)"),
+			mcp.Description("RFC3339 timestamp; the most recent crawl whose crawl_ended_at <= since, compared to the second, is the baseline (e.g. 2026-05-23T22:00:00Z)"),
 		),
 		mcp.WithNumber("max_results",
 			mcp.Description("Maximum diff entries to return (default 100, max 1000)"),

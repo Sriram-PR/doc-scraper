@@ -565,10 +565,6 @@ func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType st
 		return "", fmt.Errorf("cannot determine file extension (no Content-Type, no URL extension)")
 	}
 
-	if finalExt != "" && !strings.HasPrefix(finalExt, ".") {
-		finalExt = "." + finalExt
-	}
-
 	// Short hash of the full URL disambiguates files with the same base name but different paths.
 	urlHash := fmt.Sprintf("%x", sha256.Sum256([]byte(absImgURL)))[:8]
 	localFilename := fmt.Sprintf("%s_%s%s", imgBaseName, urlHash, finalExt)

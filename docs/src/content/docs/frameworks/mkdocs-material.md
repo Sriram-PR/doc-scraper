@@ -17,7 +17,7 @@ Content selector: `article.md-content__inner, .md-content article, .md-content`.
 $ doc-scraper add -config config.yaml -dry-run https://squidfunk.github.io/mkdocs-material/getting-started/
 Probing https://squidfunk.github.io/mkdocs-material/getting-started/ ...
 Detected: mkdocs-material (mkdocs-1.6.1, mkdocs-material-9.7.0+insiders-4.53.18) via generator, confidence high
-Corpus:   ~108 pages (sitemap)
+Corpus:   ~101 pages (sitemap)
 
 Drafted entry:
 
@@ -30,18 +30,18 @@ Drafted entry:
     max_depth: 6
 
   # content_selector: mkdocs-material detected via generator (high confidence), validated on the fetched page
-  # allowed_path_prefix: /mkdocs-material/ covers 108 of 108 sitemap URLs
+  # allowed_path_prefix: /mkdocs-material/ covers 101 of 101 sitemap URLs
   # max_depth: 6 from sitemap path depth under the prefix
 
 Preview of the fetched page:
-  6349 chars of markdown, 52% of page text, code blocks 10/10, 5 headings
+  6188 chars of markdown, 52% of page text, code blocks 10/10, 5 headings
   note: extracted content still contains nav/sidebar elements
   ...
 
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.10.1 (built from `main`) against <https://squidfunk.github.io/mkdocs-material/getting-started/>, 2026-10-11. Exit code 2.
+Output from doc-scraper 2.12.0 against <https://squidfunk.github.io/mkdocs-material/getting-started/>, 2026-10-14. Exit code 2.
 
 ## Crawl it
 

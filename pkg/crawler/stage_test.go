@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,6 +77,7 @@ type stageEnv struct {
 	siteCfg *config.SiteConfig
 	idx     *index.Index
 	srv     *hookServer
+	log     *crawlLog
 }
 
 func newStageEnv(t *testing.T, pageNames ...string) *stageEnv {
@@ -89,12 +89,12 @@ func newStageEnv(t *testing.T, pageNames ...string) *stageEnv {
 	idx, err := index.OpenAt(appCfg.StateDir, 10, silentLogger())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = idx.Close() })
-	return &stageEnv{appCfg: appCfg, siteCfg: baseSiteConfig(srv.Server, "/docs/index.html"), idx: idx, srv: srv}
+	return &stageEnv{appCfg: appCfg, siteCfg: baseSiteConfig(srv.Server, "/docs/index.html"), idx: idx, srv: srv, log: newCrawlLog(t)}
 }
 
 func (e *stageEnv) crawl(t *testing.T, ctx context.Context, cancel context.CancelFunc, resume bool) error {
 	t.Helper()
-	logger := silentLogger()
+	logger := e.log.logger()
 	stage, store, err := OpenStagedStore(ctx, e.appCfg, testSiteKey, resume, logger)
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
@@ -108,14 +108,14 @@ func (e *stageEnv) crawl(t *testing.T, ctx context.Context, cancel context.Cance
 
 func (e *stageEnv) fullCrawl(t *testing.T) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := e.log.deadlineContext(t, e.appCfg)
 	defer cancel()
 	require.NoError(t, e.crawl(t, ctx, cancel, false))
 }
 
 func (e *stageEnv) interruptedCrawl(t *testing.T, resume bool, cancelOn string) error {
 	t.Helper()
-	ctx, parentCancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, parentCancel := e.log.deadlineContext(t, e.appCfg)
 	defer parentCancel()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -218,7 +218,7 @@ func TestResumeContinuesStagedCrawlAndSwaps(t *testing.T) {
 	require.ErrorIs(t, e.interruptedCrawl(t, false, "/docs/c.html"), context.Canceled)
 	require.EqualValues(t, 1, e.latestCrawl(t).ID)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := e.log.deadlineContext(t, e.appCfg)
 	defer cancel()
 	require.NoError(t, e.crawl(t, ctx, cancel, true))
 
@@ -273,7 +273,7 @@ func TestAllPagesFailingFreshCrawlKeepsLiveCorpus(t *testing.T) {
 	e.fullCrawl(t)
 	e.srv.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := e.log.deadlineContext(t, e.appCfg)
 	defer cancel()
 	err := e.crawl(t, ctx, cancel, false)
 	require.Error(t, err)
@@ -284,6 +284,24 @@ func TestAllPagesFailingFreshCrawlKeepsLiveCorpus(t *testing.T) {
 	err = e.crawl(t, ctx, cancel, true)
 	require.Error(t, err, "resuming an all-failed staged crawl must not swap in an empty corpus")
 	assert.True(t, e.liveContains(t, "v1 body"))
+}
+
+func TestOptedOutCrawlClearsSiteFromIndex(t *testing.T) {
+	e := newStageEnv(t, "a", "b")
+	e.fullCrawl(t)
+	has, err := e.idx.SiteHasChunks(context.Background(), testSiteKey)
+	require.NoError(t, err)
+	require.True(t, has)
+	require.NotNil(t, e.latestCrawl(t))
+
+	off := false
+	e.siteCfg.EnableJSONLOutput = &off
+	e.fullCrawl(t)
+
+	has, err = e.idx.SiteHasChunks(context.Background(), testSiteKey)
+	require.NoError(t, err)
+	assert.False(t, has, "search must not return pages from before the opt-out")
+	assert.Nil(t, e.latestCrawl(t), "freshness must not report a crawl from before the opt-out")
 }
 
 func TestStageCommitRollsBackOnFailure(t *testing.T) {

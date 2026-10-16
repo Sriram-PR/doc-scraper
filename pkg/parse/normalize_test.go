@@ -3,13 +3,13 @@ package parse
 import (
 	"net/url"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormalizeURL_NilInput(t *testing.T) {
-	result := NormalizeURL(nil)
-	if result != "" {
-		t.Errorf("NormalizeURL(nil) = %q, want empty string", result)
-	}
+	assert.Empty(t, NormalizeURL(nil))
 }
 
 func TestNormalizeURL_SchemeAndHostLowercase(t *testing.T) {
@@ -38,10 +38,7 @@ func TestNormalizeURL_SchemeAndHostLowercase(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			result := NormalizeURL(parsed)
-			if result != tt.expected {
-				t.Errorf("NormalizeURL(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
 		})
 	}
 }
@@ -87,10 +84,7 @@ func TestNormalizeURL_DefaultPorts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			result := NormalizeURL(parsed)
-			if result != tt.expected {
-				t.Errorf("NormalizeURL(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
 		})
 	}
 }
@@ -131,10 +125,7 @@ func TestNormalizeURL_PathNormalization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			result := NormalizeURL(parsed)
-			if result != tt.expected {
-				t.Errorf("NormalizeURL(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
 		})
 	}
 }
@@ -165,10 +156,7 @@ func TestNormalizeURL_FragmentsRemoved(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			result := NormalizeURL(parsed)
-			if result != tt.expected {
-				t.Errorf("NormalizeURL(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
 		})
 	}
 }
@@ -199,10 +187,7 @@ func TestNormalizeURL_QueryStringsRemoved(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			result := NormalizeURL(parsed)
-			if result != tt.expected {
-				t.Errorf("NormalizeURL(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
 		})
 	}
 }
@@ -221,21 +206,11 @@ func TestNormalizeURL_DoesNotModifyInput(t *testing.T) {
 	_ = NormalizeURL(parsed)
 
 	// Verify input was not modified
-	if parsed.Scheme != origScheme {
-		t.Errorf("NormalizeURL modified input Scheme: %q -> %q", origScheme, parsed.Scheme)
-	}
-	if parsed.Host != origHost {
-		t.Errorf("NormalizeURL modified input Host: %q -> %q", origHost, parsed.Host)
-	}
-	if parsed.Path != origPath {
-		t.Errorf("NormalizeURL modified input Path: %q -> %q", origPath, parsed.Path)
-	}
-	if parsed.Fragment != origFragment {
-		t.Errorf("NormalizeURL modified input Fragment: %q -> %q", origFragment, parsed.Fragment)
-	}
-	if parsed.RawQuery != origQuery {
-		t.Errorf("NormalizeURL modified input RawQuery: %q -> %q", origQuery, parsed.RawQuery)
-	}
+	assert.Equal(t, origScheme, parsed.Scheme)
+	assert.Equal(t, origHost, parsed.Host)
+	assert.Equal(t, origPath, parsed.Path)
+	assert.Equal(t, origFragment, parsed.Fragment)
+	assert.Equal(t, origQuery, parsed.RawQuery)
 }
 
 func TestParseAndNormalize_ValidURLs(t *testing.T) {
@@ -269,15 +244,9 @@ func TestParseAndNormalize_ValidURLs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resultStr, parsedURL, err := ParseAndNormalize(tt.input)
-			if err != nil {
-				t.Fatalf("ParseAndNormalize(%q) unexpected error: %v", tt.input, err)
-			}
-			if resultStr != tt.expectedStr {
-				t.Errorf("ParseAndNormalize(%q) string = %q, want %q", tt.input, resultStr, tt.expectedStr)
-			}
-			if parsedURL == nil {
-				t.Errorf("ParseAndNormalize(%q) returned nil URL", tt.input)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedStr, resultStr)
+			assert.NotNil(t, parsedURL)
 		})
 	}
 }
@@ -296,15 +265,9 @@ func TestParseAndNormalize_InvalidURLs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resultStr, parsedURL, err := ParseAndNormalize(tt.input)
-			if err == nil {
-				t.Errorf("ParseAndNormalize(%q) expected error, got nil", tt.input)
-			}
-			if resultStr != "" {
-				t.Errorf("ParseAndNormalize(%q) string = %q, want empty", tt.input, resultStr)
-			}
-			if parsedURL != nil {
-				t.Errorf("ParseAndNormalize(%q) URL = %v, want nil", tt.input, parsedURL)
-			}
+			require.Error(t, err)
+			assert.Empty(t, resultStr)
+			assert.Nil(t, parsedURL)
 		})
 	}
 }
@@ -314,9 +277,7 @@ func TestParseAndNormalize_AbsolutePathRejected(t *testing.T) {
 	// rejected by ParseAndNormalize so callers don't end up with rows in the
 	// visited DB that can't be fetched.
 	_, _, err := ParseAndNormalize("/path/to/page")
-	if err == nil {
-		t.Fatal("ParseAndNormalize(/path/to/page) expected error, got nil")
-	}
+	require.Error(t, err)
 }
 
 func TestParseAndNormalize_FragmentStripped(t *testing.T) {
@@ -333,12 +294,8 @@ func TestParseAndNormalize_FragmentStripped(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got, _, err := ParseAndNormalize(tt.input)
-		if err != nil {
-			t.Fatalf("ParseAndNormalize(%q) unexpected error: %v", tt.input, err)
-		}
-		if got != tt.expected {
-			t.Errorf("ParseAndNormalize(%q) = %q, want %q", tt.input, got, tt.expected)
-		}
+		require.NoError(t, err, "input %q", tt.input)
+		assert.Equal(t, tt.expected, got, "input %q", tt.input)
 	}
 }
 
@@ -373,12 +330,8 @@ func TestParseAndNormalize_EdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resultStr, _, err := ParseAndNormalize(tt.input)
-			if err != nil {
-				t.Fatalf("ParseAndNormalize(%q) unexpected error: %v", tt.input, err)
-			}
-			if resultStr != tt.expectedStr {
-				t.Errorf("ParseAndNormalize(%q) = %q, want %q", tt.input, resultStr, tt.expectedStr)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedStr, resultStr)
 		})
 	}
 }

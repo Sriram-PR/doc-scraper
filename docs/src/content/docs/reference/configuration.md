@@ -11,7 +11,7 @@ When configuring for LLM documentation processing, pay special attention to thes
 
 - `sites.<your_site_key>.content_selector`: Define precisely to capture only relevant text
 - `sites.<your_site_key>.allowed_domain` / `allowed_path_prefix`: Define scope accurately
-- `enable_jsonl_output`: On by default. Search (`search`, `search_docs`), crawl history (`get_freshness`, `diff_crawl`), and `llms.txt` are built from the JSONL, so a site set to `false` is not searchable
+- `enable_jsonl_output`: On by default. Search (`search`, `search_docs`), crawl history (`get_freshness`, `diff_crawl`), and `llms.txt` are built from the JSONL, so a site set to `false` is not searchable. Setting it to `false` on a site that was already crawled removes the site's pages and crawl history from the index on its next crawl
 - `skip_images`: Images are **not** downloaded by default (text-first). Set to `false` globally or per-site to download and localize images for offline consumption
 - Adjust concurrency/delay settings based on the target site and your resources
 
@@ -91,7 +91,7 @@ sites:
 | `skip_images` | Boolean | Whether to skip downloading images. Image downloading is opt-in | `true` (skip) |
 | `max_image_size_bytes` | Integer | Maximum allowed image size (applies only when images are downloaded) | `0` (unlimited) |
 | `max_page_size_bytes` | Integer | Maximum HTML page body size | `52428800` (50 MiB) |
-| `enable_jsonl_output` | Boolean | Enable JSONL page output (one record per page plus a trailing crawl_meta record) for RAG pipelines. The search index (`search`, `search_docs`), crawl history (`get_freshness`, `diff_crawl`), and `llms.txt` are built from this file, so setting it to `false` turns those off | `true` |
+| `enable_jsonl_output` | Boolean | Enable JSONL page output (one record per page plus a trailing crawl_meta record) for RAG pipelines. The search index (`search`, `search_docs`), crawl history (`get_freshness`, `diff_crawl`), and `llms.txt` are built from this file, so setting it to `false` turns those off, and the next crawl of a site removes its earlier index data | `true` |
 | `jsonl_output_filename` | String | Filename for JSONL output | `"pages.jsonl"` |
 | `enable_incremental` | Boolean | Enable incremental crawling globally | `false` |
 | `crawl_history_retention` | Integer | Number of past crawls per site kept in the SQLite history index (powers `get_freshness`/`diff_crawl`) | `10` |
@@ -120,7 +120,8 @@ Each entry under `sites:` accepts these keys.
 | `content_selector` | String | CSS selector for main content extraction, or `"auto"` for automatic detection | required |
 | `link_extraction_selectors` | Array | CSS selectors for additional link extraction areas | |
 | `disallowed_path_patterns` | Array | Regex patterns for URLs to skip | |
-| `respect_nofollow` | Boolean | Whether to respect `rel="nofollow"` links | `false` |
+| `respect_nofollow` | Boolean | Whether to respect `rel="nofollow"` links and pages marked `nofollow` by `<meta name="robots">` or `X-Robots-Tag` | `false` |
+| `respect_noindex` | Boolean | Skip saving pages marked `noindex` by `<meta name="robots">` or `X-Robots-Tag` (such as mdBook's `print.html`); their links are still followed. Set `false` for sites that mark every page `noindex` | `true` |
 | `user_agent` | String | Override the global user agent for this site | `default_user_agent` |
 | `delay_per_host` | Duration | Override the global delay setting for this site | `default_delay_per_host` |
 | `max_depth` | Integer | Exclusive upper bound on crawl depth from start URLs. Start pages are depth 0, so `1` crawls only the start pages, `2` adds their directly-linked pages, and so on. `0` = unlimited. URLs discovered from a `sitemap.xml` are seeded at depth 1 (one hop from the site root), so they are still bounded by `max_depth`: `max_depth: 1` stays start-only and skips sitemap expansion | `0` (unlimited) |

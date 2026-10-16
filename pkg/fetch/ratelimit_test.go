@@ -7,6 +7,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestRateLimiter() *RateLimiter {
@@ -28,9 +31,7 @@ func TestApplyDelay_RespectsContextCancellation(t *testing.T) {
 	rl.ApplyDelay(ctx, host, 5*time.Second)
 	elapsed := time.Since(start)
 
-	if elapsed > 100*time.Millisecond {
-		t.Errorf("ApplyDelay with cancelled context took %v, expected <100ms", elapsed)
-	}
+	assert.LessOrEqual(t, elapsed, 100*time.Millisecond, "ApplyDelay with cancelled context should return promptly")
 }
 
 func TestApplyDelay_SleepsForExpectedDuration(t *testing.T) {
@@ -46,12 +47,8 @@ func TestApplyDelay_SleepsForExpectedDuration(t *testing.T) {
 	elapsed := time.Since(start)
 
 	// Allow for jitter (+/- 10%) and timer imprecision
-	if elapsed < 50*time.Millisecond {
-		t.Errorf("ApplyDelay returned too quickly: %v, expected ~100ms", elapsed)
-	}
-	if elapsed > 300*time.Millisecond {
-		t.Errorf("ApplyDelay took too long: %v, expected ~100ms", elapsed)
-	}
+	assert.GreaterOrEqual(t, elapsed, 50*time.Millisecond, "ApplyDelay returned too quickly")
+	assert.LessOrEqual(t, elapsed, 300*time.Millisecond, "ApplyDelay took too long")
 }
 
 func TestApplyDelay_NoDelayOnFirstRequest(t *testing.T) {
@@ -62,9 +59,7 @@ func TestApplyDelay_NoDelayOnFirstRequest(t *testing.T) {
 	rl.ApplyDelay(context.Background(), host, 5*time.Second)
 	elapsed := time.Since(start)
 
-	if elapsed > 10*time.Millisecond {
-		t.Errorf("ApplyDelay on first request took %v, expected instant return", elapsed)
-	}
+	assert.LessOrEqual(t, elapsed, 10*time.Millisecond, "ApplyDelay on first request should return instantly")
 }
 
 func TestApplyDelay_SpacesConcurrentSameHost(t *testing.T) {
@@ -89,9 +84,7 @@ func TestApplyDelay_SpacesConcurrentSameHost(t *testing.T) {
 	// ~delay each, so the last fires at ~(n-1)*delay. The old model (read a
 	// stale timestamp, then sleep) let them all return within ~delay.
 	minExpected := time.Duration(n-1) * delay * 8 / 10
-	if elapsed < minExpected {
-		t.Errorf("concurrent same-host requests not spaced: elapsed %v, expected >= %v", elapsed, minExpected)
-	}
+	assert.GreaterOrEqual(t, elapsed, minExpected, "concurrent same-host requests not spaced")
 }
 
 func TestWithJitter_SmallDurationsDoNotPanic(t *testing.T) {
@@ -104,8 +97,7 @@ func TestWithJitter_WithinTenPercent(t *testing.T) {
 	d := time.Second
 	for range 1000 {
 		got := withJitter(d)
-		if got < d-d/10 || got >= d+d/10 {
-			t.Fatalf("withJitter(%v) = %v, outside +/-10%% range", d, got)
-		}
+		require.GreaterOrEqual(t, got, d-d/10)
+		require.Less(t, got, d+d/10)
 	}
 }

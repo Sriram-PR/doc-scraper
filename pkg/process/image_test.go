@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
@@ -41,9 +43,7 @@ func TestMatchDomain(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.host+"_vs_"+tt.pattern, func(t *testing.T) {
-			if got := matchDomain(tt.host, tt.pattern); got != tt.want {
-				t.Errorf("matchDomain(%q, %q) = %v, want %v", tt.host, tt.pattern, got, tt.want)
-			}
+			assert.Equal(t, tt.want, matchDomain(tt.host, tt.pattern), "matchDomain(%q, %q)", tt.host, tt.pattern)
 		})
 	}
 }
@@ -67,9 +67,7 @@ func TestIsDomainAllowed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isDomainAllowed(tt.host, tt.allowed, tt.disallowed); got != tt.want {
-				t.Errorf("isDomainAllowed(%q, %v, %v) = %v, want %v", tt.host, tt.allowed, tt.disallowed, got, tt.want)
-			}
+			assert.Equal(t, tt.want, isDomainAllowed(tt.host, tt.allowed, tt.disallowed), "isDomainAllowed(%q, %v, %v)", tt.host, tt.allowed, tt.disallowed)
 		})
 	}
 }
@@ -98,25 +96,15 @@ func TestGenerateLocalFilename(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			u, err := url.Parse(tt.rawURL)
-			if err != nil {
-				t.Fatalf("parse: %v", err)
-			}
+			require.NoError(t, err, "parse")
 			got, err := generateLocalFilename(u, tt.rawURL, tt.contentType, silentLog())
 			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("expected error, got filename %q", got)
-				}
+				require.Error(t, err, "expected error, got filename %q", got)
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if !strings.HasPrefix(got, tt.wantPrefix) {
-				t.Errorf("filename %q, want prefix %q", got, tt.wantPrefix)
-			}
-			if !strings.HasSuffix(got, tt.wantExt) {
-				t.Errorf("filename %q, want extension %q", got, tt.wantExt)
-			}
+			require.NoError(t, err)
+			assert.True(t, strings.HasPrefix(got, tt.wantPrefix), "filename %q, want prefix %q", got, tt.wantPrefix)
+			assert.True(t, strings.HasSuffix(got, tt.wantExt), "filename %q, want extension %q", got, tt.wantExt)
 		})
 	}
 }
@@ -130,19 +118,11 @@ func TestGenerateLocalFilename_DisambiguatesSameBaseName(t *testing.T) {
 	ub, _ := url.Parse(b)
 
 	nameA, err := generateLocalFilename(ua, a, "image/png", silentLog())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	nameB, err := generateLocalFilename(ub, b, "image/png", silentLog())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if nameA == nameB {
-		t.Errorf("distinct URLs produced the same filename %q", nameA)
-	}
-	if !strings.HasPrefix(nameA, "logo_") || !strings.HasPrefix(nameB, "logo_") {
-		t.Errorf("expected both to keep the logo_ base: %q %q", nameA, nameB)
-	}
+	require.NoError(t, err)
+	assert.NotEqual(t, nameA, nameB, "distinct URLs produced the same filename")
+	assert.True(t, strings.HasPrefix(nameA, "logo_") && strings.HasPrefix(nameB, "logo_"), "expected both to keep the logo_ base: %q %q", nameA, nameB)
 }
 
 // A URL with no usable base name still yields a unique filename: SanitizeFilename
@@ -155,20 +135,12 @@ func TestGenerateLocalFilename_DegenerateBaseNamesStayUnique(t *testing.T) {
 	ub, _ := url.Parse(rawB)
 
 	gotA, err := generateLocalFilename(ua, rawA, "image/png", silentLog())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	gotB, err := generateLocalFilename(ub, rawB, "image/png", silentLog())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
-	if !strings.HasPrefix(gotA, "untitled_") {
-		t.Errorf("filename %q, want the untitled_ base", gotA)
-	}
-	if gotA == gotB {
-		t.Errorf("distinct degenerate URLs produced the same filename %q", gotA)
-	}
+	assert.True(t, strings.HasPrefix(gotA, "untitled_"), "filename %q, want the untitled_ base", gotA)
+	assert.NotEqual(t, gotA, gotB, "distinct degenerate URLs produced the same filename")
 }
 
 // imageResponse builds a response suitable for saveImageToDisk.
@@ -190,9 +162,7 @@ func imageResponse(body string, contentType string, contentLength string) *http.
 func imageTask(t *testing.T, rawURL string) ImageDownloadTask {
 	t.Helper()
 	u, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
+	require.NoError(t, err, "parse")
 	return ImageDownloadTask{
 		AbsImgURL:   rawURL,
 		NormImgURL:  rawURL,
@@ -209,22 +179,12 @@ func TestSaveImageToDisk_WritesFileAndReturnsRelativePath(t *testing.T) {
 	task := imageTask(t, "https://e.com/img/logo.png")
 
 	rel, n, err := ip.saveImageToDisk(task, imageResponse("PNGDATA", "image/png", ""), 0, dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != int64(len("PNGDATA")) {
-		t.Errorf("copied %d bytes, want %d", n, len("PNGDATA"))
-	}
-	if !strings.HasPrefix(rel, ImageDir+"/") {
-		t.Errorf("relative path %q, want it under %q with forward slashes", rel, ImageDir)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, int64(len("PNGDATA")), n, "copied bytes")
+	assert.True(t, strings.HasPrefix(rel, ImageDir+"/"), "relative path %q, want it under %q with forward slashes", rel, ImageDir)
 	data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
-	if err != nil {
-		t.Fatalf("read written file: %v", err)
-	}
-	if string(data) != "PNGDATA" {
-		t.Errorf("file contents = %q, want %q", data, "PNGDATA")
-	}
+	require.NoError(t, err, "read written file")
+	assert.Equal(t, "PNGDATA", string(data), "file contents")
 }
 
 func TestSaveImageToDisk_RejectsAndRemovesOversizedFile(t *testing.T) {
@@ -234,20 +194,12 @@ func TestSaveImageToDisk_RejectsAndRemovesOversizedFile(t *testing.T) {
 
 	// 20 bytes of body against a 10-byte cap, with no Content-Length to vouch for it.
 	_, _, err := ip.saveImageToDisk(task, imageResponse(strings.Repeat("x", 20), "image/png", ""), 10, dir)
-	if err == nil {
-		t.Fatal("expected an oversize error")
-	}
-	if !strings.Contains(err.Error(), "exceeds max size") {
-		t.Errorf("error = %v, want an exceeds-max-size error", err)
-	}
+	require.Error(t, err, "expected an oversize error")
+	require.ErrorContains(t, err, "exceeds max size")
 
 	entries, readErr := os.ReadDir(filepath.Join(dir, ImageDir))
-	if readErr != nil {
-		t.Fatalf("read image dir: %v", readErr)
-	}
-	if len(entries) != 0 {
-		t.Errorf("truncated file was left behind: %v", entries)
-	}
+	require.NoError(t, readErr, "read image dir")
+	assert.Empty(t, entries, "truncated file was left behind")
 }
 
 // A file exactly at the limit is kept when Content-Length confirms it was complete.
@@ -258,15 +210,9 @@ func TestSaveImageToDisk_KeepsFileExactlyAtLimitWhenContentLengthAgrees(t *testi
 
 	body := strings.Repeat("x", 10)
 	rel, n, err := ip.saveImageToDisk(task, imageResponse(body, "image/png", "10"), 10, dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 10 {
-		t.Errorf("copied %d bytes, want 10", n)
-	}
-	if _, statErr := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); statErr != nil {
-		t.Errorf("file at exactly the limit should have been kept: %v", statErr)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), n, "copied bytes")
+	assert.FileExists(t, filepath.Join(dir, filepath.FromSlash(rel)), "file at exactly the limit should have been kept")
 }
 
 func TestSaveImageToDisk_PropagatesFilenameError(t *testing.T) {
@@ -276,12 +222,8 @@ func TestSaveImageToDisk_PropagatesFilenameError(t *testing.T) {
 
 	// No Content-Type and no URL extension leaves nothing to derive an extension from.
 	_, _, err := ip.saveImageToDisk(task, imageResponse("data", "", ""), 0, dir)
-	if err == nil {
-		t.Fatal("expected a filename-derivation error")
-	}
-	if !strings.Contains(err.Error(), "extension") {
-		t.Errorf("error = %v, want an extension error", err)
-	}
+	require.Error(t, err, "expected a filename-derivation error")
+	require.ErrorContains(t, err, "extension")
 }
 
 // stubFetcher serves canned responses keyed by URL.
@@ -321,12 +263,8 @@ func TestFetchImageData_RejectsOversizeContentLengthHeader(t *testing.T) {
 	}
 
 	_, err := ip.fetchImageData(imageTask(t, raw), "ua", 10)
-	if err == nil {
-		t.Fatal("expected a header size rejection")
-	}
-	if !strings.Contains(err.Error(), "exceeds max size based on header") {
-		t.Errorf("error = %v, want a header-based size rejection", err)
-	}
+	require.Error(t, err, "expected a header size rejection")
+	require.ErrorContains(t, err, "exceeds max size based on header")
 }
 
 func TestFetchImageData_WrapsFetchError(t *testing.T) {
@@ -336,12 +274,8 @@ func TestFetchImageData_WrapsFetchError(t *testing.T) {
 	}
 
 	_, err := ip.fetchImageData(imageTask(t, "https://e.com/img/x.png"), "ua", 0)
-	if err == nil {
-		t.Fatal("expected a fetch error")
-	}
-	if !strings.Contains(err.Error(), "fetch failed for img") {
-		t.Errorf("error = %v, want a wrapped fetch failure", err)
-	}
+	require.Error(t, err, "expected a fetch error")
+	require.ErrorContains(t, err, "fetch failed for img")
 }
 
 func TestFetchImageData_AllowsResponseWithinLimit(t *testing.T) {
@@ -354,13 +288,9 @@ func TestFetchImageData_AllowsResponseWithinLimit(t *testing.T) {
 	}
 
 	resp, err := ip.fetchImageData(imageTask(t, raw), "ua", 100)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want 200", resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 // fakeImageStore records image DB reads and writes.
@@ -422,9 +352,7 @@ func newTestImageProcessor(t *testing.T, store *fakeImageStore, imgFetcher fetch
 func imageDoc(t *testing.T, html string) *goquery.Selection {
 	t.Helper()
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		t.Fatalf("parse html: %v", err)
-	}
+	require.NoError(t, err, "parse html")
 	return doc.Selection
 }
 
@@ -447,16 +375,11 @@ func TestProcessImages_SkipImagesShortCircuits(t *testing.T) {
 
 	imgMap, errs := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), context.Background())
 
-	if len(imgMap) != 0 || len(errs) != 0 {
-		t.Errorf("expected no images and no errors, got %d images %d errors", len(imgMap), len(errs))
-	}
-	if fetcher.callCount() != 0 {
-		t.Errorf("fetcher was called %d times despite skip_images", fetcher.callCount())
-	}
+	assert.Empty(t, imgMap)
+	assert.Empty(t, errs)
+	assert.Equal(t, 0, fetcher.callCount(), "fetcher was called despite skip_images")
 	for _, s := range crawlStatuses(sel) {
-		if s != "skipped-config" {
-			t.Errorf("data-crawl-status = %q, want skipped-config", s)
-		}
+		assert.Equal(t, "skipped-config", s, "data-crawl-status")
 	}
 }
 
@@ -482,13 +405,8 @@ func TestProcessImages_MarksNonDownloadableSources(t *testing.T) {
 
 			ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), context.Background())
 
-			got := crawlStatuses(sel)
-			if len(got) != 1 || got[0] != tt.wantStatus {
-				t.Errorf("data-crawl-status = %v, want [%s]", got, tt.wantStatus)
-			}
-			if fetcher.callCount() != 0 {
-				t.Errorf("fetcher called %d times, want 0", fetcher.callCount())
-			}
+			assert.Equal(t, []string{tt.wantStatus}, crawlStatuses(sel), "data-crawl-status")
+			assert.Equal(t, 0, fetcher.callCount(), "fetcher calls")
 		})
 	}
 }
@@ -504,10 +422,7 @@ func TestProcessImages_DomainFilter(t *testing.T) {
 
 	ip.ProcessImages(sel, pageURL, siteCfg, t.TempDir(), silentLog(), context.Background())
 
-	got := crawlStatuses(sel)
-	if len(got) != 1 || got[0] != "skipped-domain" {
-		t.Errorf("data-crawl-status = %v, want [skipped-domain]", got)
-	}
+	assert.Equal(t, []string{"skipped-domain"}, crawlStatuses(sel), "data-crawl-status")
 }
 
 func TestProcessImages_ReusesAlreadyDownloadedImage(t *testing.T) {
@@ -529,22 +444,11 @@ func TestProcessImages_ReusesAlreadyDownloadedImage(t *testing.T) {
 
 	imgMap, errs := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), context.Background())
 
-	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
-	}
-	if fetcher.callCount() != 0 {
-		t.Errorf("re-fetched an image already marked success (%d calls)", fetcher.callCount())
-	}
-	data, ok := imgMap[raw]
-	if !ok {
-		t.Fatalf("image %q missing from result map %v", raw, imgMap)
-	}
-	if data.LocalPath != "images/cached_abc123.png" {
-		t.Errorf("LocalPath = %q, want the cached path", data.LocalPath)
-	}
-	if got := crawlStatuses(sel); len(got) != 1 || got[0] != "success" {
-		t.Errorf("data-crawl-status = %v, want [success]", got)
-	}
+	require.Empty(t, errs)
+	assert.Equal(t, 0, fetcher.callCount(), "re-fetched an image already marked success")
+	require.Contains(t, imgMap, raw)
+	assert.Equal(t, "images/cached_abc123.png", imgMap[raw].LocalPath, "LocalPath should be the cached path")
+	assert.Equal(t, []string{"success"}, crawlStatuses(sel), "data-crawl-status")
 }
 
 func TestProcessImages_DownloadsAndRecordsImage(t *testing.T) {
@@ -562,21 +466,13 @@ func TestProcessImages_DownloadsAndRecordsImage(t *testing.T) {
 
 	imgMap, errs := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, dir, silentLog(), context.Background())
 
-	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
-	}
-	data, ok := imgMap[raw]
-	if !ok {
-		t.Fatalf("image %q missing from result map %v", raw, imgMap)
-	}
-	if data.Caption != "a picture" {
-		t.Errorf("Caption = %q, want the alt text", data.Caption)
-	}
-	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(data.LocalPath))); err != nil {
-		t.Errorf("downloaded file not on disk: %v", err)
-	}
-	if entry := store.updates[raw]; entry == nil || entry.Status != models.ImageStatusSuccess {
-		t.Errorf("store update = %+v, want a success entry", entry)
+	require.Empty(t, errs)
+	require.Contains(t, imgMap, raw)
+	data := imgMap[raw]
+	assert.Equal(t, "a picture", data.Caption, "Caption should be the alt text")
+	assert.FileExists(t, filepath.Join(dir, filepath.FromSlash(data.LocalPath)), "downloaded file not on disk")
+	if assert.NotNil(t, store.updates[raw], "store update") {
+		assert.Equal(t, models.ImageStatusSuccess, store.updates[raw].Status)
 	}
 }
 
@@ -597,9 +493,7 @@ func TestProcessImages_CaptionPrefersFigcaptionOverAlt(t *testing.T) {
 
 	imgMap, _ := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), context.Background())
 
-	if imgMap[raw].Caption != "the real caption" {
-		t.Errorf("Caption = %q, want the trimmed figcaption text", imgMap[raw].Caption)
-	}
+	assert.Equal(t, "the real caption", imgMap[raw].Caption, "Caption should be the trimmed figcaption text")
 }
 
 func TestProcessImages_ReportsDBCheckError(t *testing.T) {
@@ -613,12 +507,8 @@ func TestProcessImages_ReportsDBCheckError(t *testing.T) {
 
 	_, errs := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), context.Background())
 
-	if len(errs) == 0 {
-		t.Fatal("expected the DB error to be reported")
-	}
-	if got := crawlStatuses(sel); len(got) != 1 || got[0] != "error-db" {
-		t.Errorf("data-crawl-status = %v, want [error-db]", got)
-	}
+	require.NotEmpty(t, errs, "expected the DB error to be reported")
+	assert.Equal(t, []string{"error-db"}, crawlStatuses(sel), "data-crawl-status")
 }
 
 // concurrencyFetcher serves a body for any URL while recording how many
@@ -688,19 +578,11 @@ func TestProcessImages_DownloadsEveryImageOnThePage(t *testing.T) {
 
 	imgMap, errs := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, dir, silentLog(), context.Background())
 
-	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
-	}
-	if len(imgMap) != count {
-		t.Errorf("downloaded %d images, want %d", len(imgMap), count)
-	}
-	if fetcher.calls != count {
-		t.Errorf("fetcher called %d times, want %d", fetcher.calls, count)
-	}
+	require.Empty(t, errs)
+	assert.Len(t, imgMap, count, "downloaded images")
+	assert.Equal(t, count, fetcher.calls, "fetcher calls")
 	for _, data := range imgMap {
-		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(data.LocalPath))); err != nil {
-			t.Errorf("image %q not written to disk: %v", data.OriginalURL, err)
-		}
+		assert.FileExists(t, filepath.Join(dir, filepath.FromSlash(data.LocalPath)), "image %q not written to disk", data.OriginalURL)
 	}
 }
 
@@ -719,11 +601,39 @@ func TestProcessImages_BoundsConcurrentDownloads(t *testing.T) {
 
 	fetcher.mu.Lock()
 	defer fetcher.mu.Unlock()
-	if fetcher.maxSeen > workers {
-		t.Errorf("observed %d concurrent downloads, want at most %d", fetcher.maxSeen, workers)
+	assert.LessOrEqual(t, fetcher.maxSeen, workers, "concurrent downloads")
+	assert.GreaterOrEqual(t, fetcher.maxSeen, 2, "expected the work to actually overlap")
+}
+
+// num_image_workers falls back to num_workers only when unset, so each value
+// must be observable on its own.
+func TestProcessImages_WorkerCountSource(t *testing.T) {
+	tests := []struct {
+		name         string
+		imageWorkers int
+		workers      int
+		wantMax      int
+	}{
+		{"ExplicitImageWorkers", 3, 1, 3},
+		{"UnsetFallsBackToWorkers", 0, 1, 1},
 	}
-	if fetcher.maxSeen < 2 {
-		t.Errorf("observed %d concurrent downloads, expected the work to actually overlap", fetcher.maxSeen)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetcher := &concurrencyFetcher{}
+			ip := newImageProcessorWithWorkers(t, newFakeImageStore(), fetcher, tt.workers)
+			ip.appCfg.NumImageWorkers = tt.imageWorkers
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			sel := imageDoc(t, imagesHTML(9))
+			pageURL, _ := url.Parse("https://e.com/page.html")
+			imgMap, _ := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), ctx)
+
+			assert.Len(t, imgMap, 9, "every image should download")
+			fetcher.mu.Lock()
+			defer fetcher.mu.Unlock()
+			assert.Equal(t, tt.wantMax, fetcher.maxSeen, "peak concurrent downloads")
+		})
 	}
 }
 
@@ -740,16 +650,10 @@ func TestProcessImages_CancelledContextStopsDispatch(t *testing.T) {
 
 	imgMap, _ := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), ctx)
 
-	if len(imgMap) != 0 {
-		t.Errorf("downloaded %d images despite a cancelled context", len(imgMap))
-	}
-	if fetcher.calls != 0 {
-		t.Errorf("fetcher called %d times despite a cancelled context", fetcher.calls)
-	}
+	assert.Empty(t, imgMap, "downloaded images despite a cancelled context")
+	assert.Equal(t, 0, fetcher.calls, "fetcher called despite a cancelled context")
 	for _, s := range crawlStatuses(sel) {
-		if s != "error-dispatch-context" {
-			t.Errorf("data-crawl-status = %q, want error-dispatch-context", s)
-		}
+		assert.Equal(t, "error-dispatch-context", s, "data-crawl-status")
 	}
 }
 
@@ -765,18 +669,11 @@ func TestProcessImages_FailedDownloadRecordsFailureEntry(t *testing.T) {
 
 	imgMap, errs := ip.ProcessImages(sel, pageURL, &config.SiteConfig{}, t.TempDir(), silentLog(), context.Background())
 
-	if len(errs) == 0 {
-		t.Fatal("expected a download error to be reported")
-	}
-	if len(imgMap) != 0 {
-		t.Errorf("imageMap = %v, want empty on failure", imgMap)
-	}
+	require.NotEmpty(t, errs, "expected a download error to be reported")
+	assert.Empty(t, imgMap, "imageMap should be empty on failure")
 	entry := store.updates[raw]
-	if entry == nil || entry.Status != models.ImageStatusFailure {
-		t.Fatalf("store update = %+v, want a failure entry", entry)
-	}
+	require.NotNil(t, entry, "store update")
+	require.Equal(t, models.ImageStatusFailure, entry.Status)
 	// ErrorType now carries the underlying message rather than a category constant.
-	if !strings.Contains(entry.ErrorType, "connection reset") {
-		t.Errorf("ErrorType = %q, want it to carry the underlying error text", entry.ErrorType)
-	}
+	assert.Contains(t, entry.ErrorType, "connection reset", "ErrorType should carry the underlying error text")
 }

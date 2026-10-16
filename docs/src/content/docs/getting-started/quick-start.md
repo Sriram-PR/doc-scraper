@@ -16,7 +16,7 @@ sites:
       - "https://rust-cli.github.io/book/index.html"
     allowed_domain: "rust-cli.github.io"
     allowed_path_prefix: "/book/"
-    content_selector: "#content, main"
+    content_selector: "main"
     max_depth: 2          # seed plus one level; set 0 for the whole book
 ```
 

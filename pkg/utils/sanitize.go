@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -29,6 +30,18 @@ func SanitizeFilename(name string) string {
 		sanitized = "untitled"
 	}
 	return sanitized
+}
+
+// IsWithinDir reports whether path lies strictly inside dir, comparing the
+// cleaned paths lexically (symlinks are not resolved).
+func IsWithinDir(dir, path string) bool {
+	dir = filepath.Clean(dir)
+	path = filepath.Clean(path)
+	prefix := dir
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	return path != dir && strings.HasPrefix(path, prefix)
 }
 
 // StagingSuffix names the sibling a fresh crawl builds into before replacing the live path.

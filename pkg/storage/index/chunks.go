@@ -118,6 +118,17 @@ func (i *Index) PruneChunks(ctx context.Context, siteKey string, currentURLs map
 	return tx.Commit()
 }
 
+// DeleteSiteChunks removes every chunk for the site, for a site whose corpus is no
+// longer indexed.
+func (i *Index) DeleteSiteChunks(ctx context.Context, siteKey string) error {
+	i.writeMu.Lock()
+	defer i.writeMu.Unlock()
+	if _, err := i.db.ExecContext(ctx, `DELETE FROM chunks WHERE site_key = ?`, siteKey); err != nil {
+		return fmt.Errorf("delete site chunks: %w", err)
+	}
+	return nil
+}
+
 // SiteHasChunks reports whether any chunks exist for the site, used to decide
 // whether an upgrade backfill is needed.
 func (i *Index) SiteHasChunks(ctx context.Context, siteKey string) (bool, error) {

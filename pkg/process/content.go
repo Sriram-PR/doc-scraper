@@ -329,9 +329,7 @@ func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *con
 	// Defense in depth: even if upstream sanitization is bypassed, ensure the
 	// resolved path stays under siteOutputDir. This blocks any URL whose path
 	// segments resolve (via filepath.Join) outside the site's output tree.
-	cleanedDir := filepath.Clean(siteOutputDir)
-	cleanedFull := filepath.Clean(fullPath)
-	if cleanedFull != cleanedDir && !strings.HasPrefix(cleanedFull, cleanedDir+string(filepath.Separator)) {
+	if !utils.IsWithinDir(siteOutputDir, fullPath) {
 		return "", false
 	}
 	return fullPath, true
@@ -401,7 +399,8 @@ func (cp *ContentProcessor) cleanupHTML(content *goquery.Selection) {
 	})
 }
 
-// rewriteInternalLinks converts in-scope hrefs to relative filesystem paths.
+// rewriteInternalLinks converts in-scope hrefs to relative filesystem paths and makes the
+// remaining relative hrefs absolute.
 // Returns the number of links rewritten and the first non-fatal error.
 func (cp *ContentProcessor) rewriteInternalLinks(
 	mainContent *goquery.Selection,
@@ -422,7 +421,7 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 			return
 		}
 
-		if strings.HasPrefix(href, "#") || strings.HasPrefix(href, "//") {
+		if strings.HasPrefix(href, "#") {
 			return
 		}
 		// Skip scheme-based URIs; a scheme only appears before the first slash, so
@@ -445,6 +444,8 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 
 		targetOutputPath, isInScope := cp.getOutputPathForURL(linkURL, siteCfg, siteOutputDir)
 		if !isInScope {
+			// A relative href to a page outside the crawl resolves nowhere in the saved output.
+			element.SetAttr("href", linkURL.String())
 			return
 		}
 

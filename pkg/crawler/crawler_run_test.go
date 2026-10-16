@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -148,9 +149,9 @@ func siteOutputDir(appCfg *config.AppConfig, _ *config.SiteConfig) string {
 // builds a crawler for a single site.
 func runCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig) error {
 	t.Helper()
-	logger := silentLogger()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	crawlLog := newCrawlLog(t)
+	logger := crawlLog.logger()
+	ctx, cancel := crawlLog.deadlineContext(t, appCfg)
 	defer cancel()
 
 	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, false, logger)
@@ -308,12 +309,96 @@ func TestCrawlerRun_MaxDepth(t *testing.T) {
 	assert.FileExists(t, filepath.Join(outDir, "child.md"))
 	assert.NoFileExists(t, filepath.Join(outDir, "grandchild.md"))
 
-	// Characterization note: the depth-2 link IS extracted and queued (the
-	// extraction-time check only skips extraction when next_depth > MaxDepth,
-	// and here next_depth == MaxDepth == 2). The queued task is instead
-	// rejected by runPolicyChecks' depth >= MaxDepth check, which runs before
-	// any HTTP fetch -- so the server never actually sees the request.
 	assert.False(t, rec.wasRequested("/docs/grandchild.html"), "over-depth page must not be fetched")
+}
+
+// TestCrawlerRun_MaxDepthQueuesNoOverDepthTasks pins that links one level past
+// the bound are never queued, so they are not recorded as failed tasks (and
+// requeued as failures on every resume).
+func TestCrawlerRun_MaxDepthQueuesNoOverDepthTasks(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Index</title></head><body>
+		<a href="/docs/a.html">A</a><a href="/docs/b.html">B</a></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body>A</body></html>`)
+	ms.set("/docs/b.html", `<html><head><title>B</title></head><body>B</body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.MaxDepth = 1
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+
+	assert.EqualValues(t, 1, p.PagesProcessed, "only the start page is a task")
+}
+
+// newSitemapDocServer serves /docs/index.html, which links nowhere, and
+// /docs/orphan.html, reachable only through a sitemap at sitemapPath. A
+// non-empty robots body is served at /robots.txt.
+func newSitemapDocServer(t *testing.T, sitemapPath, robots string) (*httptest.Server, *requestRecorder) {
+	t.Helper()
+	rec := &requestRecorder{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.record(r.URL.Path)
+		origin := "http://" + r.Host
+		switch r.URL.Path {
+		case "/robots.txt":
+			if robots == "" {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = io.WriteString(w, strings.ReplaceAll(robots, "{origin}", origin))
+		case sitemapPath:
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>`+
+				origin+`/docs/orphan.html</loc></url></urlset>`)
+		case "/docs/index.html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<html><head><title>Index</title></head><body>No links.</body></html>`)
+		case "/docs/orphan.html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<html><head><title>Orphan</title></head><body>Only in the sitemap.</body></html>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server, rec
+}
+
+func TestCrawlerRun_ProbesProjectPathSitemapWithoutRobots(t *testing.T) {
+	server, rec := newSitemapDocServer(t, "/docs/sitemap-index.xml", "")
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "orphan.md"))
+	assert.True(t, rec.wasRequested("/sitemap.xml"), "root candidates are probed first")
+	assert.False(t, rec.wasRequested("/docs/sitemap_index.xml"), "probing stops at the first sitemap found")
+}
+
+func TestCrawlerRun_ProbingHonorsRobotsDisallow(t *testing.T) {
+	server, rec := newSitemapDocServer(t, "/docs/sitemap-index.xml", "User-agent: *\nDisallow: /sitemap.xml\n")
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "orphan.md"))
+	assert.False(t, rec.wasRequested("/sitemap.xml"), "a candidate disallowed by robots.txt must not be probed")
+	assert.True(t, rec.wasRequested("/sitemap-index.xml"))
+}
+
+func TestCrawlerRun_RobotsSitemapSkipsProbing(t *testing.T) {
+	server, rec := newSitemapDocServer(t, "/maps/docs.xml", "User-agent: *\nAllow: /\n\nSitemap: {origin}/maps/docs.xml\n")
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "orphan.md"))
+	for _, p := range []string{"/sitemap.xml", "/docs/sitemap.xml"} {
+		assert.False(t, rec.wasRequested(p), "%s must not be probed when robots.txt announces a sitemap", p)
+	}
 }
 
 func TestCrawlerRun_NoValidStartURLs(t *testing.T) {
@@ -355,6 +440,100 @@ func TestCrawlerRun_DisallowedPathPatterns(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(outDir, "secret.md"))
 
 	assert.False(t, rec.wasRequested("/docs/secret.html"), "disallowed-pattern link must not be fetched")
+}
+
+// noindexPages mirrors mdBook: print.html repeats the chapters, is marked
+// noindex, and is the only route to one page.
+func noindexPages(robots string) map[string]string {
+	return map[string]string{
+		"/docs/index.html": `<html><head><title>Index</title></head><body>
+			<a href="/docs/print.html">Print</a></body></html>`,
+		"/docs/print.html": `<html><head><title>Print</title><meta name="robots" content="` + robots + `"></head><body>
+			<p>Every chapter again.</p><a href="/docs/only-from-print.html">Only here</a></body></html>`,
+		"/docs/only-from-print.html": `<html><head><title>Only</title></head><body>Reached via print.</body></html>`,
+	}
+}
+
+func jsonlHasURL(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, u string) bool {
+	t.Helper()
+	for _, line := range readJSONLLines(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "pages.jsonl")) {
+		var p models.PageJSONL
+		require.NoError(t, json.Unmarshal([]byte(line), &p))
+		if p.RecordType == models.RecordTypePage && p.URL == u {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCrawlerRun_NoindexPageNotSavedButFollowed(t *testing.T) {
+	server, rec := newDocServer(t, noindexPages("noindex"))
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	assert.True(t, rec.wasRequested("/docs/print.html"))
+	assert.NoFileExists(t, filepath.Join(outDir, "print.md"), "noindex page must not be saved")
+	assert.False(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/print.html"), "noindex page must not reach the JSONL")
+	assert.FileExists(t, filepath.Join(outDir, "only-from-print.md"), "links on a noindex page are still followed")
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/only-from-print.html"))
+}
+
+func TestCrawlerRun_NoindexFromHeader(t *testing.T) {
+	pages := noindexPages("all")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := pages[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Path == "/docs/print.html" {
+			w.Header().Set("X-Robots-Tag", "noindex")
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(srv, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	assert.NoFileExists(t, filepath.Join(outDir, "print.md"))
+	assert.FileExists(t, filepath.Join(outDir, "only-from-print.md"))
+}
+
+func TestCrawlerRun_NoindexNofollow(t *testing.T) {
+	for _, respect := range []bool{false, true} {
+		t.Run(fmt.Sprintf("respect_nofollow=%v", respect), func(t *testing.T) {
+			server, rec := newDocServer(t, noindexPages("noindex, nofollow"))
+			appCfg := newTestAppConfig(t)
+			siteCfg := baseSiteConfig(server, "/docs/index.html")
+			siteCfg.RespectNofollow = respect
+
+			require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+			assert.NoFileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "print.md"))
+			assert.Equal(t, !respect, rec.wasRequested("/docs/only-from-print.html"),
+				"meta nofollow stops link following only when respect_nofollow is set")
+		})
+	}
+}
+
+func TestCrawlerRun_RespectNoindexFalseSavesPage(t *testing.T) {
+	server, _ := newDocServer(t, noindexPages("noindex"))
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	off := false
+	siteCfg.RespectNoindex = &off
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "print.md"))
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/print.html"))
 }
 
 // TestCrawlerRun_FrontmatterAndTables verifies that every saved .md file carries
@@ -412,7 +591,7 @@ func TestCrawlerRun_FrontmatterAndTables(t *testing.T) {
 	// The frontmatter hash must match the JSONL record's content_hash for the page.
 	jsonlBytes, err := os.ReadFile(filepath.Join(outDir, "pages.jsonl"))
 	require.NoError(t, err, "read pages.jsonl")
-	var jsonlHash string
+	var recordHash string
 	for _, line := range strings.Split(strings.TrimSpace(string(jsonlBytes)), "\n") {
 		if line == "" {
 			continue
@@ -420,12 +599,10 @@ func TestCrawlerRun_FrontmatterAndTables(t *testing.T) {
 		var p models.PageJSONL
 		require.NoError(t, json.Unmarshal([]byte(line), &p))
 		if p.RecordType == models.RecordTypePage && strings.Contains(p.URL, "/docs/index.html") {
-			jsonlHash = p.ContentHash
+			recordHash = p.ContentHash
 		}
 	}
-	if jsonlHash != fm.ContentHash {
-		t.Errorf("frontmatter content_hash %q must match JSONL content_hash %q", fm.ContentHash, jsonlHash)
-	}
+	assert.Equal(t, recordHash, fm.ContentHash, "frontmatter content_hash must match JSONL content_hash")
 }
 
 // mutableDocServer serves per-path HTML that tests can change between crawls, and
@@ -475,10 +652,18 @@ func (m *mutableDocServer) hitCount(path string) int {
 
 // runResumableCrawl drives Crawler.Run with an explicit resume flag, reusing the
 // same StateDir/OutputBaseDir across calls so incremental re-crawls see prior state.
-func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) {
+func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) CrawlerProgress {
 	t.Helper()
-	logger := silentLogger()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	p, err := runResumableCrawlErr(t, appCfg, siteCfg, resume)
+	require.NoError(t, err)
+	return p
+}
+
+func runResumableCrawlErr(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) (CrawlerProgress, error) {
+	t.Helper()
+	crawlLog := newCrawlLog(t)
+	logger := crawlLog.logger()
+	ctx, cancel := crawlLog.deadlineContext(t, appCfg)
 	defer cancel()
 	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, resume, logger)
 	require.NoError(t, err)
@@ -488,7 +673,8 @@ func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.S
 	rl := fetch.NewRateLimiter(appCfg.DefaultDelayPerHost, logger)
 	c, err := NewCrawlerWithOptions(appCfg, siteCfg, testSiteKey, logger, store, fetcher, rl, ctx, cancel, resume, nil)
 	require.NoError(t, err)
-	require.NoError(t, c.Run(resume))
+	err = c.Run(resume)
+	return c.GetProgress(), err
 }
 
 func mdFileIn(t *testing.T, dir string) string {
@@ -500,7 +686,7 @@ func mdFileIn(t *testing.T, dir string) string {
 			return filepath.Join(dir, e.Name())
 		}
 	}
-	t.Fatalf("no .md file found in %s", dir)
+	require.FailNowf(t, "no .md file found", "dir %s", dir)
 	return ""
 }
 
@@ -557,8 +743,131 @@ func TestCrawlerRun_IncrementalContentScoped(t *testing.T) {
 		"changed content must rewrite the .md")
 }
 
+func TestCrawlerRun_IncrementalCountsUnchangedPages(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A1</p></main></body></html>`)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+	assert.EqualValues(t, 2, p.PagesProcessed, "fresh crawl")
+	assert.EqualValues(t, 0, p.PagesUnchanged, "fresh crawl")
+
+	p = runResumableCrawl(t, appCfg, siteCfg, true)
+	assert.EqualValues(t, 0, p.PagesProcessed, "nothing changed")
+	assert.EqualValues(t, 2, p.PagesUnchanged, "nothing changed")
+
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A2</p></main></body></html>`)
+	p = runResumableCrawl(t, appCfg, siteCfg, true)
+	assert.EqualValues(t, 1, p.PagesProcessed, "one page changed")
+	assert.EqualValues(t, 1, p.PagesUnchanged, "one page changed")
+}
+
+func TestCrawlerRun_CountsSavedAndFailedPages(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Index</title></head><body>
+		<a href="/docs/a.html">A</a><a href="/docs/gone.html">Gone</a><a href="/docs/print.html">Print</a></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body>A</body></html>`)
+	ms.set("/docs/print.html", `<html><head><title>P</title><meta name="robots" content="noindex"></head><body>P</body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+
+	assert.EqualValues(t, 4, p.PagesProcessed, "every attempted task")
+	assert.EqualValues(t, 2, p.PagesSaved, "index and a; the noindex page writes nothing")
+	assert.EqualValues(t, 1, p.PagesFailed, "gone.html 404s")
+}
+
+// TestCrawlerRun_IncrementalPartialFailureSucceeds keeps the degrade-not-fail
+// policy for a re-crawl where some pages still check out.
+func TestCrawlerRun_IncrementalPartialFailureSucceeds(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	ms.remove("/docs/a.html")
+	p := runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.EqualValues(t, 1, p.PagesUnchanged)
+}
+
+// TestCrawlerRun_ResumeRetryingOnlyFailedPagesSucceeds keeps today's rule for
+// a non-incremental resume: the corpus from the earlier run is intact, so a
+// page that still fails on retry does not fail the run.
+func TestCrawlerRun_ResumeRetryingOnlyFailedPagesSucceeds(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/gone.html">gone</a></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	require.Equal(t, 1, ms.hitCount("/docs/gone.html"))
+
+	p := runResumableCrawl(t, appCfg, siteCfg, true)
+
+	require.Equal(t, 2, ms.hitCount("/docs/gone.html"), "resume retries the failed page")
+	assert.EqualValues(t, 1, p.PagesProcessed)
+}
+
+// TestCrawlerRun_FirstWatchStyleRunOfDeadSiteFails covers watch's first run:
+// resume and incremental are both on, there is no prior corpus, and nothing
+// could be fetched.
+func TestCrawlerRun_FirstWatchStyleRunOfDeadSiteFails(t *testing.T) {
+	server, _ := newMutableDocServer(t) // serves nothing
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	_, err := runResumableCrawlErr(t, appCfg, siteCfg, true)
+
+	require.ErrorContains(t, err, "zero successful pages")
+}
+
+// TestCrawlerRun_IncrementalFollowsLinksOfUnchangedPages covers a new page
+// linked only from the page shell (a docs sidebar gaining a chapter): the
+// content hash still matches, but the new link must be discovered.
+func TestCrawlerRun_IncrementalFollowsLinksOfUnchangedPages(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	page := func(nav string) string {
+		return `<html><head><title>Doc</title></head><body><nav>` + nav + `</nav>` +
+			`<main id="c"><p>SAME</p></main></body></html>`
+	}
+	ms.set("/docs/index.html", page(`<a href="/docs/a.html">a</a>`))
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A</p></main></body></html>`)
+	ms.set("/docs/b.html", `<html><head><title>B</title></head><body><main id="c"><p>NEW CHAPTER</p></main></body></html>`)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	require.Equal(t, 0, ms.hitCount("/docs/b.html"))
+
+	ms.set("/docs/index.html", page(`<a href="/docs/a.html">a</a><a href="/docs/b.html">b</a>`))
+	runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.Equal(t, 1, ms.hitCount("/docs/b.html"), "link added outside the content region must be followed")
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/b.html"))
+}
+
 // TestCrawlerRun_Incremental404LeavesOutput verifies that when a previously-crawled
 // page returns 404 on an incremental re-crawl, its existing output is left as-is.
+// It is the only page, so nothing was re-checked and the run reports failure.
 func TestCrawlerRun_Incremental404LeavesOutput(t *testing.T) {
 	server, ms := newMutableDocServer(t)
 	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body><main id="c"><p>KEEP ME</p></main></body></html>`)
@@ -576,7 +885,8 @@ func TestCrawlerRun_Incremental404LeavesOutput(t *testing.T) {
 
 	// Page now 404s on the incremental re-crawl.
 	ms.remove("/docs/index.html")
-	runResumableCrawl(t, appCfg, siteCfg, true) // must not fail the crawl
+	_, err := runResumableCrawlErr(t, appCfg, siteCfg, true)
+	require.ErrorContains(t, err, "zero successful pages")
 
 	assert.FileExists(t, md, "existing output must be left as-is when a page now 404s")
 	body, err := os.ReadFile(md)
@@ -705,7 +1015,8 @@ func TestCrawlerRun_ResumeKeepsEnqueuedDepth(t *testing.T) {
 	require.Equal(t, 2, want["/docs/b1.html"])
 	require.NotContains(t, want, "/docs/c1.html", "max_depth=3 bounds the crawl to depths 0-2")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	crawlLog := newCrawlLog(t)
+	ctx, cancel := crawlLog.deadlineContext(t, baseApp)
 	defer cancel()
 	var interrupted sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -723,7 +1034,7 @@ func TestCrawlerRun_ResumeKeepsEnqueuedDepth(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	appCfg, siteCfg := newCfgs(server)
-	logger := silentLogger()
+	logger := crawlLog.logger()
 	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, false, logger)
 	require.NoError(t, err)
 	client := fetch.NewClient(appCfg.HTTPClientSettings, logger)

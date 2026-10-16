@@ -66,6 +66,8 @@ type Crawler struct {
 	workersWg        sync.WaitGroup
 	processedCounter atomic.Int64
 	succeededCounter atomic.Int64
+	unchangedCounter atomic.Int64
+	savedCounter     atomic.Int64
 	crawlCtx         context.Context
 	cancelCrawl      context.CancelFunc
 
@@ -218,8 +220,16 @@ func (c *Crawler) FoundSitemap(sitemapURL string) {
 }
 
 type CrawlerProgress struct {
-	SiteKey        string
+	SiteKey string
+	// PagesProcessed counts attempted page tasks, failed ones included.
 	PagesProcessed int64
+	// PagesSaved counts pages written to output this run; noindex pages
+	// succeed without being saved.
+	PagesSaved  int64
+	PagesFailed int64
+	// PagesUnchanged counts incremental re-checks whose content hash matched;
+	// they are fetched but not reprocessed, so PagesProcessed excludes them.
+	PagesUnchanged int64
 	PagesQueued    int
 	IsRunning      bool
 }
@@ -228,6 +238,9 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 	return CrawlerProgress{
 		SiteKey:        c.siteKey,
 		PagesProcessed: c.processedCounter.Load(),
+		PagesSaved:     c.savedCounter.Load(),
+		PagesFailed:    c.processedCounter.Load() - c.succeededCounter.Load(),
+		PagesUnchanged: c.unchangedCounter.Load(),
 		PagesQueued:    c.pq.Len(),
 		IsRunning:      c.crawlCtx.Err() == nil,
 	}
@@ -300,13 +313,13 @@ func (c *Crawler) Run(resume bool) (err error) {
 	c.logRunSummary(overallStart, runLog)
 	// A drained queue is not success if every attempted page failed: without
 	// this, a fully unreachable site produces an empty corpus and exit code 0.
-	// Scoped to fresh crawls only; resume/incremental runs keep a prior corpus,
-	// where individual failures (a page now 404ing, a transient outage during a
-	// scheduled re-crawl) intentionally degrade instead of failing the run.
 	// A continued staged crawl counts pages saved by earlier runs, so it fails
-	// only when staging would be swapped in empty.
+	// only when staging would be swapped in empty. An incremental re-crawl
+	// degrades on individual failures (a page now 404ing) but fails when no page
+	// even checked out unchanged, so an outage is not recorded as a fresh crawl.
 	noPages := !resume || (c.stage != nil && c.stage.Staged && c.output.PagesSaved() == 0)
-	if noPages && c.crawlCtx.Err() == nil && c.processedCounter.Load() > 0 && c.succeededCounter.Load() == 0 {
+	nothingChecked := c.appCfg.EnableIncremental && c.unchangedCounter.Load() == 0
+	if (noPages || nothingChecked) && c.crawlCtx.Err() == nil && c.processedCounter.Load() > 0 && c.succeededCounter.Load() == 0 {
 		return fmt.Errorf("crawl completed with zero successful pages: all %d attempted page tasks failed", c.processedCounter.Load())
 	}
 	return c.crawlCtx.Err()
@@ -460,8 +473,9 @@ func (c *Crawler) startWorkers(runLog *slog.Logger) {
 
 // runWaiter manages the startup-and-completion sequence: it starts the progress
 // reporter, performs the initial robots.txt fetch, queues sitemaps discovered
-// there, waits for all tasks to finish (or the context to cancel), and then
-// closes the work queues. It closes waiterDone when it returns.
+// there (or probes the conventional locations when there are none), waits for
+// all tasks to finish (or the context to cancel), and then closes the work
+// queues. It closes waiterDone when it returns.
 func (c *Crawler) runWaiter(firstValidParsedURL *url.URL, runLog *slog.Logger, waiterDone chan struct{}) {
 	defer close(waiterDone)
 
@@ -475,7 +489,9 @@ func (c *Crawler) runWaiter(firstValidParsedURL *url.URL, runLog *slog.Logger, w
 	go c.reportProgress(runLog, progTicker, progDone)
 
 	if c.fetchInitialRobots(firstValidParsedURL, runLog) {
-		c.queueInitialSitemaps(runLog)
+		if !c.queueInitialSitemaps(runLog) && firstValidParsedURL != nil {
+			c.probeSitemap(firstValidParsedURL, runLog)
+		}
 		c.awaitTasks(runLog)
 	}
 	// Workers blocked in Pop only exit once the queue is closed, so it must
@@ -510,6 +526,7 @@ func (c *Crawler) reportProgress(runLog *slog.Logger, progTicker *time.Ticker, p
 				"page_queue_len", pqLen,
 				"sitemap_queue_len", smQLen,
 				"processed_tasks", procCount,
+				"unchanged_pages", c.unchangedCounter.Load(),
 			)
 			if c.progressCallback != nil {
 				c.progressCallback(procCount, int64(pqLen+smQLen))
@@ -539,9 +556,12 @@ func (c *Crawler) fetchInitialRobots(firstValidParsedURL *url.URL, runLog *slog.
 	}
 }
 
-func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) {
+// queueInitialSitemaps queues the sitemaps robots.txt announced and reports
+// whether it announced any.
+func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) bool {
 	runLog.Info("Waiter: Processing initially discovered sitemaps...")
 	c.foundSitemapsMu.Lock()
+	announced := len(c.foundSitemaps) > 0
 	var initialSitemapsToQueue []string
 	for smURL := range c.foundSitemaps {
 		if c.sitemapProcessor.MarkSitemapProcessed(smURL) {
@@ -552,7 +572,7 @@ func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) {
 
 	if len(initialSitemapsToQueue) == 0 {
 		runLog.Info("Waiter: No new initial sitemaps found to queue from robots.txt.")
-		return
+		return announced
 	}
 	runLog.Info(fmt.Sprintf("Waiter: Found %d initial sitemaps to queue.", len(initialSitemapsToQueue)))
 	for _, smURL := range initialSitemapsToQueue {
@@ -567,6 +587,24 @@ func (c *Crawler) queueInitialSitemaps(runLog *slog.Logger) {
 			runLog.Error(fmt.Sprintf("Waiter: Timeout sending initial sitemap %s. Undoing WG.", smURL))
 			c.wg.Done()
 		}
+	}
+	return announced
+}
+
+// probeSitemap looks for a sitemap at the locations `add` checks, so sites
+// that publish one under a project path without announcing it in robots.txt
+// (GitHub and GitLab Pages) are not crawled by link following alone.
+func (c *Crawler) probeSitemap(startURL *url.URL, runLog *slog.Logger) {
+	var candidates []string
+	for _, cand := range parse.SitemapCandidates(startURL) {
+		if u, err := url.Parse(cand); err == nil && c.robotsHandler.TestAgent(u, c.resolved.UserAgent, c.crawlCtx) {
+			candidates = append(candidates, cand)
+		}
+	}
+	if smURL, ok := c.sitemapProcessor.Probe(c.crawlCtx, candidates); ok {
+		runLog.Info(fmt.Sprintf("Waiter: Using sitemap found by probing: %s", smURL))
+	} else {
+		runLog.Info("Waiter: No sitemap found at the conventional locations.")
 	}
 }
 
@@ -631,8 +669,8 @@ func (c *Crawler) logRunSummary(overallStart time.Time, runLog *slog.Logger) {
 	summaryLog.Info("========================================================================")
 	summaryLog.Info("CRAWL FINISHED")
 	summaryLog.Info(fmt.Sprintf("Duration:         %v", duration))
-	summaryLog.Info(fmt.Sprintf("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Pages Saved (for YAML): %d",
-		finalVisitedCount, finalProcessedCount, c.output.PagesSaved()))
+	summaryLog.Info(fmt.Sprintf("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Unchanged Pages: %d, Pages Saved (for YAML): %d",
+		finalVisitedCount, finalProcessedCount, c.unchangedCounter.Load(), c.output.PagesSaved()))
 	summaryLog.Info("========================================================================")
 }
 
@@ -680,10 +718,7 @@ func (c *Crawler) cleanSiteOutputDir() error {
 		return fmt.Errorf("safety check failed (resolving site path '%s'): %w", c.siteOutputDir, errSite)
 	}
 
-	// Ensure site path is truly a subdirectory of the base output directory.
-	// Also check it's not empty and not the same as the base path.
-	absBaseSeparator := absBase + string(filepath.Separator) // Ensure trailing separator for prefix check
-	if absSite != "" && absSite != absBase && strings.HasPrefix(absSite, absBaseSeparator) {
+	if utils.IsWithinDir(absBase, absSite) {
 		c.log.Debug(fmt.Sprintf("Safety check passed for RemoveAll. BaseAbs: '%s', SiteAbs: '%s'", absBase, absSite))
 		err := os.RemoveAll(c.siteOutputDir)
 		if err != nil && !errors.Is(err, os.ErrNotExist) { // ErrNotExist is fine
@@ -842,6 +877,22 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		return
 	}
 
+	// Checked before content selection so a noindex page (mdBook's print.html
+	// repeats every chapter) never seeds the selector cache or the corpus. No
+	// content hash is recorded, so turning respect_noindex off later reprocesses it.
+	if noindex, nofollow := process.RobotsDirectives(originalDoc, resp.Header); noindex && c.resolved.RespectNoindex {
+		cleanupResources()
+		if nofollow && c.siteCfg.RespectNofollow {
+			taskLog.Info("Page is marked noindex, nofollow; not saved, links not followed")
+			return
+		}
+		taskLog.Info("Page is marked noindex; not saved, following its links")
+		if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
+			taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
+		}
+		return
+	}
+
 	mainContent, extractedTitle, selectErr := c.contentProcessor.SelectMainContent(originalDoc, finalURL, c.siteCfg, taskLog)
 	if handleTaskError(selectErr) {
 		return
@@ -857,6 +908,20 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	}
 	contentHash = utils.CalculateStringSHA256(contentRegionHTML)
 
+	// Release semaphores early: HTTP fetch is done, remaining work is local
+	// computation + image downloads (which acquire their own semaphores). The
+	// deferred cleanupResources is still in place as a safety net for error
+	// paths above this point.
+	cleanupResources()
+
+	// Links come from the whole page, not just the hashed content region, so
+	// they are extracted before the unchanged-content skip: a sidebar can gain
+	// a page while every content hash stays the same.
+	// Non-critical errors (e.g., DB error during link check) are logged within linkProcessor.
+	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
+		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
+	}
+
 	if c.appCfg.EnableIncremental {
 		existingHash, exists, hashErr := c.store.GetPageContentHash(normalizedURLString)
 		if hashErr != nil {
@@ -864,6 +929,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			// Continue processing despite hash check error
 		} else if exists && existingHash == contentHash {
 			taskLog.Info("Page content unchanged (hash match) - skipping processing")
+			c.unchangedCounter.Add(1)
 			skipped = true
 			return
 		} else if exists {
@@ -871,17 +937,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		} else {
 			taskLog.Debug("New page (no previous hash) - will process")
 		}
-	}
-
-	// Release semaphores early: HTTP fetch is done, remaining work is local
-	// computation + image downloads (which acquire their own semaphores). The
-	// deferred cleanupResources is still in place as a safety net for error
-	// paths above this point.
-	cleanupResources()
-
-	// Non-critical errors (e.g., DB error during link check) are logged within linkProcessor.
-	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
-		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
 	}
 
 	var tempSavedPath string
@@ -896,6 +951,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 
 	if savedContentPath != "" {
 		c.output.RecordPageOutput(finalURL.String(), tempMarkdownBytes, pageTitle, currentDepth, taskLog)
+		c.savedCounter.Add(1)
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.
