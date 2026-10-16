@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Search [existing issues](https://github.com/Sriram-PR/doc-scraper/issues?q=is%3Aissue) first. Security problems go through [private reporting](https://github.com/Sriram-PR/doc-scraper/security/advisories/new), not here. Please write the report yourself; see the [AI policy](https://github.com/Sriram-PR/doc-scraper/blob/main/CONTRIBUTING.md#ai-assisted-contributions).
+        Search [existing issues](https://github.com/Sriram-PR/doc-scraper/issues?q=is%3Aissue) first. Security problems go through [private reporting](https://github.com/Sriram-PR/doc-scraper/security/advisories/new), not here. AI help is fine if you read it over before posting; see the [AI policy](https://github.com/Sriram-PR/doc-scraper/blob/main/CONTRIBUTING.md#ai-assisted-contributions).
   - type: input
     id: version
     attributes:

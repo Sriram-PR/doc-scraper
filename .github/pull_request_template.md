@@ -18,4 +18,4 @@ Fixes #
 - [ ] `make check` passes locally.
 - [ ] New or changed behavior has tests; a bug fix includes a test that fails without the fix.
 - [ ] The docs site (`docs/src/content/docs/`) is updated if a flag, config key, MCP tool, or output format changed.
-- [ ] I reviewed every line of this change and can answer questions about it.
+- [ ] I understand this change and can answer questions about it.
