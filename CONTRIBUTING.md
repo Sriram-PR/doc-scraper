@@ -14,8 +14,8 @@ Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md). Security
 
 AI tools and coding agents are welcome, and the maintainer uses them too. What we ask of everyone, maintainer included, is that a person understands the change and stands behind it.
 
-- **Review and test what you submit.** You should understand the change well enough to answer questions about it and to fix it when review asks for changes. Run `make check` yourself before opening the PR.
-- **Mention it in the PR.** Note whether you used AI tools and roughly how (the PR template has a field for this). It helps reviewers know where to look; it doesn't count against you.
+- **Review and test what you submit.** You should understand the change well enough to answer questions about it and to fix it when review asks for changes. Run `make check` yourself before opening the PR. You're responsible for the change, including that you have the right to submit it under the project's license.
+- **Mentioning it is optional.** You don't have to say whether you used AI tools. If you want reviewers to look closely at a part an agent wrote, the PR template has a field for it.
 - **Read it before it's posted.** An agent can draft the PR, the issue, or a review reply; a person reads it before it goes up.
 
 PRs that clearly weren't reviewed (code that doesn't build, calls to functions that don't exist, changes unrelated to the issue) will be closed without a detailed review. Repeatedly submitting unreviewed work will get you blocked from the repository.

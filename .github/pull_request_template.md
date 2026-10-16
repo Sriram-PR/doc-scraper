@@ -8,9 +8,9 @@ Fixes #
 
 <!-- The commands you ran, and for a bug fix the test that failed before the change. -->
 
-## AI assistance
+## AI assistance (optional)
 
-<!-- None, or which tools you used and for what. See CONTRIBUTING.md#ai-assisted-contributions. -->
+<!-- Leave blank, or point reviewers at anything an agent wrote that deserves a closer look. See CONTRIBUTING.md#ai-assisted-contributions. -->
 
 ## Checklist
 
