@@ -119,6 +119,26 @@ func TestPruneChunksRemovesStalePages(t *testing.T) {
 	assert.Equal(t, map[string]string{"https://e/keep": "h1"}, hashes)
 }
 
+func TestDeleteSiteChunksRemovesOnlyThatSite(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	ctx := context.Background()
+
+	seedPage(t, idx, "off", "https://off/a", "A", "h1", "# A\n\nwalrus text. "+strings.Repeat("filler ", 40))
+	seedPage(t, idx, "on", "https://on/a", "A", "h2", "# A\n\nwalrus text. "+strings.Repeat("filler ", 40))
+
+	require.NoError(t, idx.DeleteSiteChunks(ctx, "off"))
+
+	has, err := idx.SiteHasChunks(ctx, "off")
+	require.NoError(t, err)
+	assert.False(t, has)
+	results, err := idx.SearchChunks(ctx, "walrus", "", 10)
+	require.NoError(t, err)
+	require.Len(t, results, 1, "the full-text index drops the deleted site's rows")
+	assert.Equal(t, "on", results[0].SiteKey)
+
+	require.NoError(t, idx.DeleteSiteChunks(ctx, "off"), "deleting an empty site is a no-op")
+}
+
 func TestSiteHasChunksEmptySite(t *testing.T) {
 	idx := newTestIndex(t, 5)
 	has, err := idx.SiteHasChunks(context.Background(), "nope")

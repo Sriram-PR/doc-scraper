@@ -286,6 +286,24 @@ func TestAllPagesFailingFreshCrawlKeepsLiveCorpus(t *testing.T) {
 	assert.True(t, e.liveContains(t, "v1 body"))
 }
 
+func TestOptedOutCrawlClearsSiteFromIndex(t *testing.T) {
+	e := newStageEnv(t, "a", "b")
+	e.fullCrawl(t)
+	has, err := e.idx.SiteHasChunks(context.Background(), testSiteKey)
+	require.NoError(t, err)
+	require.True(t, has)
+	require.NotNil(t, e.latestCrawl(t))
+
+	off := false
+	e.siteCfg.EnableJSONLOutput = &off
+	e.fullCrawl(t)
+
+	has, err = e.idx.SiteHasChunks(context.Background(), testSiteKey)
+	require.NoError(t, err)
+	assert.False(t, has, "search must not return pages from before the opt-out")
+	assert.Nil(t, e.latestCrawl(t), "freshness must not report a crawl from before the opt-out")
+}
+
 func TestStageCommitRollsBackOnFailure(t *testing.T) {
 	tmp := t.TempDir()
 	write := func(dir, name string) {

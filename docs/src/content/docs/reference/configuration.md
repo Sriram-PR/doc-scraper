@@ -11,7 +11,7 @@ When configuring for LLM documentation processing, pay special attention to thes
 
 - `sites.<your_site_key>.content_selector`: Define precisely to capture only relevant text
 - `sites.<your_site_key>.allowed_domain` / `allowed_path_prefix`: Define scope accurately
-- `enable_jsonl_output`: On by default. Search (`search`, `search_docs`), crawl history (`get_freshness`, `diff_crawl`), and `llms.txt` are built from the JSONL, so a site set to `false` is not searchable
+- `enable_jsonl_output`: On by default. Search (`search`, `search_docs`), crawl history (`get_freshness`, `diff_crawl`), and `llms.txt` are built from the JSONL, so a site set to `false` is not searchable. Setting it to `false` on a site that was already crawled removes the site's pages and crawl history from the index on its next crawl
 - `skip_images`: Images are **not** downloaded by default (text-first). Set to `false` globally or per-site to download and localize images for offline consumption
 - Adjust concurrency/delay settings based on the target site and your resources
 
@@ -91,7 +91,7 @@ sites:
 | `skip_images` | Boolean | Whether to skip downloading images. Image downloading is opt-in | `true` (skip) |
 | `max_image_size_bytes` | Integer | Maximum allowed image size (applies only when images are downloaded) | `0` (unlimited) |
 | `max_page_size_bytes` | Integer | Maximum HTML page body size | `52428800` (50 MiB) |
-| `enable_jsonl_output` | Boolean | Enable JSONL page output (one record per page plus a trailing crawl_meta record) for RAG pipelines. The search index (`search`, `search_docs`), crawl history (`get_freshness`, `diff_crawl`), and `llms.txt` are built from this file, so setting it to `false` turns those off | `true` |
+| `enable_jsonl_output` | Boolean | Enable JSONL page output (one record per page plus a trailing crawl_meta record) for RAG pipelines. The search index (`search`, `search_docs`), crawl history (`get_freshness`, `diff_crawl`), and `llms.txt` are built from this file, so setting it to `false` turns those off, and the next crawl of a site removes its earlier index data | `true` |
 | `jsonl_output_filename` | String | Filename for JSONL output | `"pages.jsonl"` |
 | `enable_incremental` | Boolean | Enable incremental crawling globally | `false` |
 | `crawl_history_retention` | Integer | Number of past crawls per site kept in the SQLite history index (powers `get_freshness`/`diff_crawl`) | `10` |

@@ -77,6 +77,17 @@ func (i *Index) RecordCrawl(ctx context.Context, cr CrawlRecord) error {
 	return nil
 }
 
+// DeleteSiteHistory removes every crawl recorded for the site, for a site whose
+// crawls are no longer indexed. The FK cascade drops the page_history rows.
+func (i *Index) DeleteSiteHistory(ctx context.Context, siteKey string) error {
+	i.writeMu.Lock()
+	defer i.writeMu.Unlock()
+	if _, err := i.db.ExecContext(ctx, `DELETE FROM crawls WHERE site_key = ?`, siteKey); err != nil {
+		return fmt.Errorf("delete site history: %w", err)
+	}
+	return nil
+}
+
 // pruneSite deletes all but the most recent `keep` crawls for site_key. The FK
 // cascade drops the page_history rows. Runs inside the caller's tx.
 func pruneSite(ctx context.Context, tx *sql.Tx, siteKey string, keep int) error {

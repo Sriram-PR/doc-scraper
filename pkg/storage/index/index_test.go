@@ -209,6 +209,34 @@ func TestRecordCrawlValidation(t *testing.T) {
 	assert.Zero(t, crawls, "a rejected record must not be written")
 }
 
+func TestDeleteSiteHistoryRemovesOnlyThatSite(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	for _, key := range []string{"off", "on"} {
+		for i := range 2 {
+			mustRecord(t, idx, CrawlRecord{
+				SiteKey: key, CrawlStartedAt: t0.Add(time.Duration(i) * time.Hour), CrawlEndedAt: t0.Add(time.Duration(i)*time.Hour + time.Minute),
+				Mode: ModeFull, Pages: []PageRecord{{URL: "https://" + key + "/", ContentHash: "h"}},
+			})
+		}
+	}
+
+	require.NoError(t, idx.DeleteSiteHistory(ctx, "off"))
+
+	off, err := idx.GetLatestCrawl(ctx, "off")
+	require.NoError(t, err)
+	assert.Nil(t, off)
+	on, err := idx.GetLatestCrawl(ctx, "on")
+	require.NoError(t, err)
+	assert.NotNil(t, on)
+	var pages int
+	require.NoError(t, idx.db.QueryRow(`SELECT COUNT(*) FROM page_history`).Scan(&pages))
+	assert.Equal(t, 2, pages, "page rows of the deleted crawls cascade away")
+
+	require.NoError(t, idx.DeleteSiteHistory(ctx, "off"), "deleting an empty site is a no-op")
+}
+
 func TestNoOrphanedPageHistoryAcrossPooledConnections(t *testing.T) {
 	idx := newTestIndex(t, 2)
 	ctx := context.Background()

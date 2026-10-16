@@ -176,11 +176,20 @@ func (om *OutputManager) Relocate(dir string) {
 	}
 }
 
-// writeChunks refreshes the full-text chunk index from the finalized JSONL.
-// Like writeToIndex, errors are logged rather than returned so search-index
+// writeChunks refreshes the full-text chunk index from the finalized JSONL, or
+// clears the site's chunks when JSONL output is disabled. Like writeToIndex, errors are logged rather than returned so search-index
 // trouble can never fail a successful crawl.
 func (om *OutputManager) writeChunks() {
-	if om.idx == nil || om.jsonlFilePath == "" {
+	if om.idx == nil {
+		return
+	}
+	if !om.resolved.EnableJSONLOutput {
+		if err := om.idx.DeleteSiteChunks(context.Background(), om.siteKey); err != nil {
+			om.log.Warn("index: failed to remove chunks of a site with JSONL output disabled", "err", err)
+		}
+		return
+	}
+	if om.jsonlFilePath == "" {
 		return
 	}
 	if err := IndexChunksFromJSONL(context.Background(), om.idx, om.siteKey, om.jsonlFilePath, om.log); err != nil {
@@ -189,11 +198,20 @@ func (om *OutputManager) writeChunks() {
 }
 
 // writeToIndex rescans the just-finalized JSONL for page records and records the
-// crawl in the history index. The on-disk JSONL is the authoritative source of
-// truth after Close. Errors are logged, not returned, so a busted index can
+// crawl in the history index, or clears the site's history when JSONL output is
+// disabled. The on-disk JSONL is the authoritative source of truth after Close. Errors are logged, not returned, so a busted index can
 // never break a successful crawl.
 func (om *OutputManager) writeToIndex() {
-	if om.idx == nil || om.jsonlFilePath == "" {
+	if om.idx == nil {
+		return
+	}
+	if !om.resolved.EnableJSONLOutput {
+		if err := om.idx.DeleteSiteHistory(context.Background(), om.siteKey); err != nil {
+			om.log.Warn("index: failed to remove crawl history of a site with JSONL output disabled", "err", err)
+		}
+		return
+	}
+	if om.jsonlFilePath == "" {
 		return
 	}
 	pages, err := readJSONLPagesForIndex(om.jsonlFilePath)
