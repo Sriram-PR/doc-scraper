@@ -149,9 +149,9 @@ func siteOutputDir(appCfg *config.AppConfig, _ *config.SiteConfig) string {
 // builds a crawler for a single site.
 func runCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig) error {
 	t.Helper()
-	logger := silentLogger()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	crawlLog := newCrawlLog(t)
+	logger := crawlLog.logger()
+	ctx, cancel := crawlLog.deadlineContext(t, appCfg)
 	defer cancel()
 
 	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, false, logger)
@@ -661,8 +661,9 @@ func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.S
 
 func runResumableCrawlErr(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) (CrawlerProgress, error) {
 	t.Helper()
-	logger := silentLogger()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	crawlLog := newCrawlLog(t)
+	logger := crawlLog.logger()
+	ctx, cancel := crawlLog.deadlineContext(t, appCfg)
 	defer cancel()
 	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, resume, logger)
 	require.NoError(t, err)
@@ -1014,7 +1015,8 @@ func TestCrawlerRun_ResumeKeepsEnqueuedDepth(t *testing.T) {
 	require.Equal(t, 2, want["/docs/b1.html"])
 	require.NotContains(t, want, "/docs/c1.html", "max_depth=3 bounds the crawl to depths 0-2")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	crawlLog := newCrawlLog(t)
+	ctx, cancel := crawlLog.deadlineContext(t, baseApp)
 	defer cancel()
 	var interrupted sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1032,7 +1034,7 @@ func TestCrawlerRun_ResumeKeepsEnqueuedDepth(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	appCfg, siteCfg := newCfgs(server)
-	logger := silentLogger()
+	logger := crawlLog.logger()
 	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, false, logger)
 	require.NoError(t, err)
 	client := fetch.NewClient(appCfg.HTTPClientSettings, logger)

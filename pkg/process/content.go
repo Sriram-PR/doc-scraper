@@ -399,7 +399,8 @@ func (cp *ContentProcessor) cleanupHTML(content *goquery.Selection) {
 	})
 }
 
-// rewriteInternalLinks converts in-scope hrefs to relative filesystem paths.
+// rewriteInternalLinks converts in-scope hrefs to relative filesystem paths and makes the
+// remaining relative hrefs absolute.
 // Returns the number of links rewritten and the first non-fatal error.
 func (cp *ContentProcessor) rewriteInternalLinks(
 	mainContent *goquery.Selection,
@@ -420,7 +421,7 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 			return
 		}
 
-		if strings.HasPrefix(href, "#") || strings.HasPrefix(href, "//") {
+		if strings.HasPrefix(href, "#") {
 			return
 		}
 		// Skip scheme-based URIs; a scheme only appears before the first slash, so
@@ -443,6 +444,8 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 
 		targetOutputPath, isInScope := cp.getOutputPathForURL(linkURL, siteCfg, siteOutputDir)
 		if !isInScope {
+			// A relative href to a page outside the crawl resolves nowhere in the saved output.
+			element.SetAttr("href", linkURL.String())
 			return
 		}
 

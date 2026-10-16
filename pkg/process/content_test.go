@@ -624,6 +624,9 @@ func TestProcessAndSaveContent_RewritesInternalLinks(t *testing.T) {
 		<a href="/docs/other.html#part">Other</a>
 		<a href="#local">Local</a>
 		<a href="//cdn.example.org/lib.js">CDN</a>
+		<a href="//e.com/docs/proto.html">ProtoInScope</a>
+		<a href="/blog/post.html">RootRel</a>
+		<a href="../../blog/post.html?a=1#x">DotRel</a>
 		<a href="https://elsewhere.org/x">External</a>
 		<a href="mailto:a@e.com">Mail</a>
 		<a href="http://[::1">Broken</a>
@@ -631,7 +634,10 @@ func TestProcessAndSaveContent_RewritesInternalLinks(t *testing.T) {
 
 	assert.Contains(t, md, "[Other](../other.md#part)", "in-scope links become relative .md paths and keep the fragment")
 	assert.Contains(t, md, "[Local](#local)")
-	assert.Contains(t, md, "[CDN](//cdn.example.org/lib.js)")
+	assert.Contains(t, md, "[CDN](https://cdn.example.org/lib.js)", "protocol-relative links take the page's scheme")
+	assert.Contains(t, md, "[ProtoInScope](../proto.md)")
+	assert.Contains(t, md, "[RootRel](https://e.com/blog/post.html)", "out-of-scope relative links become absolute so they resolve offline")
+	assert.Contains(t, md, "[DotRel](https://e.com/blog/post.html?a=1#x)")
 	assert.Contains(t, md, "[External](https://elsewhere.org/x)")
 	assert.Contains(t, md, "[Mail](mailto:a@e.com)")
 	assert.Contains(t, md, "[Broken](http://[::1)", "unparseable links are kept, not dropped")
