@@ -138,6 +138,7 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 			"status":          j.Status,
 			"started_at":      j.StartedAt.Format(time.RFC3339),
 			"pages_processed": j.PagesProcessed,
+			"pages_unchanged": j.PagesUnchanged,
 		}
 		if !j.CompletedAt.IsZero() {
 			entry["completed_at"] = j.CompletedAt.Format(time.RFC3339)
@@ -473,6 +474,7 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 		"started_at":      job.StartedAt.Format(time.RFC3339),
 		"pages_processed": job.PagesProcessed,
 		"pages_queued":    job.PagesQueued,
+		"pages_unchanged": job.PagesUnchanged,
 		"incremental":     job.Incremental,
 	}
 
@@ -545,7 +547,13 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 		return
 	}
 
-	if err := crawlerInstance.Run(resume); err != nil {
+	s.jobManager.AttachProgress(jobID, func() JobProgress {
+		p := crawlerInstance.GetProgress()
+		return JobProgress{Processed: p.PagesProcessed, Queued: int64(p.PagesQueued), Unchanged: p.PagesUnchanged}
+	})
+	err = crawlerInstance.Run(resume)
+	s.jobManager.DetachProgress(jobID)
+	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			s.jobManager.UpdateStatus(job.ID, JobStatusCancelled, "")
 		} else {
@@ -651,6 +659,7 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 				"started_at":      job.StartedAt.Format(time.RFC3339),
 				"pages_processed": job.PagesProcessed,
 				"pages_queued":    job.PagesQueued,
+				"pages_unchanged": job.PagesUnchanged,
 				"incremental":     job.Incremental,
 			}
 		}

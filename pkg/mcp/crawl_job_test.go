@@ -25,7 +25,7 @@ func newCrawlJobServer(t *testing.T, siteKey string) (*Server, *config.SiteConfi
 	t.Helper()
 
 	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s, siteCfg, siteOut := newCrawlJobServerWith(t, siteKey, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/docs/index.html" {
 			http.NotFound(w, r)
 			return
@@ -34,6 +34,15 @@ func newCrawlJobServer(t *testing.T, siteKey string) (*Server, *config.SiteConfi
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, `<html><head><title>Doc</title></head><body><main id="c"><p>STABLE CONTENT</p></main></body></html>`)
 	}))
+	return s, siteCfg, &hits, siteOut
+}
+
+// newCrawlJobServerWith is newCrawlJobServer with a caller-supplied docs
+// server; the start URL is /docs/index.html.
+func newCrawlJobServerWith(t *testing.T, siteKey string, h http.Handler) (*Server, *config.SiteConfig, string) {
+	t.Helper()
+
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 
 	host := strings.TrimPrefix(srv.URL, "http://")
@@ -65,7 +74,7 @@ func newCrawlJobServer(t *testing.T, siteKey string) (*Server, *config.SiteConfi
 		log:        silentTestLogger(),
 		jobManager: NewJobManager("", nil),
 	}
-	return s, siteCfg, &hits, filepath.Join(outDir, utils.SanitizeFilename(siteKey))
+	return s, siteCfg, filepath.Join(outDir, utils.SanitizeFilename(siteKey))
 }
 
 func runJob(t *testing.T, s *Server, siteCfg *config.SiteConfig, siteKey string, incremental bool) {
@@ -133,4 +142,124 @@ func TestRunCrawlJob_FullCrawlStillRebuilds(t *testing.T) {
 	info, err := os.Stat(firstMarkdownFile(t, siteOut))
 	require.NoError(t, err)
 	assert.False(t, info.ModTime().Equal(old), "a full crawl must rewrite the output")
+}
+
+// get_job_status must report pages as they finish, not only on the crawler's
+// 30 second progress tick. Regression test for #18.
+func TestGetJobStatus_ReportsLiveProgress(t *testing.T) {
+	const siteKey = "docs"
+	release := make(chan struct{})
+	s, siteCfg, _ := newCrawlJobServerWith(t, siteKey, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		switch r.URL.Path {
+		case "/docs/index.html":
+			_, _ = io.WriteString(w, `<html><head><title>Index</title></head><body><main id="c"><p>INDEX</p><a href="/docs/slow.html">slow</a></main></body></html>`)
+		case "/docs/slow.html":
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+			_, _ = io.WriteString(w, `<html><head><title>Slow</title></head><body><main id="c"><p>SLOW</p></main></body></html>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	job, err := s.jobManager.CreateJob(siteKey, false)
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.runCrawlJob(job, siteCfg, siteKey)
+	}()
+	t.Cleanup(func() {
+		close(release)
+		<-done
+	})
+
+	var last map[string]any
+	ok := assert.Eventually(t, func() bool {
+		_, last = callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
+		return last["status"] == string(JobStatusRunning) && last["pages_processed"] == 1.0
+	}, 5*time.Second, 20*time.Millisecond, "index page done, slow page in flight")
+	if !ok {
+		t.Logf("last get_job_status: %v", last)
+	}
+}
+
+// An incremental job that skips everything must say so: pages_processed
+// excludes unchanged pages, so without pages_unchanged it looks like a no-op.
+func TestRunCrawlJob_ReportsPagesUnchanged(t *testing.T) {
+	const siteKey = "docs"
+	s, siteCfg, _, _ := newCrawlJobServer(t, siteKey)
+
+	runJob(t, s, siteCfg, siteKey, false)
+	runJob(t, s, siteCfg, siteKey, true)
+
+	jobs := s.jobManager.ListJobs()
+	sortJobsNewestFirst(jobs)
+	incremental := jobs[0]
+	require.True(t, incremental.Incremental)
+
+	_, status := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": incremental.ID})
+	assert.EqualValues(t, 1, status["pages_unchanged"], "get_job_status: %v", status)
+	assert.EqualValues(t, 0, status["pages_processed"], "get_job_status: %v", status)
+
+	_, described := callJSON(t, s.handleDescribeServer, map[string]any{})
+	recent, ok := described["recent_jobs"].([]any)
+	require.True(t, ok, "recent_jobs: %v", described["recent_jobs"])
+	require.NotEmpty(t, recent)
+	assert.EqualValues(t, 1, recent[0].(map[string]any)["pages_unchanged"], "recent_jobs[0]: %v", recent[0])
+}
+
+// get_freshness's running_job reports unchanged pages live, like
+// get_job_status does.
+func TestGetFreshness_RunningJobReportsPagesUnchanged(t *testing.T) {
+	const siteKey = "docs"
+	var block atomic.Bool
+	release := make(chan struct{})
+	s, siteCfg, _ := newCrawlJobServerWith(t, siteKey, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		switch r.URL.Path {
+		case "/docs/index.html":
+			_, _ = io.WriteString(w, `<html><head><title>Index</title></head><body><main id="c"><p>INDEX</p><a href="/docs/slow.html">slow</a></main></body></html>`)
+		case "/docs/slow.html":
+			if block.Load() {
+				select {
+				case <-release:
+				case <-r.Context().Done():
+					return
+				}
+			}
+			_, _ = io.WriteString(w, `<html><head><title>Slow</title></head><body><main id="c"><p>SLOW</p></main></body></html>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	runJob(t, s, siteCfg, siteKey, false)
+
+	block.Store(true)
+	job, err := s.jobManager.CreateJob(siteKey, true)
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.runCrawlJob(job, siteCfg, siteKey)
+	}()
+	t.Cleanup(func() {
+		close(release)
+		<-done
+	})
+
+	var last map[string]any
+	ok := assert.Eventually(t, func() bool {
+		_, last = callJSON(t, s.handleGetFreshness, map[string]any{"site_key": siteKey})
+		running, _ := last["running_job"].(map[string]any)
+		return running != nil && running["pages_unchanged"] == 1.0
+	}, 5*time.Second, 20*time.Millisecond, "index page unchanged, slow page in flight")
+	if !ok {
+		t.Logf("last get_freshness: %v", last)
+	}
 }

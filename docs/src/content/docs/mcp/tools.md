@@ -53,7 +53,7 @@ Result: Returns job ID for tracking progress
 ```
 Tool: get_job_status
 Arguments: { "job_id": "abc-123-def" }
-Result: Returns status, pages processed, and completion info
+Result: Returns status, live page counts (pages_processed, pages_queued, pages_unchanged), and completion info. On an incremental crawl, pages_unchanged counts re-checked pages whose content had not changed; pages_processed excludes them.
 ```
 
 **Enumerate crawled pages:**

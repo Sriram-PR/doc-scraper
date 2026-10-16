@@ -53,11 +53,21 @@ type Job struct {
 	CompletedAt    time.Time `json:"completed_at,omitempty"`
 	PagesProcessed int64     `json:"pages_processed"`
 	PagesQueued    int64     `json:"pages_queued"`
+	PagesUnchanged int64     `json:"pages_unchanged"` // incremental re-checks that matched; not in PagesProcessed
 	ErrorMessage   string    `json:"error_message,omitempty"`
 	Incremental    bool      `json:"incremental"`
 
 	ctx    context.Context
 	cancel context.CancelFunc
+	// progress reads the running crawler's counters; nil once the crawl ends.
+	progress func() JobProgress
+}
+
+// JobProgress is a point-in-time read of a crawl's counters.
+type JobProgress struct {
+	Processed int64
+	Queued    int64
+	Unchanged int64
 }
 
 type jobsFile struct {
@@ -153,15 +163,31 @@ func (m *JobManager) load() {
 	}
 }
 
+// viewLocked returns a copy of job with live counters filled in, so readers
+// never share memory with the running crawl. Caller must hold m.mu.
+func viewLocked(job *Job) *Job {
+	view := *job
+	view.ctx = nil
+	view.cancel = nil
+	view.progress = nil
+	if job.progress != nil {
+		view.applyProgress(job.progress())
+	}
+	return &view
+}
+
+func (j *Job) applyProgress(p JobProgress) {
+	j.PagesProcessed = p.Processed
+	j.PagesQueued = p.Queued
+	j.PagesUnchanged = p.Unchanged
+}
+
 // snapshotLocked returns a deep copy of the jobs for serialization. Caller
 // must hold m.mu.
 func (m *JobManager) snapshotLocked() []*Job {
 	out := make([]*Job, 0, len(m.jobs))
 	for _, job := range m.jobs {
-		copy := *job
-		copy.ctx = nil
-		copy.cancel = nil
-		out = append(out, &copy)
+		out = append(out, viewLocked(job))
 	}
 	return out
 }
@@ -322,18 +348,25 @@ func (m *JobManager) CreateJob(siteKey string, incremental bool) (*Job, error) {
 	return job, nil
 }
 
+// GetJob returns a copy of the job with live progress, or nil.
 func (m *JobManager) GetJob(jobID string) *Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.jobs[jobID]
+	if job, exists := m.jobs[jobID]; exists {
+		return viewLocked(job)
+	}
+	return nil
 }
 
+// GetJobBySite returns a copy of the site's active job with live progress, or nil.
 func (m *JobManager) GetJobBySite(siteKey string) *Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	if jobID, exists := m.bysite[siteKey]; exists {
-		return m.jobs[jobID]
+		if job, ok := m.jobs[jobID]; ok {
+			return viewLocked(job)
+		}
 	}
 	return nil
 }
@@ -371,6 +404,28 @@ func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg strin
 	if changed {
 		m.flush()
 	}
+}
+
+// AttachProgress makes reads of the job report fn's counters until
+// DetachProgress, instead of the values last pushed through UpdateProgress.
+func (m *JobManager) AttachProgress(jobID string, fn func() JobProgress) {
+	m.mu.Lock()
+	if job, exists := m.jobs[jobID]; exists {
+		job.progress = fn
+	}
+	m.mu.Unlock()
+}
+
+// DetachProgress stores the attached source's final counters on the job and
+// drops the source.
+func (m *JobManager) DetachProgress(jobID string) {
+	m.mu.Lock()
+	if job, exists := m.jobs[jobID]; exists && job.progress != nil {
+		job.applyProgress(job.progress())
+		job.progress = nil
+		m.dirty.Store(true)
+	}
+	m.mu.Unlock()
 }
 
 // UpdateProgress only marks the manager dirty; the background flusher writes
@@ -430,7 +485,7 @@ func (m *JobManager) ListJobs() []*Job {
 
 	jobs := make([]*Job, 0, len(m.jobs))
 	for _, job := range m.jobs {
-		jobs = append(jobs, job)
+		jobs = append(jobs, viewLocked(job))
 	}
 	return jobs
 }
