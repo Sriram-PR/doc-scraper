@@ -116,6 +116,7 @@ func (s *Server) registerTools() {
 		mcp.WithString("content_selector",
 			mcp.Description("CSS selector for main content (defaults to 'body')"),
 		),
+		outputSchemaFor[getPageResult](),
 	)
 	addTool(getPageTool, s.handleGetPage)
 
@@ -162,6 +163,7 @@ func (s *Server) registerTools() {
 			mcp.Required(),
 			mcp.Description("The job ID returned by crawl_site"),
 		),
+		outputSchemaFor[cancelCrawlResult](),
 	)
 	addTool(cancelCrawlTool, s.handleCancelCrawl)
 
@@ -259,6 +261,7 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum results to return (default: 10, max: 50)"),
 		),
+		outputSchemaFor[searchDocsResult](),
 	)
 	addTool(searchDocsTool, s.handleSearchDocs)
 

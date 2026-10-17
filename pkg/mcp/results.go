@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
 // Each tool's result struct is both its structuredContent and, through
@@ -73,4 +75,28 @@ type listSitesResult struct {
 	Sites      []siteSummary `json:"sites"`
 	ConfigPath string        `json:"config_path"`
 	TotalSites int           `json:"total_sites"`
+}
+
+type getPageResult struct {
+	URL           string `json:"url"`
+	Title         string `json:"title"`
+	Content       string `json:"content" jsonschema_description:"Page content converted to markdown"`
+	ContentLength int    `json:"content_length"`
+	FetchTimeMs   int64  `json:"fetch_time_ms"`
+}
+
+type cancelCrawlResult struct {
+	JobID     string    `json:"job_id"`
+	Cancelled bool      `json:"cancelled" jsonschema_description:"false when the job was already in a terminal state"`
+	SiteKey   string    `json:"site_key"`
+	Status    JobStatus `json:"status"`
+	Message   string    `json:"message"`
+}
+
+type searchDocsResult struct {
+	Query       string               `json:"query"`
+	SiteKey     string               `json:"site_key,omitempty" jsonschema_description:"Present when the search was limited to one site"`
+	Count       int                  `json:"count"`
+	Results     []index.SearchResult `json:"results"`
+	NextActions string               `json:"next_actions"`
 }

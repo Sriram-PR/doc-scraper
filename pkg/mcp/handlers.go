@@ -81,18 +81,17 @@ func (s *Server) handleCancelCrawl(ctx context.Context, request mcp.CallToolRequ
 	cancelled := s.jobManager.CancelJob(jobID)
 	job = s.jobManager.GetJob(jobID)
 
-	result := map[string]interface{}{
-		"job_id":    jobID,
-		"cancelled": cancelled,
-		"site_key":  job.SiteKey,
-		"status":    job.Status,
+	res := cancelCrawlResult{
+		JobID:     jobID,
+		Cancelled: cancelled,
+		SiteKey:   job.SiteKey,
+		Status:    job.Status,
+		Message:   "job cancelled",
 	}
-	if cancelled {
-		result["message"] = "job cancelled"
-	} else {
-		result["message"] = fmt.Sprintf("job is in terminal state %q and cannot be cancelled", job.Status)
+	if !cancelled {
+		res.Message = fmt.Sprintf("job is in terminal state %q and cannot be cancelled", job.Status)
 	}
-	return mcp.NewToolResultText(formatJSON(result)), nil
+	return structuredResult(res), nil
 }
 
 // handleDescribeServer returns server identity, sites, and recent jobs in one
@@ -390,15 +389,13 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 
 	fetchTimeMs := time.Since(startTime).Milliseconds()
 
-	result := map[string]interface{}{
-		"url":            parsedURL.String(),
-		"title":          title,
-		"content":        content,
-		"content_length": len(content),
-		"fetch_time_ms":  fetchTimeMs,
-	}
-
-	return mcp.NewToolResultText(formatJSON(result)), nil
+	return structuredResult(getPageResult{
+		URL:           parsedURL.String(),
+		Title:         title,
+		Content:       content,
+		ContentLength: len(content),
+		FetchTimeMs:   fetchTimeMs,
+	}), nil
 }
 
 func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -981,13 +978,12 @@ func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolReque
 		return mcp.NewToolResultError(fmt.Sprintf("search failed: %v", err)), nil
 	}
 
-	result := map[string]interface{}{
-		"query":   query,
-		"count":   len(results),
-		"results": results,
-	}
-	if siteKey != "" {
-		result["site_key"] = siteKey
+	res := searchDocsResult{
+		Query:       query,
+		SiteKey:     siteKey,
+		Count:       len(results),
+		Results:     results,
+		NextActions: "Use read_page with a result's site_key and url to read the full page.",
 	}
 	if len(results) == 0 {
 		hint := "No matches. Broaden the query, or check the corpus with list_sites and list_pages."
@@ -1004,9 +1000,7 @@ func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolReque
 					"(existing crawls are indexed automatically shortly after server start)."
 			}
 		}
-		result["next_actions"] = hint
-	} else {
-		result["next_actions"] = "Use read_page with a result's site_key and url to read the full page."
+		res.NextActions = hint
 	}
-	return mcp.NewToolResultText(formatJSON(result)), nil
+	return structuredResult(res), nil
 }

@@ -2,13 +2,22 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 )
 
 // registeredOutputSchema reads the schema from a fully registered server, so
@@ -70,4 +79,55 @@ func TestHandleListSites_StructuredOutput(t *testing.T) {
 	assert.NotContains(t, site, "status")
 	assert.EqualValues(t, 1, got["total_sites"])
 	assert.Contains(t, got, "config_path")
+}
+
+func TestHandleGetPage_StructuredOutput(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<html><head><title>T</title></head><body><p>BODY</p></body></html>`)
+	}))
+	t.Cleanup(srv.Close)
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
+
+	result, _ := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
+	got := requireToolResultConforms(t, "get_page", result)
+	assert.Equal(t, "T", got["title"])
+	assert.Contains(t, got["content"], "BODY")
+	assert.Equal(t, srv.URL+"/p", got["url"])
+	assert.Contains(t, got, "fetch_time_ms")
+}
+
+func TestHandleCancelCrawl_StructuredOutput(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	job, err := s.jobManager.CreateJob("docs", false)
+	require.NoError(t, err)
+
+	first, _ := callJSON(t, s.handleCancelCrawl, map[string]any{"job_id": job.ID})
+	got := requireToolResultConforms(t, "cancel_crawl", first)
+	assert.Equal(t, true, got["cancelled"])
+
+	again, _ := callJSON(t, s.handleCancelCrawl, map[string]any{"job_id": job.ID})
+	got = requireToolResultConforms(t, "cancel_crawl", again)
+	assert.Equal(t, false, got["cancelled"], "cancelled:false must not be dropped")
+	assert.Equal(t, string(JobStatusCancelled), got["status"])
+	assert.Contains(t, got["message"], "terminal state")
+}
+
+func TestHandleSearchDocs_StructuredOutput(t *testing.T) {
+	s := newTestServerWithIndex(t, "docs")
+	md := "# Retries\n\nRetry limits are configured with max_retries. " + strings.Repeat("filler ", 40)
+	require.NoError(t, s.idx.ReplaceChunks(context.Background(),
+		"docs", "https://docs.example.com/retries", "Retries", "h1", chunk.Split(md)))
+
+	_, hit := callSearchDocs(t, s, map[string]any{"query": "retry limits", "site_key": "docs"})
+	got := requireToolResultConforms(t, "search_docs", hit)
+	assert.EqualValues(t, 1, got["count"])
+	assert.Equal(t, "docs", got["site_key"])
+
+	_, miss := callSearchDocs(t, s, map[string]any{"query": "zebra"})
+	got = requireToolResultConforms(t, "search_docs", miss)
+	assert.EqualValues(t, 0, got["count"])
+	assert.Equal(t, []any{}, got["results"])
+	assert.NotContains(t, got, "site_key")
 }
