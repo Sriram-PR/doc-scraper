@@ -180,6 +180,7 @@ func TestSearchChunksNaturalLanguageRelaxesToOR(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results, "OR relaxation must rescue natural-language queries")
 	assert.Equal(t, "https://e/groups", results[0].URL)
+	assert.Equal(t, MatchAll, results[0].Match, "every content word matched")
 
 	results, err = idx.SearchChunks(context.Background(), `"group commands nowhere literal"`, "", 5)
 	require.NoError(t, err)
@@ -199,4 +200,133 @@ func TestSearchChunksBreaksTiesByURL(t *testing.T) {
 		urls = append(urls, r.URL)
 	}
 	assert.Equal(t, []string{"https://e/a", "https://e/b", "https://e/c"}, urls)
+}
+
+func seedFillCorpus(t *testing.T, idx *Index) {
+	t.Helper()
+	filler := strings.Repeat("filler ", 40)
+	seedPage(t, idx, "s", "https://e/filters", "Filters", "h1", "# Filters\n\nRegister a custom jinja filter on the app. "+filler)
+	seedPage(t, idx, "s", "https://e/jinja", "Templates", "h2", "# Templates\n\nJinja renders every template. "+filler)
+	seedPage(t, idx, "s", "https://e/requests", "Requests", "h3", "# Requests\n\nA request filter drops bad input. "+filler)
+	seedPage(t, idx, "s", "https://e/other", "Other", "h4", "# Other\n\nNothing relevant here. "+filler)
+}
+
+func resultURLs(results []SearchResult) []string {
+	urls := make([]string, 0, len(results))
+	for _, r := range results {
+		urls = append(urls, r.URL)
+	}
+	return urls
+}
+
+func TestSearchChunksFillsWithPartialMatches(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	seedFillCorpus(t, idx)
+
+	results, err := idx.SearchChunks(context.Background(), "register custom jinja filter", "", 5)
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	assert.Equal(t, "https://e/filters", results[0].URL, "the strict match keeps first place")
+	assert.Equal(t, MatchAll, results[0].Match)
+	assert.ElementsMatch(t, []string{"https://e/jinja", "https://e/requests"}, resultURLs(results[1:]))
+	for _, r := range results[1:] {
+		assert.Equal(t, MatchPartial, r.Match, r.URL)
+	}
+}
+
+func TestSearchChunksPrefixIsStableAcrossLimits(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	seedFillCorpus(t, idx)
+	ctx := context.Background()
+
+	full, err := idx.SearchChunks(ctx, "register custom jinja filter", "", 10)
+	require.NoError(t, err)
+	for _, limit := range []int{1, 2} {
+		got, err := idx.SearchChunks(ctx, "register custom jinja filter", "", limit)
+		require.NoError(t, err)
+		assert.Equal(t, full[:limit], got, "limit %d", limit)
+	}
+}
+
+func TestSearchChunksFillKeepsEveryChunkOfASplitSection(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	filler := strings.Repeat("filler ", 190)
+	seedPage(t, idx, "s", "https://e/long", "Long", "h", "# Long\n\nalpha beta "+filler+"\n\nalpha gamma "+filler)
+
+	results, err := idx.SearchChunks(context.Background(), "alpha beta", "", 10)
+	require.NoError(t, err)
+	require.Len(t, results, 2, "both chunks of the section, once each")
+	assert.Equal(t, results[0].Anchor, results[1].Anchor, "fixture: one section split in two")
+	assert.Equal(t, MatchAll, results[0].Match)
+	assert.Equal(t, MatchPartial, results[1].Match)
+}
+
+func TestSearchChunksNoFillForExplicitSyntaxOrOneWord(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	seedFillCorpus(t, idx)
+	ctx := context.Background()
+
+	results, err := idx.SearchChunks(ctx, `"custom jinja"`, "", 5)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://e/filters"}, resultURLs(results))
+
+	results, err = idx.SearchChunks(ctx, "jinja", "", 5)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"https://e/filters", "https://e/jinja"}, resultURLs(results))
+	for _, r := range results {
+		assert.Equal(t, MatchAll, r.Match)
+	}
+}
+
+func TestSearchStagedReturnsFillStageError(t *testing.T) {
+	calls := 0
+	raw := func(_ context.Context, _, _ string, _ int, _ []int64) ([]SearchResult, []int64, error) {
+		calls++
+		if calls == 1 {
+			return []SearchResult{{URL: "https://e/a"}}, []int64{1}, nil
+		}
+		return nil, nil, context.Canceled
+	}
+	results, err := searchStaged(context.Background(), "two words", "", 5, raw)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, results)
+	assert.Equal(t, 2, calls)
+}
+
+func TestRelaxedFTSQueriesFlagsOnlyORPartial(t *testing.T) {
+	cases := map[string][]ftsRewrite{
+		"how do I install":        {{match: `"install"`}},
+		"how do I group commands": {{match: `"group" "commands"`}, {match: `"group" OR "commands"`, partial: true}},
+		"retry limits":            {{match: `"retry" OR "limits"`, partial: true}},
+		"how do I":                {{match: `"how" OR "do" OR "I"`, partial: true}},
+		"jinja":                   nil,
+		`"custom jinja"`:          nil,
+	}
+	for q, want := range cases {
+		assert.Equal(t, want, relaxedFTSQueries(q), q)
+	}
+}
+
+func TestSearchChunksFillExcludesEveryEarlierStage(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	filler := strings.Repeat("filler ", 40)
+	seedPage(t, idx, "s", "https://e/groups", "Groups", "h1", "# Groups\n\nCommands nest under a group. "+filler)
+	seedPage(t, idx, "s", "https://e/commands", "Commands", "h2", "# Commands\n\nEach command has options. "+filler)
+
+	results, err := idx.SearchChunks(context.Background(), "how do I group commands", "", 10)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://e/groups", "https://e/commands"}, resultURLs(results))
+	assert.Equal(t, []string{MatchAll, MatchPartial}, []string{results[0].Match, results[1].Match})
+}
+
+func TestSearchStagedSkipsFillWhenFull(t *testing.T) {
+	calls := 0
+	raw := func(_ context.Context, _, _ string, limit int, _ []int64) ([]SearchResult, []int64, error) {
+		calls++
+		return make([]SearchResult, limit), make([]int64, limit), nil
+	}
+	results, err := searchStaged(context.Background(), "two words", "", 3, raw)
+	require.NoError(t, err)
+	assert.Len(t, results, 3)
+	assert.Equal(t, 1, calls)
 }

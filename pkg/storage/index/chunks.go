@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,7 +13,8 @@ import (
 )
 
 // SearchResult is one ranked full-text hit. Rank is the raw BM25 score from
-// SQLite (more negative = better match); Snippet has match terms wrapped in
+// SQLite (more negative = better match) for the query stage that found it, so
+// it compares only between results with the same Match; Snippet has match terms wrapped in
 // [ ] and elisions marked with an ellipsis. Anchor is the matched section's
 // URL fragment; append it to URL as "#anchor" to deep-link the section.
 type SearchResult struct {
@@ -23,7 +25,15 @@ type SearchResult struct {
 	Anchor      string  `json:"anchor,omitempty"`
 	Snippet     string  `json:"snippet"`
 	Rank        float64 `json:"rank"`
+	Match       string  `json:"match"`
 }
+
+// Match values: MatchAll results contain every query term other than
+// stopwords; MatchPartial results come from the OR fallback and may miss some.
+const (
+	MatchAll     = "all"
+	MatchPartial = "partial"
+)
 
 // ReplaceChunks swaps a page's chunks for freshly split ones in one
 // transaction. contentHash records which page content the chunks came from,
@@ -151,6 +161,9 @@ var ErrNoSearchableTerms = errors.New("query has no searchable terms")
 // non-empty. The query is tried verbatim first so phrase and prefix syntax
 // work; if FTS5 rejects it (unbalanced quotes and similar), it is retried with
 // every term quoted, so arbitrary agent input never surfaces a syntax error.
+// When that returns fewer than limit results, relaxed rewrites fill the rest
+// after them. The slice order is the ranking; Rank is comparable only within
+// one Match level.
 func (i *Index) SearchChunks(ctx context.Context, query, siteKey string, limit int) ([]SearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -169,28 +182,50 @@ func (i *Index) SearchChunks(ctx context.Context, query, siteKey string, limit i
 		limit = 10
 	}
 
-	results, err := i.searchChunksRaw(ctx, query, siteKey, limit)
+	return searchStaged(ctx, query, siteKey, limit, i.searchChunksRaw)
+}
+
+type rawSearch func(ctx context.Context, match, siteKey string, limit int, exclude []int64) ([]SearchResult, []int64, error)
+
+func searchStaged(ctx context.Context, query, siteKey string, limit int, raw rawSearch) ([]SearchResult, error) {
+	results, ids, err := raw(ctx, query, siteKey, limit, nil)
 	if err != nil && looksLikeFTSSyntaxError(err) {
-		results, err = i.searchChunksRaw(ctx, quoteFTSTerms(query), siteKey, limit)
+		results, ids, err = raw(ctx, quoteFTSTerms(query), siteKey, limit, nil)
 	}
 	if err != nil {
 		return nil, err
 	}
+	setMatch(results, MatchAll)
 	// FTS5 ANDs plain terms, so a natural-language query ("how do I group
-	// commands") often matches nothing even when its meaningful words are all
-	// over the corpus. Relax progressively: AND of the content words first
-	// (stopwords stripped, since on a docs corpus "how do I" is rare enough
-	// that BM25 would rank literal question phrasings over the real answer),
-	// then OR as the last resort.
-	if len(results) == 0 {
-		for _, relaxed := range relaxedFTSQueries(query) {
-			results, err = i.searchChunksRaw(ctx, relaxed, siteKey, limit)
-			if err != nil || len(results) > 0 {
-				return results, err
-			}
+	// commands") often matches little or nothing even when its meaningful
+	// words are all over the corpus, and a strict match on a table-of-contents
+	// page can be the only hit. Fill progressively: AND of the content words
+	// first (stopwords stripped, since on a docs corpus "how do I" is rare
+	// enough that BM25 would rank literal question phrasings over the real
+	// answer), then OR as the last resort.
+	for _, rw := range relaxedFTSQueries(query) {
+		if len(results) >= limit {
+			break
 		}
+		more, moreIDs, err := raw(ctx, rw.match, siteKey, limit-len(results), ids)
+		if err != nil {
+			return nil, err
+		}
+		if rw.partial {
+			setMatch(more, MatchPartial)
+		} else {
+			setMatch(more, MatchAll)
+		}
+		results = append(results, more...)
+		ids = append(ids, moreIDs...)
 	}
 	return results, nil
+}
+
+func setMatch(results []SearchResult, match string) {
+	for i := range results {
+		results[i].Match = match
+	}
 }
 
 var ftsStopwords = map[string]struct{}{}
@@ -203,10 +238,16 @@ func init() {
 	}
 }
 
+type ftsRewrite struct {
+	match string
+	// partial marks an OR rewrite, whose matches may lack some query terms.
+	partial bool
+}
+
 // relaxedFTSQueries returns fallback query rewrites for a plain multi-word
 // query, in decreasing precision. Queries using explicit FTS5 syntax (quotes,
 // prefixes, grouping, operators) are taken as intentional and never rewritten.
-func relaxedFTSQueries(query string) []string {
+func relaxedFTSQueries(query string) []ftsRewrite {
 	if strings.ContainsAny(query, `"*()`) {
 		return nil
 	}
@@ -225,28 +266,30 @@ func relaxedFTSQueries(query string) []string {
 		}
 	}
 
-	var out []string
+	var out []ftsRewrite
 	if n := len(content); n > 0 && n < len(terms) {
-		out = append(out, strings.Join(content, " "))
+		out = append(out, ftsRewrite{match: strings.Join(content, " ")})
 	}
 	if len(content) >= 2 {
-		out = append(out, strings.Join(content, " OR "))
+		out = append(out, ftsRewrite{match: strings.Join(content, " OR "), partial: true})
 	}
 	if len(content) == 0 {
 		all := make([]string, 0, len(terms))
 		for _, t := range terms {
 			all = append(all, `"`+t+`"`)
 		}
-		out = append(out, strings.Join(all, " OR "))
+		out = append(out, ftsRewrite{match: strings.Join(all, " OR "), partial: true})
 	}
 	return out
 }
 
-func (i *Index) searchChunksRaw(ctx context.Context, match, siteKey string, limit int) ([]SearchResult, error) {
+// searchChunksRaw runs one MATCH, skipping chunk ids in exclude, and returns
+// the rows with their chunk ids.
+func (i *Index) searchChunksRaw(ctx context.Context, match, siteKey string, limit int, exclude []int64) ([]SearchResult, []int64, error) {
 	// Weights: title 4, heading path 2, body 1, split identifiers 1 - a match
 	// in the page title or section heading is a stronger signal than one in
 	// running text.
-	q := `SELECT c.site_key, c.url, c.title, c.heading_path, c.anchor,
+	q := `SELECT c.id, c.site_key, c.url, c.title, c.heading_path, c.anchor,
 	             snippet(chunks_fts, 2, '[', ']', '...', 12),
 	             bm25(chunks_fts, 4.0, 2.0, 1.0, 1.0) AS rank
 	      FROM chunks_fts
@@ -257,24 +300,40 @@ func (i *Index) searchChunksRaw(ctx context.Context, match, siteKey string, limi
 		q += ` AND c.site_key = ?`
 		args = append(args, siteKey)
 	}
+	if len(exclude) > 0 {
+		ids, err := json.Marshal(exclude)
+		if err != nil {
+			return nil, nil, err
+		}
+		// One JSON parameter instead of one per id: a large -limit must not
+		// hit SQLite's bound-parameter cap.
+		q += ` AND c.id NOT IN (SELECT value FROM json_each(?))`
+		args = append(args, string(ids))
+	}
 	q += ` ORDER BY rank, c.url, c.anchor, c.id LIMIT ?`
 	args = append(args, limit)
 
 	rows, err := i.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("search: %w", err)
+		return nil, nil, fmt.Errorf("search: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	out := []SearchResult{}
+	var ids []int64
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.SiteKey, &r.URL, &r.Title, &r.HeadingPath, &r.Anchor, &r.Snippet, &r.Rank); err != nil {
-			return nil, fmt.Errorf("scan result: %w", err)
+		var id int64
+		if err := rows.Scan(&id, &r.SiteKey, &r.URL, &r.Title, &r.HeadingPath, &r.Anchor, &r.Snippet, &r.Rank); err != nil {
+			return nil, nil, fmt.Errorf("scan result: %w", err)
 		}
 		out = append(out, r)
+		ids = append(ids, id)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return out, ids, nil
 }
 
 func looksLikeFTSSyntaxError(err error) bool {
