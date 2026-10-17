@@ -356,8 +356,17 @@ func TestSearchStagedSkipsFillWhenFull(t *testing.T) {
 }
 
 func TestRelaxedFTSQueriesExpandsSynonyms(t *testing.T) {
-	withSynonyms(t, [][]string{{"autocomplete", "completion"}, {"query string", "url parameters"}})
+	withSynonyms(t, [][]string{{"autocomplete", "completion"}, {"query string", "url parameters"}, {"log in", "login"}})
 	cases := map[string][]ftsRewrite{
+		"how to log in": {
+			{match: `"log"`},
+			{match: `("log in" OR "login")`, partial: true},
+		},
+		"log in to the dashboard": {
+			{match: `"log" "dashboard"`},
+			{match: `("log in" OR "login") AND "dashboard"`, partial: true},
+			{match: `"log" OR "login" OR "dashboard"`, partial: true},
+		},
 		"how do I read query string parameters": {
 			{match: `"read" "query" "string" "parameters"`},
 			{match: `"read" AND ("query string" OR "url parameters") AND "parameters"`, partial: true},

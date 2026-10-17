@@ -112,7 +112,7 @@ var synonymGroups = [][]string{
 	{"tutorial", "walkthrough"},
 	{"faq", "frequently asked questions"},
 	{"boilerplate", "scaffold"},
-	{"migrate", "migration", "port"},
+	{"migrate", "migration"},
 	{"override", "overwrite"},
 	{"mandatory", "required"},
 	{"boolean", "bool"},
@@ -192,7 +192,7 @@ func synonymListProblems(groups [][]string) []string {
 				problems = append(problems, fmt.Sprintf("group %d: %q is not lowercase words separated by single spaces", gi, e))
 			case len(words) > maxSynonymWords:
 				problems = append(problems, fmt.Sprintf("group %d: %q has more than %d words", gi, e, maxSynonymWords))
-			case !slices.ContainsFunc(words, func(w string) bool { _, stop := ftsStopwords[w]; return !stop }):
+			case !slices.ContainsFunc(words, func(w string) bool { return !isStopword(w) }):
 				problems = append(problems, fmt.Sprintf("group %d: %q is only stopwords", gi, e))
 			}
 			if prev, ok := seen[e]; ok {

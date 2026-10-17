@@ -32,7 +32,8 @@ type SearchResult struct {
 }
 
 // Match values: MatchAll results contain every query term other than
-// stopwords; MatchPartial results come from the OR fallback and may miss some.
+// stopwords; MatchPartial results come from the synonym or OR fallback and may
+// lack some of the terms as typed.
 const (
 	MatchAll     = "all"
 	MatchPartial = "partial"
@@ -243,7 +244,7 @@ func init() {
 
 type ftsRewrite struct {
 	match string
-	// partial marks an OR rewrite, whose matches may lack some query terms.
+	// partial marks a synonym or OR rewrite, whose matches may lack some query terms.
 	partial bool
 }
 
@@ -267,11 +268,13 @@ func relaxedFTSQueries(query string) []ftsRewrite {
 		case "OR", "AND", "NOT", "NEAR":
 			return nil
 		}
-		if _, stop := ftsStopwords[strings.ToLower(t)]; !stop {
+		if !isStopword(t) {
 			content = append(content, t)
 		}
 	}
-	groups := expandTerms(content)
+	// Expand over all terms so synonym phrases containing a stopword ("log in")
+	// match; stopwords left over on their own are then dropped.
+	groups := slices.DeleteFunc(expandTerms(terms), func(g termGroup) bool { return len(g.alts) == 0 && isStopword(g.text) })
 	expanded := slices.ContainsFunc(groups, func(g termGroup) bool { return len(g.alts) > 0 })
 	if len(terms) < 2 && !expanded {
 		return nil
@@ -297,7 +300,11 @@ func relaxedFTSQueries(query string) []ftsRewrite {
 	if len(content) >= 2 {
 		var or []string
 		for _, g := range groups {
-			or = append(or, strings.Fields(g.text)...)
+			for _, w := range strings.Fields(g.text) {
+				if !isStopword(w) {
+					or = append(or, w)
+				}
+			}
 			or = append(or, g.alts...)
 		}
 		out = append(out, ftsRewrite{match: joinQuoted(or, " OR "), partial: true})
@@ -306,6 +313,11 @@ func relaxedFTSQueries(query string) []ftsRewrite {
 		out = append(out, ftsRewrite{match: joinQuoted(terms, " OR "), partial: true})
 	}
 	return out
+}
+
+func isStopword(w string) bool {
+	_, ok := ftsStopwords[strings.ToLower(w)]
+	return ok
 }
 
 func quoteFTS(s string) string { return `"` + s + `"` }
