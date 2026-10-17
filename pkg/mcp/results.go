@@ -100,3 +100,30 @@ type searchDocsResult struct {
 	Results     []index.SearchResult `json:"results"`
 	NextActions string               `json:"next_actions"`
 }
+
+type listPagesResult struct {
+	SiteKey    string          `json:"site_key"`
+	Pages      []pageListEntry `json:"pages"`
+	Total      int             `json:"total"`
+	Offset     int             `json:"offset"`
+	MaxResults int             `json:"max_results"`
+	Returned   int             `json:"returned"`
+	Message    string          `json:"message,omitempty" jsonschema_description:"Present when the site has no crawl output yet"`
+}
+
+type readPageResult struct {
+	SiteKey       string   `json:"site_key"`
+	URL           string   `json:"url"`
+	Title         string   `json:"title"`
+	Content       string   `json:"content"`
+	ContentLength int      `json:"content_length" jsonschema_description:"Bytes of content in this response"`
+	TotalLength   int      `json:"total_length" jsonschema_description:"Bytes of the whole stored page"`
+	Offset        int      `json:"offset"`
+	Truncated     bool     `json:"truncated"`
+	Depth         int      `json:"depth"`
+	CrawledAt     string   `json:"crawled_at"`
+	ContentHash   string   `json:"content_hash"`
+	Headings      []string `json:"headings"`
+	Source        string   `json:"source"`
+	NextOffset    *int     `json:"next_offset,omitempty" jsonschema_description:"Pass as offset to read the next part; present only when truncated"`
+}

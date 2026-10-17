@@ -131,3 +131,38 @@ func TestHandleSearchDocs_StructuredOutput(t *testing.T) {
 	assert.Equal(t, []any{}, got["results"])
 	assert.NotContains(t, got, "site_key")
 }
+
+func TestHandleListPages_StructuredOutput(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+
+	empty, _ := callJSON(t, s.handleListPages, map[string]any{"site_key": "docs"})
+	got := requireToolResultConforms(t, "list_pages", empty)
+	assert.Contains(t, got["message"], "Run crawl_site first")
+	assert.Equal(t, []any{}, got["pages"])
+	assert.EqualValues(t, 0, got["total"])
+
+	seedCorpus(t, jsonlPath)
+	full, _ := callJSON(t, s.handleListPages, map[string]any{"site_key": "docs"})
+	got = requireToolResultConforms(t, "list_pages", full)
+	assert.NotContains(t, got, "message")
+	assert.NotEmpty(t, got["pages"])
+	assert.EqualValues(t, 0, got["offset"], "zero values must not be dropped")
+}
+
+func TestHandleReadPage_StructuredOutput(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	seedCorpus(t, jsonlPath)
+
+	whole, _ := callJSON(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
+	got := requireToolResultConforms(t, "read_page", whole)
+	assert.Equal(t, false, got["truncated"], "truncated:false must not be dropped")
+	assert.NotContains(t, got, "next_offset")
+	assert.EqualValues(t, 0, got["offset"])
+	assert.Equal(t, "stored_crawl", got["source"])
+	assert.NotNil(t, got["headings"])
+
+	part, _ := callJSON(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a", "max_bytes": 1.0})
+	got = requireToolResultConforms(t, "read_page", part)
+	assert.Equal(t, true, got["truncated"])
+	assert.Contains(t, got, "next_offset")
+}

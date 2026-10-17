@@ -247,16 +247,13 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 	file, err := os.Open(jsonlPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			response := map[string]interface{}{
-				"site_key":    siteKey,
-				"pages":       []pageListEntry{},
-				"total":       0,
-				"offset":      offset,
-				"max_results": maxResults,
-				"returned":    0,
-				"message":     "No crawl output found for this site. Run crawl_site first.",
-			}
-			return mcp.NewToolResultText(formatJSON(response)), nil
+			return structuredResult(listPagesResult{
+				SiteKey:    siteKey,
+				Pages:      []pageListEntry{},
+				Offset:     offset,
+				MaxResults: maxResults,
+				Message:    "No crawl output found for this site. Run crawl_site first.",
+			}), nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("failed to open JSONL for site '%s': %v", siteKey, err)), nil
 	}
@@ -307,15 +304,14 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 		pageSlice = pages[offset:end]
 	}
 
-	response := map[string]interface{}{
-		"site_key":    siteKey,
-		"pages":       pageSlice,
-		"total":       total,
-		"offset":      offset,
-		"max_results": maxResults,
-		"returned":    len(pageSlice),
-	}
-	return mcp.NewToolResultText(formatJSON(response)), nil
+	return structuredResult(listPagesResult{
+		SiteKey:    siteKey,
+		Pages:      pageSlice,
+		Total:      total,
+		Offset:     offset,
+		MaxResults: maxResults,
+		Returned:   len(pageSlice),
+	}), nil
 }
 
 func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -914,26 +910,25 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		headings = []string{}
 	}
 
-	result := map[string]interface{}{
-		"site_key":       siteKey,
-		"url":            record.URL,
-		"title":          record.Title,
-		"content":        chunk,
-		"content_length": len(chunk),
-		"total_length":   len(record.Content),
-		"offset":         start,
-		"truncated":      end < len(record.Content),
-		"depth":          record.Depth,
-		"crawled_at":     record.CrawledAt,
-		"content_hash":   record.ContentHash,
-		"headings":       headings,
-		"source":         "stored_crawl",
+	res := readPageResult{
+		SiteKey:       siteKey,
+		URL:           record.URL,
+		Title:         record.Title,
+		Content:       chunk,
+		ContentLength: len(chunk),
+		TotalLength:   len(record.Content),
+		Offset:        start,
+		Truncated:     end < len(record.Content),
+		Depth:         record.Depth,
+		CrawledAt:     record.CrawledAt,
+		ContentHash:   record.ContentHash,
+		Headings:      headings,
+		Source:        "stored_crawl",
 	}
-	if end < len(record.Content) {
-		result["next_offset"] = end
+	if res.Truncated {
+		res.NextOffset = &end
 	}
-
-	return mcp.NewToolResultText(formatJSON(result)), nil
+	return structuredResult(res), nil
 }
 
 const (

@@ -209,6 +209,7 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithNumber("offset",
 			mcp.Description("Pagination offset, 0-based (default: 0)"),
 		),
+		outputSchemaFor[listPagesResult](),
 	)
 	addTool(listPagesTool, s.handleListPages)
 
@@ -237,6 +238,7 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithNumber("offset",
 			mcp.Description("Byte offset into the page content, for reading a truncated page in parts (default: 0)"),
 		),
+		outputSchemaFor[readPageResult](),
 	)
 	addTool(readPageTool, s.handleReadPage)
 
