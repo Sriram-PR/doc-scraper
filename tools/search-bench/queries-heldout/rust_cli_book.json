@@ -1,0 +1,19 @@
+{
+  "site_key": "rust_cli_book",
+  "queries": [
+    {"id": "ho-rust-01", "query": "show users something helpful instead of a stack trace when my app crashes", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://rust-cli.github.io/book/in-depth/human-communication.html", "anchor": "when-panicking"}]},
+    {"id": "ho-rust-02", "query": "what happens if the user hits ctrl-c twice during shutdown", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://rust-cli.github.io/book/in-depth/signals.html", "anchor": "what-to-do-when-you-receive-another-ctrlc-while-youre-handling-the-first-ctrlc"}]},
+    {"id": "ho-rust-03", "query": "separate main logic from the binary so I can unit test it", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://rust-cli.github.io/book/tutorial/testing.html", "anchor": "splitting-your-code-into-library-and-binary-targets"}]},
+    {"id": "ho-rust-04", "query": "build executables for windows mac and linux on every push", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://rust-cli.github.io/book/tutorial/packaging.html", "anchor": "building-binary-releases-on-ci"}]},
+    {"id": "ho-rust-05", "query": "how to bail out of a function early when something fails", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://rust-cli.github.io/book/tutorial/errors.html", "anchor": "question-mark"}]},
+    {"id": "ho-rust-07", "query": "useful libraries for command line tools", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://rust-cli.github.io/book/resources/index.html"}]},
+    {"id": "ho-rust-08", "query": "initialize a new project", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://rust-cli.github.io/book/tutorial/setup.html"}]}
+  ]
+}

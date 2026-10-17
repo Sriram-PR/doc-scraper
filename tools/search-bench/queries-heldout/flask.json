@@ -1,0 +1,21 @@
+{
+  "site_key": "flask",
+  "queries": [
+    {"id": "ho-flask-01", "query": "put a logo in the browser tab for my site", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://flask.palletsprojects.com/en/stable/patterns/favicon/"}]},
+    {"id": "ho-flask-02", "query": "flask won't start because port 5000 is busy", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://flask.palletsprojects.com/en/stable/server/", "anchor": "address-already-in-use"}]},
+    {"id": "ho-flask-03", "query": "get notified by email when my production app throws an error", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://flask.palletsprojects.com/en/stable/logging/", "anchor": "email-errors-to-admins"}]},
+    {"id": "ho-flask-04", "query": "serve React app with catch-all route", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://flask.palletsprojects.com/en/stable/patterns/singlepageapplications/"}]},
+    {"id": "ho-flask-05", "query": "proxy blocks PATCH requests, how do I get around it", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://flask.palletsprojects.com/en/stable/patterns/methodoverrides/"}]},
+    {"id": "ho-flask-06", "query": "use a nosql database", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://flask.palletsprojects.com/en/stable/patterns/mongoengine/"}]},
+    {"id": "ho-flask-07", "query": "put the language code in the URL for translations", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://flask.palletsprojects.com/en/stable/patterns/urlprocessors/"}]},
+    {"id": "ho-flask-08", "query": "avoid recomputing results for repeated requests", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://flask.palletsprojects.com/en/stable/patterns/caching/"}]}
+  ]
+}

@@ -88,6 +88,8 @@ go run ./tools/search-bench -baseline .audit/search-bench/runs/baseline.json   #
 
 Include the comparison in the PR. A corpus warning means the crawls differ between the two runs, so recrawl or compare against a baseline from the same crawl. The corpora are not in the repo and are gitignored only through your own `.git/info/exclude`; add `/.audit/` there.
 
+Changes that add search vocabulary, such as the synonym list in `pkg/storage/index/synonyms.go`, are also scored on a held-out query set that nobody tunes against: run the same two commands with `-queries tools/search-bench/queries-heldout` and include both comparisons. Never add a synonym, query or weight because a held-out query misses; report the held-out numbers as they come out.
+
 ## Pull requests
 
 - One issue per PR, linked in the description (`Fixes #123`).

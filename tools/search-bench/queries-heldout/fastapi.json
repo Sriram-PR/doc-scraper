@@ -1,0 +1,19 @@
+{
+  "site_key": "fastapi",
+  "queries": [
+    {"id": "ho-fastapi-01", "query": "reuse my legacy Flask app under a FastAPI path", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://fastapi.tiangolo.com/advanced/wsgi/"}]},
+    {"id": "ho-fastapi-02", "query": "set the HTTP status code dynamically", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://fastapi.tiangolo.com/advanced/response-change-status-code/"}]},
+    {"id": "ho-fastapi-03", "query": "return user data without leaking the password", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://fastapi.tiangolo.com/tutorial/response-model/"}, {"url": "https://fastapi.tiangolo.com/tutorial/extra-models/"}]},
+    {"id": "ho-fastapi-04", "query": "page refresh gives 404 on my SPA route", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://fastapi.tiangolo.com/tutorial/frontend/", "anchor": "client-side-routing"}]},
+    {"id": "ho-fastapi-05", "query": "one-way feed from the server to the browser", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://fastapi.tiangolo.com/tutorial/server-sent-events/"}]},
+    {"id": "ho-fastapi-06", "query": "mark an endpoint obsolete in the docs", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://fastapi.tiangolo.com/tutorial/path-operation-configuration/", "anchor": "deprecate-a-path-operation"}]},
+    {"id": "ho-fastapi-08", "query": "measure how long each request takes", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://fastapi.tiangolo.com/tutorial/middleware/"}]}
+  ]
+}

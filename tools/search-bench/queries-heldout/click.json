@@ -1,0 +1,21 @@
+{
+  "site_key": "click",
+  "queries": [
+    {"id": "ho-click-01", "query": "mark a command as obsolete", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://click.palletsprojects.com/en/stable/commands-and-groups/", "anchor": "deprecating-commands"}]},
+    {"id": "ho-click-02", "query": "how do I run several subcommands in one line", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://click.palletsprojects.com/en/stable/commands/", "anchor": "command-chaining"}]},
+    {"id": "ho-click-03", "query": "display lengthy text a screenful at a time", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://click.palletsprojects.com/en/stable/utils/", "anchor": "pager-support"}]},
+    {"id": "ho-click-04", "query": "wait for a keypress before the console window closes", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://click.palletsprojects.com/en/stable/utils/", "anchor": "waiting-for-key-press"}]},
+    {"id": "ho-click-05", "query": "let unrecognized flags through instead of raising an error", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://click.palletsprojects.com/en/stable/advanced/", "anchor": "forwarding-unknown-options"}, {"url": "https://click.palletsprojects.com/en/stable/arguments/"}]},
+    {"id": "ho-click-06", "query": "does click fix misspelled options automatically", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://click.palletsprojects.com/en/stable/why/", "anchor": "why-no-auto-correction"}]},
+    {"id": "ho-click-07", "query": "ship my CLI to users who don't have python installed", "tags": ["question", "mismatch", "drafted"],
+     "expected": [{"url": "https://click.palletsprojects.com/en/stable/standalone-apps/"}]},
+    {"id": "ho-click-08", "query": "limit an integer option to between 1 and 10", "tags": ["keyword", "mismatch", "drafted"],
+     "expected": [{"url": "https://click.palletsprojects.com/en/stable/parameter-types/", "anchor": "int-and-float-ranges"}]}
+  ]
+}
