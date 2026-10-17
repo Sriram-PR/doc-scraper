@@ -128,3 +128,14 @@ func TestRun_Errors(t *testing.T) {
 		})
 	}
 }
+
+func TestRun_BaselineAgainstItself(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "r.json")
+	_, err := runBench(t, "-out", out)
+	require.NoError(t, err)
+	stdout, err := runBench(t, "-baseline", out)
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "compared 3 queries")
+	assert.NotContains(t, stdout, "WARNING")
+	assert.Contains(t, stdout, "1.0000")
+}
