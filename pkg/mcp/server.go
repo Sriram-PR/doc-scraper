@@ -96,6 +96,7 @@ func (s *Server) registerTools() {
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("List all configured sites available for crawling"),
+		outputSchemaFor[listSitesResult](),
 	)
 	addTool(listSitesTool, s.handleListSites)
 

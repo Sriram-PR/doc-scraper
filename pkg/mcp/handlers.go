@@ -33,39 +33,32 @@ import (
 )
 
 func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	sites := make([]map[string]interface{}, 0, len(s.cfg.AppConfig.Sites))
-
 	keys := config.GetAllSiteKeys(s.cfg.AppConfig)
+	sites := make([]siteSummary, 0, len(keys))
 
 	for _, key := range keys {
 		siteCfg := s.cfg.AppConfig.Sites[key]
-		siteInfo := map[string]interface{}{
-			"key":              key,
-			"domain":           siteCfg.AllowedDomain,
-			"path_prefix":      siteCfg.AllowedPathPrefix,
-			"start_urls_count": len(siteCfg.StartURLs),
-			"max_depth":        siteCfg.MaxDepth,
+		site := siteSummary{
+			Key:            key,
+			Domain:         siteCfg.AllowedDomain,
+			PathPrefix:     siteCfg.AllowedPathPrefix,
+			StartURLsCount: len(siteCfg.StartURLs),
+			MaxDepth:       siteCfg.MaxDepth,
 		}
-
-		lastCrawled := s.getLastCrawledTime(key, siteCfg)
-		if !lastCrawled.IsZero() {
-			siteInfo["last_crawled"] = lastCrawled.Format(time.RFC3339)
+		if lastCrawled := s.getLastCrawledTime(key, siteCfg); !lastCrawled.IsZero() {
+			site.LastCrawled = lastCrawled.Format(time.RFC3339)
 		}
-
 		if s.jobManager.IsRunning(key) {
-			siteInfo["status"] = "running"
+			site.Status = "running"
 		}
-
-		sites = append(sites, siteInfo)
+		sites = append(sites, site)
 	}
 
-	result := map[string]interface{}{
-		"sites":       sites,
-		"config_path": s.cfg.ConfigPath,
-		"total_sites": len(sites),
-	}
-
-	return mcp.NewToolResultText(formatJSON(result)), nil
+	return structuredResult(listSitesResult{
+		Sites:      sites,
+		ConfigPath: s.cfg.ConfigPath,
+		TotalSites: len(sites),
+	}), nil
 }
 
 // handleCancelCrawl returns an error for an unknown job_id (matching

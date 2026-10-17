@@ -10,6 +10,7 @@ require (
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v1.3.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/stretchr/testify v1.12.1
 	github.com/temoto/robotstxt v1.1.2
 	golang.org/x/net v0.61.0
@@ -35,7 +36,6 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/goldmark v1.7.13 // indirect
