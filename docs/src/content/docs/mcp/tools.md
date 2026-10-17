@@ -29,6 +29,8 @@ Every tool declares an `outputSchema` and returns its result as `structuredConte
 
 `get_freshness` reports the latest crawl as a `last_crawl` object (`crawl_id`, `crawl_started_at`, `crawl_ended_at`, `total_pages`, `mode`), the same shape as `diff_crawl`'s `current_crawl` and `baseline_crawl`. Pass `last_crawl.crawl_ended_at` as `diff_crawl`'s `since`.
 
+`search_docs` returns `results` best first. Each result's `match` is `all` when it contains every query word (common words such as "how" or "the" aside) or `partial` when it came from the fallback that fills the remaining slots up to `limit` with results containing only some of the words; partial results always follow full ones. Queries using FTS5 syntax are never relaxed. `rank` is the raw BM25 score and compares only results with the same `match`.
+
 Jobs have one shape everywhere: `describe_server`'s `recent_jobs` and `get_freshness`'s `running_job` carry the same fields as `get_job_status` (`job_id`, `site_key`, `status`, page counts, `incremental`, and `completed_at`, `duration_seconds` and `error_message` once they apply).
 
 ## Examples

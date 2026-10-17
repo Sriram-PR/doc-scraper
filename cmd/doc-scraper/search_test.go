@@ -54,6 +54,14 @@ func TestDoSearch_HumanOutput(t *testing.T) {
 	assert.Contains(t, out, "https://demo.example.com/docs/retries#backoff", "result links to the section anchor")
 	assert.Contains(t, out, "(demo)")
 	assert.Contains(t, out, "[ocelot]", "snippet marks match terms")
+	assert.NotContains(t, out, "(partial match)")
+}
+
+func TestDoSearch_MarksPartialMatches(t *testing.T) {
+	cfgPath := writeSearchFixture(t)
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, doSearch(cfgPath, "ocelot zebra", "", 10, false, &stdout, &stderr), stderr.String())
+	assert.Contains(t, stdout.String(), "Retries  >  Retries > Backoff (partial match)")
 }
 
 func TestDoSearch_JSONOutput(t *testing.T) {
@@ -65,6 +73,7 @@ func TestDoSearch_JSONOutput(t *testing.T) {
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &results))
 	require.Len(t, results, 1)
 	assert.Equal(t, "backoff", results[0].Anchor)
+	assert.Equal(t, index.MatchAll, results[0].Match)
 }
 
 func TestDoSearch_NoMatchesAndErrors(t *testing.T) {

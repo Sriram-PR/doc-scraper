@@ -126,6 +126,10 @@ func TestHandleSearchDocs_StructuredOutput(t *testing.T) {
 	got := requireToolResultConforms(t, "search_docs", hit)
 	assert.EqualValues(t, 1, got["count"])
 	assert.Equal(t, "docs", got["site_key"])
+	results, ok := got["results"].([]any)
+	require.True(t, ok)
+	require.Len(t, results, 1)
+	assert.Equal(t, "all", results[0].(map[string]any)["match"])
 
 	_, miss := callSearchDocs(t, s, map[string]any{"query": "zebra"})
 	got = requireToolResultConforms(t, "search_docs", miss)

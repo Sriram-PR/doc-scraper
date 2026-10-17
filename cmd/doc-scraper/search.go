@@ -138,6 +138,9 @@ func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout
 		if r.HeadingPath != "" && r.HeadingPath != r.Title {
 			title += "  >  " + r.HeadingPath
 		}
+		if r.Match == index.MatchPartial {
+			title += " (partial match)"
+		}
 		link := r.URL
 		if r.Anchor != "" {
 			link += "#" + r.Anchor
