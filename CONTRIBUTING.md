@@ -53,6 +53,7 @@ Install golangci-lint through the `/v2` module path as shown. `.../golangci-lint
 | `pkg/orchestrate`, `pkg/watch` | Parallel multi-site crawls; scheduled re-crawls |
 | `pkg/parse`, `pkg/queue`, `pkg/models`, `pkg/utils`, `pkg/log`, `pkg/taskspec`, `pkg/version` | Shared helpers and types |
 | `tools/detect-bench` | Live benchmark for `pkg/detect` against labeled real sites |
+| `tools/search-bench` | Offline benchmark for full-text search ranking against labeled queries over frozen crawls |
 
 ## Tests
 
@@ -74,6 +75,18 @@ go run ./tools/detect-bench
 ```
 
 It fetches about 230 labeled documentation sites and prints a per-family scorecard plus every disagreement (`-v` prints every site). Expect no family to regress and no false positives. When a "miss" shows a generator meta tag that contradicts the label, the site migrated platforms: fix `tools/detect-bench/sites.json`, not the detector.
+
+### Search ranking changes
+
+Changes to search ranking (query rewriting and bm25 weights in `pkg/storage/index`, chunking in `pkg/chunk`) should be measured against labeled queries. Crawl the benchmark corpora once, save a baseline on `main`, then compare your branch with it:
+
+```bash
+doc-scraper crawl -config tools/search-bench/crawl.yaml -all-sites
+go run ./tools/search-bench -out .audit/search-bench/runs/baseline.json   # on main
+go run ./tools/search-bench -baseline .audit/search-bench/runs/baseline.json   # on your branch
+```
+
+Include the comparison in the PR. A corpus warning means the crawls differ between the two runs, so recrawl or compare against a baseline from the same crawl. The corpora are not in the repo and are gitignored only through your own `.git/info/exclude`; add `/.audit/` there.
 
 ## Pull requests
 
