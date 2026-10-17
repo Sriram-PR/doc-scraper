@@ -1,0 +1,3 @@
+{"record_type":"page","url":"https://mini.example/install","title":"Install","content":"# Install\n\nDownload the release binary and put it on your PATH.","content_hash":"h1"}
+{"record_type":"page","url":"https://mini.example/retries","title":"Retries","content":"# Retries\n\nFailed requests back off exponentially before the next attempt.\n\n## Limits\n\nThe attempt count is capped by max_retries.","content_hash":"h2"}
+{"record_type":"crawl_meta","site_key":"mini"}
