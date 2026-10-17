@@ -258,7 +258,9 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 			"matching. Searches the stored index only; run crawl_site first for uncrawled sites."),
 		mcp.WithString("query",
 			mcp.Required(),
-			mcp.Description("Search terms. Plain words are ANDed; \"quoted phrases\", OR, and prefix* work too."),
+			mcp.Description("Search terms. Plain words are ANDed; when too few results contain every word, "+
+				"the rest are filled with partial matches (match: partial). \"quoted phrases\", OR, and prefix* "+
+				"work too and are never relaxed."),
 		),
 		mcp.WithString("site_key",
 			mcp.Description("Limit results to one site (use list_sites to discover keys). Omit to search all sites."),
