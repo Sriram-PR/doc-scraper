@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -245,11 +246,16 @@ type ftsRewrite struct {
 	partial bool
 }
 
+// ftsColumnFilter matches FTS5 column filters ("title:x", "{title text}: x",
+// "-text:x") on the chunks_fts columns; other colons ("std::env") are text.
+var ftsColumnFilter = regexp.MustCompile(`(?i)(^|[\s{-])(title|heading_path|text|identifiers)\s*}?\s*:`)
+
 // relaxedFTSQueries returns fallback query rewrites for a plain multi-word
 // query, in decreasing precision. Queries using explicit FTS5 syntax (quotes,
-// prefixes, grouping, operators) are taken as intentional and never rewritten.
+// prefixes, grouping, operators, column filters) are taken as intentional and
+// never rewritten.
 func relaxedFTSQueries(query string) []ftsRewrite {
-	if strings.ContainsAny(query, `"*()`) {
+	if strings.ContainsAny(query, `"*()`) || ftsColumnFilter.MatchString(query) {
 		return nil
 	}
 	terms := strings.Fields(query)

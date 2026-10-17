@@ -283,6 +283,10 @@ func TestSearchChunksNoFillForExplicitSyntaxOrOneWord(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"https://e/filters"}, resultURLs(results))
 
+	results, err = idx.SearchChunks(ctx, "title:filters jinja", "", 5)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://e/filters"}, resultURLs(results), "a column filter is never relaxed")
+
 	results, err = idx.SearchChunks(ctx, "jinja", "", 5)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"https://e/filters", "https://e/jinja"}, resultURLs(results))
@@ -314,6 +318,13 @@ func TestRelaxedFTSQueriesFlagsOnlyORPartial(t *testing.T) {
 		"how do I":                {{match: `"how" OR "do" OR "I"`, partial: true}},
 		"jinja":                   nil,
 		`"custom jinja"`:          nil,
+		"title:retry backoff":     nil,
+		"Title : retry backoff":   nil,
+		"{title text}: retry now": nil,
+		"{title}: retry now":      nil,
+		"{text } : retry now":     nil,
+		"-identifiers:foo bar":    nil,
+		"retry: backoff limits":   {{match: `"retry:" OR "backoff" OR "limits"`, partial: true}},
 	}
 	for q, want := range cases {
 		assert.Equal(t, want, relaxedFTSQueries(q), q)

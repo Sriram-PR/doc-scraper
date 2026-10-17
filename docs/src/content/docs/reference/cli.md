@@ -82,7 +82,7 @@ doc-scraper search -site rust_cli_book -limit 5 "error handling"
 
 Searches the crawled corpus offline, with no network access. The non-flag arguments form the query (FTS5 query syntax is supported). Options may appear before or after the query; use `--` to end option parsing.
 
-Results are ranked best first. Plain words must all appear in a result; when fewer than `-limit` results contain every word, the rest are filled with results that contain only some of them (common words such as "how" or "the" are ignored), listed after the full matches and marked `(partial match)`. With `-json`, each result's `match` is `all` or `partial`. Queries using FTS5 syntax (quotes, `*`, parentheses, `AND`, `OR`, `NOT`, `NEAR`) are never relaxed. `rank` is the raw BM25 score and compares only results with the same `match`; use the array order.
+Results are ranked best first. Plain words must all appear in a result; when fewer than `-limit` results contain every word, the rest are filled with results that contain only some of them (common words such as "how" or "the" are ignored), listed after the full matches and marked `(partial match)`. With `-json`, each result's `match` is `all` or `partial`. Queries using FTS5 syntax (quotes, `*`, parentheses, `AND`, `OR`, `NOT`, `NEAR`, column filters such as `title:`) are never relaxed. `rank` is the raw BM25 score and compares only results with the same `match`; use the array order.
 
 | Flag | Type | Description | Default |
 |------|------|-------------|---------|
