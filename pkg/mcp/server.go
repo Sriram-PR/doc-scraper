@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -18,6 +19,9 @@ import (
 )
 
 const serverName = "doc-scraper"
+
+// The tool set is fixed at startup.
+const toolsListCacheTTL = time.Hour
 
 var serverVersion = version.Version
 
@@ -51,7 +55,7 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 	mcpServer := server.NewMCPServer(
 		serverName,
 		serverVersion,
-		server.WithLogging(),
+		server.WithMethodCacheHints(mcp.MethodToolsList, toolsListCacheTTL.Milliseconds(), mcp.CacheScopePrivate),
 	)
 
 	logEntry := cfg.Logger.With("component", "mcp")

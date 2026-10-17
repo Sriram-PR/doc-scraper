@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -182,4 +183,31 @@ func TestRunCrawlJob_IncrementalJobCrawlsIncrementally(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, latest)
 	assert.Equal(t, index.ModeIncremental, latest.Mode)
+}
+
+func handleRaw(t *testing.T, s *Server, msg string) map[string]any {
+	t.Helper()
+	b, err := json.Marshal(s.mcpServer.HandleMessage(context.Background(), json.RawMessage(msg)))
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(b, &out))
+	require.Contains(t, out, "result", "response: %s", b)
+	return out["result"].(map[string]any)
+}
+
+// Logging is deprecated in protocol 2026-07-28 and the server never sends
+// notifications/message, so it must not advertise the capability.
+func TestNewServer_DoesNotAdvertiseLogging(t *testing.T) {
+	s := newStdioTestServer(t)
+	caps := handleRaw(t, s, stdioInitialize)["capabilities"].(map[string]any)
+	assert.NotContains(t, caps, "logging")
+	assert.Contains(t, caps, "tools")
+}
+
+func TestToolsList_AdvertisesCacheTTL(t *testing.T) {
+	s := newStdioTestServer(t)
+	res := handleRaw(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{`+
+		`"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`)
+	assert.EqualValues(t, toolsListCacheTTL.Milliseconds(), res["ttlMs"])
+	assert.Equal(t, "private", res["cacheScope"])
 }
