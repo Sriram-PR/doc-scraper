@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -307,7 +308,12 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Info("Starting MCP server with stdio transport")
 	go s.backfillChunks(ctx)
-	return server.NewStdioServer(s.mcpServer).Listen(ctx, os.Stdin, os.Stdout)
+	return s.serve(ctx, os.Stdin, os.Stdout)
+}
+
+func (s *Server) serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	d := newStdioDrain(ctx, stdinEOFDrainTimeout, s.log)
+	return server.NewStdioServer(s.mcpServer).Listen(ctx, d.reader(in), d.writer(out))
 }
 
 // backfillChunks indexes existing crawl output for sites that predate the
