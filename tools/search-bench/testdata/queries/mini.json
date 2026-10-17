@@ -1,0 +1,11 @@
+{
+  "site_key": "mini",
+  "queries": [
+    {"id": "mini-01", "query": "exponential backoff", "tags": ["keyword"],
+     "expected": [{"url": "https://mini.example/retries"}]},
+    {"id": "mini-02", "query": "how many attempts", "tags": ["question"],
+     "expected": [{"url": "https://mini.example/retries", "anchor": "limits"}]},
+    {"id": "mini-03", "query": "uninstall", "tags": ["keyword", "mismatch"],
+     "expected": [{"url": "https://mini.example/install"}]}
+  ]
+}
