@@ -389,20 +389,22 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 		return errResult, nil
 	}
 
-	if s.jobManager.IsRunning(siteKey) {
-		existingJob := s.jobManager.GetJobBySite(siteKey)
-		return structuredResult(crawlSiteResult{
-			Status:      "already_running",
-			Message:     "A crawl is already in progress for this site",
-			JobID:       existingJob.ID,
-			SiteKey:     siteKey,
-			Incremental: existingJob.Incremental,
-		}), nil
-	}
-
-	job, err := s.jobManager.CreateJob(siteKey, incremental)
+	job, created, err := s.jobManager.StartJob(ctx, siteKey, incremental, crawlRestartWait)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create job: %v", err)), nil
+	}
+	if !created {
+		message := "A crawl is already in progress for this site"
+		if isTerminalStatus(job.Status) {
+			message = "The previous crawl for this site is still shutting down; try again shortly"
+		}
+		return structuredResult(crawlSiteResult{
+			Status:      "already_running",
+			Message:     message,
+			JobID:       job.ID,
+			SiteKey:     siteKey,
+			Incremental: job.Incremental,
+		}), nil
 	}
 
 	go s.runCrawlJob(job, siteCfg, siteKey)
@@ -433,7 +435,13 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 	return structuredResult(summarizeJob(job)), nil
 }
 
+// crawlRestartWait bounds how long crawl_site waits for a cancelled crawl of
+// the same site to close its store.
+const crawlRestartWait = 30 * time.Second
+
 func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string) {
+	// Deferred first so it runs last, after the store is closed.
+	defer s.jobManager.FinishJob(job.ID)
 	s.jobManager.UpdateStatus(job.ID, JobStatusRunning, "")
 
 	jobCtx := s.jobManager.GetContext(job.ID)

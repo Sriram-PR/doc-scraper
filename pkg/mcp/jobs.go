@@ -70,6 +70,11 @@ type JobProgress struct {
 	Unchanged int64
 }
 
+type siteWorker struct {
+	job  *Job
+	done chan struct{}
+}
+
 type jobsFile struct {
 	Version int    `json:"version"`
 	Jobs    []*Job `json:"jobs"`
@@ -79,6 +84,10 @@ type JobManager struct {
 	jobs   map[string]*Job
 	mu     sync.RWMutex
 	bysite map[string]string // siteKey -> jobID for running jobs
+	// workers holds each site whose crawl goroutine has not returned yet. It
+	// outlives bysite after a cancel, while the crawl unwinds with the site's
+	// store still open.
+	workers map[string]*siteWorker
 
 	persistPath string // empty disables persistence
 	log         *slog.Logger
@@ -100,6 +109,7 @@ func NewJobManager(persistPath string, log *slog.Logger) *JobManager {
 	m := &JobManager{
 		jobs:        make(map[string]*Job),
 		bysite:      make(map[string]string),
+		workers:     make(map[string]*siteWorker),
 		persistPath: persistPath,
 		log:         log,
 	}
@@ -319,15 +329,81 @@ func (m *JobManager) Stop() {
 // otherwise creates and returns a new one.
 func (m *JobManager) CreateJob(siteKey string, incremental bool) (*Job, error) {
 	m.mu.Lock()
+	if job := m.activeJobLocked(siteKey); job != nil {
+		m.mu.Unlock()
+		return job, nil
+	}
+	job := m.newJobLocked(siteKey, incremental)
+	m.mu.Unlock()
 
-	if existingJobID, exists := m.bysite[siteKey]; exists {
-		existingJob := m.jobs[existingJobID]
-		if existingJob != nil && (existingJob.Status == JobStatusPending || existingJob.Status == JobStatusRunning) {
+	m.flush()
+	return job, nil
+}
+
+// StartJob creates a job for siteKey and reserves the site for its crawl until
+// FinishJob. created is false when the site already has an active job, which
+// is returned instead. If an earlier crawl is still shutting down, StartJob
+// waits up to wait for it and then returns that job with created false.
+func (m *JobManager) StartJob(ctx context.Context, siteKey string, incremental bool, wait time.Duration) (job *Job, created bool, err error) {
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	for {
+		m.mu.Lock()
+		if active := m.activeJobLocked(siteKey); active != nil {
+			view := viewLocked(active)
 			m.mu.Unlock()
-			return existingJob, nil
+			return view, false, nil
+		}
+		w := m.workers[siteKey]
+		if w == nil {
+			job := m.newJobLocked(siteKey, incremental)
+			m.workers[siteKey] = &siteWorker{job: job, done: make(chan struct{})}
+			m.mu.Unlock()
+			m.flush()
+			return job, true, nil
+		}
+		m.mu.Unlock()
+
+		select {
+		case <-w.done:
+		case <-timer.C:
+			m.mu.RLock()
+			view := viewLocked(w.job)
+			m.mu.RUnlock()
+			return view, false, nil
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
 		}
 	}
+}
 
+// FinishJob releases the site reservation StartJob took for jobID. Call it once
+// the crawl has closed everything it opened.
+func (m *JobManager) FinishJob(jobID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for site, w := range m.workers {
+		if w.job.ID == jobID {
+			close(w.done)
+			delete(m.workers, site)
+			return
+		}
+	}
+}
+
+// activeJobLocked returns siteKey's pending or running job, or nil. Caller must
+// hold m.mu.
+func (m *JobManager) activeJobLocked(siteKey string) *Job {
+	job := m.jobs[m.bysite[siteKey]]
+	if job != nil && (job.Status == JobStatusPending || job.Status == JobStatusRunning) {
+		return job
+	}
+	return nil
+}
+
+// newJobLocked registers a pending job as siteKey's active job. Caller must
+// hold m.mu.
+func (m *JobManager) newJobLocked(siteKey string, incremental bool) *Job {
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &Job{
 		ID:          uuid.New().String(),
@@ -339,13 +415,9 @@ func (m *JobManager) CreateJob(siteKey string, incremental bool) (*Job, error) {
 		ctx:         ctx,
 		cancel:      cancel,
 	}
-
 	m.jobs[job.ID] = job
 	m.bysite[siteKey] = job.ID
-	m.mu.Unlock()
-
-	m.flush()
-	return job, nil
+	return job
 }
 
 // GetJob returns a copy of the job with live progress, or nil.
@@ -375,11 +447,15 @@ func (m *JobManager) IsRunning(siteKey string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if jobID, exists := m.bysite[siteKey]; exists {
-		job := m.jobs[jobID]
-		return job != nil && (job.Status == JobStatusPending || job.Status == JobStatusRunning)
+	return m.activeJobLocked(siteKey) != nil
+}
+
+// releaseSiteLocked frees job's site unless a newer job has already taken it.
+// Caller must hold m.mu.
+func (m *JobManager) releaseSiteLocked(job *Job) {
+	if m.bysite[job.SiteKey] == job.ID {
+		delete(m.bysite, job.SiteKey)
 	}
-	return false
 }
 
 func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg string) {
@@ -389,7 +465,7 @@ func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg strin
 		job.Status = status
 		if status == JobStatusCompleted || status == JobStatusFailed || status == JobStatusCancelled {
 			job.CompletedAt = time.Now()
-			delete(m.bysite, job.SiteKey)
+			m.releaseSiteLocked(job)
 		}
 		if errorMsg != "" {
 			job.ErrorMessage = errorMsg
@@ -448,7 +524,7 @@ func (m *JobManager) CancelJob(jobID string) bool {
 			job.cancel()
 			job.Status = JobStatusCancelled
 			job.CompletedAt = time.Now()
-			delete(m.bysite, job.SiteKey)
+			m.releaseSiteLocked(job)
 			cancelled = true
 		}
 	}

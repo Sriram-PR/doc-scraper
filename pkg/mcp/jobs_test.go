@@ -655,3 +655,137 @@ func TestLegacyJobsWithoutSeqStillOrderTotally(t *testing.T) {
 	}
 	require.Len(t, want, 3, "legacy jobs")
 }
+
+// A cancelled crawl reports its final status after a new job has taken the
+// site; that late report must not free the new job's slot.
+func TestUpdateStatus_StaleJobKeepsNewerJobActive(t *testing.T) {
+	jm := NewJobManager("", nil)
+	old := createTestJob(t, jm, "docs", false)
+	require.True(t, jm.CancelJob(old.ID))
+	newer := createTestJob(t, jm, "docs", false)
+
+	jm.UpdateStatus(old.ID, JobStatusCancelled, "")
+
+	assert.True(t, jm.IsRunning("docs"))
+	got := jm.GetJobBySite("docs")
+	require.NotNil(t, got)
+	assert.Equal(t, newer.ID, got.ID)
+}
+
+func startTestJob(t *testing.T, jm *JobManager, siteKey string, wait time.Duration) (*Job, bool) {
+	t.Helper()
+	job, created, err := jm.StartJob(context.Background(), siteKey, false, wait)
+	require.NoError(t, err)
+	require.NotNil(t, job)
+	return job, created
+}
+
+func TestStartJob_ReturnsActiveJob(t *testing.T) {
+	jm := NewJobManager("", nil)
+	first, created := startTestJob(t, jm, "docs", time.Second)
+	require.True(t, created)
+
+	again, created := startTestJob(t, jm, "docs", time.Second)
+	assert.False(t, created)
+	assert.Equal(t, first.ID, again.ID)
+}
+
+// A cancelled crawl still holds the site's store until its goroutine exits, so
+// the next job must wait for FinishJob instead of starting alongside it.
+func TestStartJob_WaitsForCancelledCrawlToFinish(t *testing.T) {
+	jm := NewJobManager("", nil)
+	old, _ := startTestJob(t, jm, "docs", time.Second)
+	require.True(t, jm.CancelJob(old.ID))
+
+	type started struct {
+		job     *Job
+		created bool
+	}
+	result := make(chan started, 1)
+	go func() {
+		job, created, err := jm.StartJob(context.Background(), "docs", false, 10*time.Second)
+		assert.NoError(t, err)
+		result <- started{job, created}
+	}()
+
+	select {
+	case <-result:
+		t.Fatal("StartJob returned while the cancelled crawl was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	jm.FinishJob(old.ID)
+	select {
+	case r := <-result:
+		assert.True(t, r.created)
+		assert.NotEqual(t, old.ID, r.job.ID)
+	case <-time.After(5 * time.Second):
+		t.Fatal("StartJob did not proceed after FinishJob")
+	}
+}
+
+func TestStartJob_GivesUpWhenCancelledCrawlOutlastsWait(t *testing.T) {
+	jm := NewJobManager("", nil)
+	old, _ := startTestJob(t, jm, "docs", time.Second)
+	require.True(t, jm.CancelJob(old.ID))
+
+	got, created := startTestJob(t, jm, "docs", 50*time.Millisecond)
+	assert.False(t, created)
+	assert.Equal(t, old.ID, got.ID)
+	assert.Equal(t, JobStatusCancelled, got.Status)
+}
+
+func TestStartJob_HonoursContextWhileWaiting(t *testing.T) {
+	jm := NewJobManager("", nil)
+	old, _ := startTestJob(t, jm, "docs", time.Second)
+	require.True(t, jm.CancelJob(old.ID))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err := jm.StartJob(ctx, "docs", false, 10*time.Second)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestStartJob_ConcurrentCallsCreateOneJob(t *testing.T) {
+	jm := NewJobManager("", nil)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	createdCount := 0
+	ids := map[string]bool{}
+	var errs []error
+	for range 20 {
+		wg.Go(func() {
+			job, created, err := jm.StartJob(context.Background(), "docs", false, time.Second)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, err)
+				return
+			}
+			ids[job.ID] = true
+			if created {
+				createdCount++
+			}
+		})
+	}
+	wg.Wait()
+	require.Empty(t, errs)
+	assert.Equal(t, 1, createdCount)
+	assert.Len(t, ids, 1)
+}
+
+func TestFinishJob_LeavesNewerReservationAlone(t *testing.T) {
+	jm := NewJobManager("", nil)
+	old, _ := startTestJob(t, jm, "docs", time.Second)
+	require.True(t, jm.CancelJob(old.ID))
+	jm.FinishJob(old.ID)
+	newer, created := startTestJob(t, jm, "docs", time.Second)
+	require.True(t, created)
+	require.True(t, jm.CancelJob(newer.ID))
+
+	jm.FinishJob(old.ID)
+
+	got, created := startTestJob(t, jm, "docs", 50*time.Millisecond)
+	assert.False(t, created, "the newer crawl has not finished, so the site is still reserved")
+	assert.Equal(t, newer.ID, got.ID)
+}

@@ -263,3 +263,35 @@ func TestGetFreshness_RunningJobReportsPagesUnchanged(t *testing.T) {
 		t.Logf("last get_freshness: %v", last)
 	}
 }
+
+// cancel_crawl returns before the cancelled crawl has closed its store, and a
+// fresh crawl discards staging; crawl_site must wait for the old crawl or the
+// two crawls share the site's files (this crashed the server with SIGBUS).
+func TestCrawlSite_RestartRightAfterCancel(t *testing.T) {
+	s, _, _, _ := newCrawlJobServer(t, "docs")
+
+	for range 50 {
+		_, first := callJSON(t, s.handleCrawlSite, map[string]any{"site_key": "docs"})
+		require.Equal(t, "started", first["status"])
+		_, _ = callJSON(t, s.handleCancelCrawl, map[string]any{"job_id": first["job_id"]})
+
+		_, second := callJSON(t, s.handleCrawlSite, map[string]any{"site_key": "docs"})
+		require.Equal(t, "started", second["status"])
+		id := second["job_id"].(string)
+		require.Eventually(t, func() bool {
+			return isTerminalStatus(s.jobManager.GetJob(id).Status)
+		}, 10*time.Second, 5*time.Millisecond)
+		job := s.jobManager.GetJob(id)
+		require.Equal(t, JobStatusCompleted, job.Status, job.ErrorMessage)
+		waitForSiteReleased(t, s, "docs")
+	}
+}
+
+func waitForSiteReleased(t *testing.T, s *Server, siteKey string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		s.jobManager.mu.RLock()
+		defer s.jobManager.mu.RUnlock()
+		return s.jobManager.workers[siteKey] == nil
+	}, 10*time.Second, 5*time.Millisecond)
+}
