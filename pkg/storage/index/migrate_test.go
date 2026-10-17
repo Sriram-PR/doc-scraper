@@ -248,7 +248,9 @@ func TestMigrateReleasesLockAfterFailure(t *testing.T) {
 	select {
 	case err := <-done:
 		require.NoError(t, err, "Open after failed migration")
-	case <-time.After(3 * time.Second):
+	// Longer than busy_timeout, so a held lock fails Open above instead of
+	// timing out here; the margin is for slow Windows runners.
+	case <-time.After(20 * time.Second):
 		t.Fatal("Open blocked after a failed migration; the write lock was not released")
 	}
 }
