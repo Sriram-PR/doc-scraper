@@ -354,3 +354,53 @@ func TestSearchStagedSkipsFillWhenFull(t *testing.T) {
 	assert.Len(t, results, 3)
 	assert.Equal(t, 1, calls)
 }
+
+func TestRelaxedFTSQueriesExpandsSynonyms(t *testing.T) {
+	withSynonyms(t, [][]string{{"autocomplete", "completion"}, {"query string", "url parameters"}})
+	cases := map[string][]ftsRewrite{
+		"how do I read query string parameters": {
+			{match: `"read" "query" "string" "parameters"`},
+			{match: `"read" AND ("query string" OR "url parameters") AND "parameters"`, partial: true},
+			{match: `"read" OR "query" OR "string" OR "url parameters" OR "parameters"`, partial: true},
+		},
+		"Autocomplete setup": {
+			{match: `("Autocomplete" OR "completion") AND "setup"`, partial: true},
+			{match: `"Autocomplete" OR "completion" OR "setup"`, partial: true},
+		},
+		"autocomplete":            {{match: `("autocomplete" OR "completion")`, partial: true}},
+		"install":                 nil,
+		`"autocomplete"`:          nil,
+		"autocomplete*":           nil,
+		"title:autocomplete zsh":  nil,
+		"autocomplete OR install": nil,
+		"how do I":                {{match: `"how" OR "do" OR "I"`, partial: true}},
+	}
+	for q, want := range cases {
+		assert.Equal(t, want, relaxedFTSQueries(q), q)
+	}
+}
+
+func TestSearchChunksFillsFromSynonyms(t *testing.T) {
+	withSynonyms(t, [][]string{{"autocomplete", "completion"}})
+	idx := newTestIndex(t, 5)
+	filler := strings.Repeat("filler ", 40)
+	seedPage(t, idx, "s", "https://e/api", "API", "h1", "# API\n\nThe autocomplete hook. "+filler)
+	seedPage(t, idx, "s", "https://e/completion", "Shell completion", "h2", "# Shell completion\n\nEnable completion for zsh. "+filler)
+	seedPage(t, idx, "s", "https://e/other", "Other", "h3", "# Other\n\nNothing relevant here. "+filler)
+	ctx := context.Background()
+
+	results, err := idx.SearchChunks(ctx, "autocomplete", "", 5)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://e/api", "https://e/completion"}, resultURLs(results))
+	assert.Equal(t, []string{MatchAll, MatchPartial}, []string{results[0].Match, results[1].Match})
+
+	results, err = idx.SearchChunks(ctx, "autocomplete", "", 1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://e/api"}, resultURLs(results), "a full strict result list gets no synonym fill")
+
+	results, err = idx.SearchChunks(ctx, "how do I enable autocomplete for zsh", "", 5)
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	assert.Equal(t, "https://e/completion", results[0].URL, "the synonym AND stage ranks the page with every concept first")
+	assert.Equal(t, MatchPartial, results[0].Match)
+}

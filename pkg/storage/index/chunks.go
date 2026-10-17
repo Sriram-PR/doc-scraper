@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -250,18 +251,16 @@ type ftsRewrite struct {
 // "-text:x") on the chunks_fts columns; other colons ("std::env") are text.
 var ftsColumnFilter = regexp.MustCompile(`(?i)(^|[\s{-])(title|heading_path|text|identifiers)\s*}?\s*:`)
 
-// relaxedFTSQueries returns fallback query rewrites for a plain multi-word
-// query, in decreasing precision. Queries using explicit FTS5 syntax (quotes,
-// prefixes, grouping, operators, column filters) are taken as intentional and
-// never rewritten.
+// relaxedFTSQueries returns fallback query rewrites for a plain query, in
+// decreasing precision: content-word AND, synonym AND, then OR (with synonyms).
+// A single word gets a rewrite only when it has synonyms. Queries using
+// explicit FTS5 syntax (quotes, prefixes, grouping, operators, column filters)
+// are taken as intentional and never rewritten.
 func relaxedFTSQueries(query string) []ftsRewrite {
 	if strings.ContainsAny(query, `"*()`) || ftsColumnFilter.MatchString(query) {
 		return nil
 	}
 	terms := strings.Fields(query)
-	if len(terms) < 2 {
-		return nil
-	}
 	var content []string
 	for _, t := range terms {
 		switch t {
@@ -269,25 +268,54 @@ func relaxedFTSQueries(query string) []ftsRewrite {
 			return nil
 		}
 		if _, stop := ftsStopwords[strings.ToLower(t)]; !stop {
-			content = append(content, `"`+t+`"`)
+			content = append(content, t)
 		}
+	}
+	groups := expandTerms(content)
+	expanded := slices.ContainsFunc(groups, func(g termGroup) bool { return len(g.alts) > 0 })
+	if len(terms) < 2 && !expanded {
+		return nil
 	}
 
 	var out []ftsRewrite
 	if n := len(content); n > 0 && n < len(terms) {
-		out = append(out, ftsRewrite{match: strings.Join(content, " ")})
+		out = append(out, ftsRewrite{match: joinQuoted(content, " ")})
 	}
+	if expanded {
+		and := make([]string, 0, len(groups))
+		for _, g := range groups {
+			if len(g.alts) == 0 {
+				and = append(and, quoteFTS(g.text))
+				continue
+			}
+			and = append(and, "("+joinQuoted(append([]string{g.text}, g.alts...), " OR ")+")")
+		}
+		// FTS5 only ANDs bare phrases implicitly, not parenthesized groups.
+		out = append(out, ftsRewrite{match: strings.Join(and, " AND "), partial: true})
+	}
+	// One content word: the OR stage would repeat the synonym AND stage.
 	if len(content) >= 2 {
-		out = append(out, ftsRewrite{match: strings.Join(content, " OR "), partial: true})
+		var or []string
+		for _, g := range groups {
+			or = append(or, strings.Fields(g.text)...)
+			or = append(or, g.alts...)
+		}
+		out = append(out, ftsRewrite{match: joinQuoted(or, " OR "), partial: true})
 	}
 	if len(content) == 0 {
-		all := make([]string, 0, len(terms))
-		for _, t := range terms {
-			all = append(all, `"`+t+`"`)
-		}
-		out = append(out, ftsRewrite{match: strings.Join(all, " OR "), partial: true})
+		out = append(out, ftsRewrite{match: joinQuoted(terms, " OR "), partial: true})
 	}
 	return out
+}
+
+func quoteFTS(s string) string { return `"` + s + `"` }
+
+func joinQuoted(words []string, sep string) string {
+	quoted := make([]string, len(words))
+	for i, w := range words {
+		quoted[i] = quoteFTS(w)
+	}
+	return strings.Join(quoted, sep)
 }
 
 // searchChunksRaw runs one MATCH, skipping chunk ids in exclude, and returns
