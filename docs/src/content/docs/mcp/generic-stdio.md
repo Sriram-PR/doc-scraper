@@ -38,8 +38,8 @@ printf '%s\n' \
 ```
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"logging":{},"tools":{"listChanged":true}},"serverInfo":{"name":"doc-scraper","version":"2.13.2"}}}
-{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\n  \"config_path\": \"/tmp/mcpdemo/config.yaml\",\n  \"sites\": [\n    {\n      \"domain\": \"example.com\",\n      \"key\": \"demo\",\n      \"max_depth\": 0,\n      \"path_prefix\": \"\",\n      \"start_urls_count\": 1\n    }\n  ],\n  \"total_sites\": 1\n}"}]}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"doc-scraper","version":"2.13.2"}}}
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"sites\":[{\"key\":\"demo\",\"domain\":\"example.com\",\"path_prefix\":\"\",\"start_urls_count\":1,\"max_depth\":0}],\"config_path\":\"/tmp/mcpdemo/config.yaml\",\"total_sites\":1}"}],"structuredContent":{"sites":[{"key":"demo","domain":"example.com","path_prefix":"","start_urls_count":1,"max_depth":0}],"config_path":"/tmp/mcpdemo/config.yaml","total_sites":1}}}
 ```
 
-Output from doc-scraper 2.13.2, 2026-10-17. Tool results are JSON documents carried in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
+Output from doc-scraper 2.13.2, 2026-10-17. Each tool result carries the data twice: as structuredContent, which matches the tool's outputSchema, and as the same JSON in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
