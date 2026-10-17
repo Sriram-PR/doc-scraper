@@ -391,6 +391,27 @@ func (m *JobManager) FinishJob(jobID string) {
 	}
 }
 
+// WaitIdle waits until every crawl started with StartJob has called FinishJob,
+// or ctx is done.
+func (m *JobManager) WaitIdle(ctx context.Context) error {
+	for {
+		m.mu.RLock()
+		var w *siteWorker
+		for _, w = range m.workers {
+			break
+		}
+		m.mu.RUnlock()
+		if w == nil {
+			return nil
+		}
+		select {
+		case <-w.done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
 // activeJobLocked returns siteKey's pending or running job, or nil. Caller must
 // hold m.mu.
 func (m *JobManager) activeJobLocked(siteKey string) *Job {

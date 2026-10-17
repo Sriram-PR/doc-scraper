@@ -364,6 +364,10 @@ func (s *Server) backfillChunks(ctx context.Context) {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.log.Info("Shutting down MCP server...")
 	s.jobManager.CancelAll()
+	// Cancelled crawls still close their stores and finish index writes.
+	if err := s.jobManager.WaitIdle(ctx); err != nil {
+		s.log.Warn("crawls still running at shutdown", "err", err)
+	}
 	s.jobManager.Stop()
 	if s.idx != nil {
 		if err := s.idx.Close(); err != nil {

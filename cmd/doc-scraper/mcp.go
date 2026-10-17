@@ -106,10 +106,12 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 
 	runErr := server.Run(ctx)
 
-	// Bound cleanup so a stuck Shutdown can't hang the process: Shutdown is
-	// synchronous and ignores its context, so race it against a timer here.
+	// Bound cleanup so a stuck Shutdown can't hang the process. The context
+	// only bounds the wait for cancelled crawls, so also race it against a timer.
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancelShutdown()
 	done := make(chan struct{})
-	go func() { defer close(done); _ = server.Shutdown(context.Background()) }()
+	go func() { defer close(done); _ = server.Shutdown(shutdownCtx) }()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):

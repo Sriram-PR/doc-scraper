@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -294,4 +295,31 @@ func waitForSiteReleased(t *testing.T, s *Server, siteKey string) {
 		defer s.jobManager.mu.RUnlock()
 		return s.jobManager.workers[siteKey] == nil
 	}, 10*time.Second, 5*time.Millisecond)
+}
+
+// Shutdown closes the index after cancelling jobs; it must first let the
+// cancelled crawls finish closing their stores and index writes.
+func TestShutdown_WaitsForCancelledCrawls(t *testing.T) {
+	inFlight := make(chan struct{}, 1)
+	s, _, _ := newCrawlJobServerWith(t, "docs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case inFlight <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done()
+	}))
+
+	_, started := callJSON(t, s.handleCrawlSite, map[string]any{"site_key": "docs"})
+	require.Equal(t, "started", started["status"])
+	select {
+	case <-inFlight:
+	case <-time.After(10 * time.Second):
+		t.Fatal("crawl never requested a page")
+	}
+
+	require.NoError(t, s.Shutdown(context.Background()))
+
+	s.jobManager.mu.RLock()
+	defer s.jobManager.mu.RUnlock()
+	assert.Empty(t, s.jobManager.workers, "Shutdown returned while a crawl was still running")
 }

@@ -789,3 +789,12 @@ func TestFinishJob_LeavesNewerReservationAlone(t *testing.T) {
 	assert.False(t, created, "the newer crawl has not finished, so the site is still reserved")
 	assert.Equal(t, newer.ID, got.ID)
 }
+
+func TestWaitIdle_GivesUpWhenContextEnds(t *testing.T) {
+	jm := NewJobManager("", nil)
+	startTestJob(t, jm, "docs", time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	assert.ErrorIs(t, jm.WaitIdle(ctx), context.DeadlineExceeded)
+}
