@@ -14,9 +14,10 @@ import (
 
 // SearchResult is one ranked full-text hit. Rank is the raw BM25 score from
 // SQLite (more negative = better match) for the query stage that found it, so
-// it compares only between results with the same Match; Snippet has match terms wrapped in
-// [ ] and elisions marked with an ellipsis. Anchor is the matched section's
-// URL fragment; append it to URL as "#anchor" to deep-link the section.
+// it compares only between results with the same Match; Snippet has match
+// terms wrapped in [ ] and elisions marked with an ellipsis. Anchor is the
+// matched section's URL fragment; append it to URL as "#anchor" to deep-link
+// the section.
 type SearchResult struct {
 	SiteKey     string  `json:"site_key"`
 	URL         string  `json:"url"`

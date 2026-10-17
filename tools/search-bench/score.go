@@ -37,7 +37,6 @@ type queryResult struct {
 // scoreQuery scores hits in the order SearchChunks returned them, which is the
 // ranking callers see.
 func scoreQuery(hits []hit, expected []target) queryResult {
-
 	wantPage := make(map[string]bool, len(expected))
 	wantSection := make(map[target]bool)
 	for _, t := range expected {

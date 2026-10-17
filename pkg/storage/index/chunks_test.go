@@ -202,6 +202,19 @@ func TestSearchChunksBreaksTiesByURL(t *testing.T) {
 	assert.Equal(t, []string{"https://e/a", "https://e/b", "https://e/c"}, urls)
 }
 
+func TestSearchChunksBreaksURLTiesByAnchor(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	section := "Identical wording scores identically. " + strings.Repeat("filler ", 40)
+	seedPage(t, idx, "s", "https://e/a", "Tie", "h", "# Tie\n\nAn unrelated introduction. "+strings.Repeat("filler ", 40)+"\n\n## Zeta\n\n"+section+"\n\n## Beta\n\n"+section)
+	results, err := idx.SearchChunks(context.Background(), "identical wording", "", 10)
+	require.NoError(t, err)
+	anchors := make([]string, 0, len(results))
+	for _, r := range results {
+		anchors = append(anchors, r.Anchor)
+	}
+	assert.Equal(t, []string{"beta", "zeta"}, anchors)
+}
+
 func seedFillCorpus(t *testing.T, idx *Index) {
 	t.Helper()
 	filler := strings.Repeat("filler ", 40)
