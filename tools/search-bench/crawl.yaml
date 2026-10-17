@@ -1,0 +1,73 @@
+# Corpora for tools/search-bench. Run from the repo root:
+#
+#   doc-scraper crawl -config tools/search-bench/crawl.yaml -all-sites
+#
+# Scope and selectors follow the examples in config.yaml; depth is unlimited
+# and API reference pages are kept, since the benchmark asks API questions.
+default_delay_per_host: 500ms
+num_workers: 4
+num_image_workers: 1
+max_requests: 16
+max_requests_per_host: 2
+output_base_dir: "./.audit/search-bench/corpora"
+state_dir: "./.audit/search-bench/state"
+
+max_retries: 3
+initial_retry_delay: 1s
+max_retry_delay: 30s
+per_page_timeout: 60s
+
+skip_images: true
+enable_jsonl_output: true
+jsonl_output_filename: "pages.jsonl"
+
+http_client_settings:
+  timeout: 45s
+
+sites:
+  rust_cli_book:
+    start_urls:
+      - "https://rust-cli.github.io/book/index.html"
+    allowed_domain: "rust-cli.github.io"
+    allowed_path_prefix: "/book/"
+    content_selector: "main"
+    link_extraction_selectors:
+      - "nav#sidebar"
+      - "nav.nav-wrapper"
+      - "main"
+    max_depth: 0
+    respect_nofollow: true
+    disallowed_path_patterns:
+      - "/book/print\\.html$"
+      - "/book/.*\\?.*"
+
+  click:
+    start_urls:
+      - "https://click.palletsprojects.com/en/stable/"
+    allowed_domain: "click.palletsprojects.com"
+    allowed_path_prefix: "/en/stable/"
+    content_selector: "div.body, article"
+    max_depth: 0
+    disallowed_path_patterns:
+      - "/en/stable/changes/.*"
+
+  flask:
+    start_urls:
+      - "https://flask.palletsprojects.com/en/stable/"
+    allowed_domain: "flask.palletsprojects.com"
+    allowed_path_prefix: "/en/stable/"
+    content_selector: "auto"
+    max_depth: 0
+    disallowed_path_patterns:
+      - "/en/stable/changes/.*"
+
+  fastapi:
+    start_urls:
+      - "https://fastapi.tiangolo.com/"
+    allowed_domain: "fastapi.tiangolo.com"
+    allowed_path_prefix: "/"
+    content_selector: "article.md-content__inner, .md-content article, .md-content"
+    max_depth: 0
+    disallowed_path_patterns:
+      - "^/[a-z]{2}(-[a-z]+)?/"
+      - "^/release-notes/"
