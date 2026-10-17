@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -126,4 +127,69 @@ type readPageResult struct {
 	Headings      []string `json:"headings"`
 	Source        string   `json:"source"`
 	NextOffset    *int     `json:"next_offset,omitempty" jsonschema_description:"Pass as offset to read the next part; present only when truncated"`
+}
+
+type jobSummary struct {
+	JobID           string    `json:"job_id"`
+	SiteKey         string    `json:"site_key"`
+	Status          JobStatus `json:"status" jsonschema_description:"pending, running, completed, failed or cancelled"`
+	StartedAt       string    `json:"started_at"`
+	PagesProcessed  int64     `json:"pages_processed"`
+	PagesQueued     int64     `json:"pages_queued"`
+	PagesUnchanged  int64     `json:"pages_unchanged" jsonschema_description:"Incremental re-checks whose content had not changed; not counted in pages_processed"`
+	Incremental     bool      `json:"incremental"`
+	CompletedAt     string    `json:"completed_at,omitempty"`
+	DurationSeconds *float64  `json:"duration_seconds,omitempty" jsonschema_description:"Present once completed_at is"`
+	ErrorMessage    string    `json:"error_message,omitempty"`
+}
+
+func summarizeJob(j *Job) jobSummary {
+	sum := jobSummary{
+		JobID:          j.ID,
+		SiteKey:        j.SiteKey,
+		Status:         j.Status,
+		StartedAt:      j.StartedAt.Format(time.RFC3339),
+		PagesProcessed: j.PagesProcessed,
+		PagesQueued:    j.PagesQueued,
+		PagesUnchanged: j.PagesUnchanged,
+		Incremental:    j.Incremental,
+		ErrorMessage:   j.ErrorMessage,
+	}
+	if !j.CompletedAt.IsZero() {
+		sum.CompletedAt = j.CompletedAt.Format(time.RFC3339)
+		d := j.CompletedAt.Sub(j.StartedAt).Seconds()
+		sum.DurationSeconds = &d
+	}
+	return sum
+}
+
+type crawlSiteResult struct {
+	Status      string `json:"status" jsonschema_description:"started, or already_running when a crawl for the site is in progress"`
+	Message     string `json:"message"`
+	JobID       string `json:"job_id"`
+	SiteKey     string `json:"site_key"`
+	Incremental bool   `json:"incremental"`
+}
+
+type serverIdentity struct {
+	Name       string `json:"name"`
+	Version    string `json:"version"`
+	ConfigPath string `json:"config_path"`
+}
+
+type serverSite struct {
+	Key         string `json:"key"`
+	Domain      string `json:"domain"`
+	LastCrawled string `json:"last_crawled,omitempty"`
+	Status      string `json:"status,omitempty" jsonschema_description:"\"running\" while a crawl is active; absent otherwise"`
+}
+
+type describeServerResult struct {
+	Server      serverIdentity `json:"server"`
+	Sites       []serverSite   `json:"sites"`
+	RecentJobs  []jobSummary   `json:"recent_jobs" jsonschema_description:"Newest first, at most 20"`
+	TotalSites  int            `json:"total_sites"`
+	TotalJobs   int            `json:"total_jobs"`
+	JobsCapped  bool           `json:"jobs_capped"`
+	NextActions string         `json:"next_actions"`
 }

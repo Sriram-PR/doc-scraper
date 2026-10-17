@@ -99,67 +99,46 @@ func (s *Server) handleCancelCrawl(ctx context.Context, request mcp.CallToolRequ
 func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	siteKeys := config.GetAllSiteKeys(s.cfg.AppConfig)
 
-	sites := make([]map[string]interface{}, 0, len(siteKeys))
+	sites := make([]serverSite, 0, len(siteKeys))
 	for _, key := range siteKeys {
 		siteCfg := s.cfg.AppConfig.Sites[key]
-		entry := map[string]interface{}{
-			"key":    key,
-			"domain": siteCfg.AllowedDomain,
-		}
+		site := serverSite{Key: key, Domain: siteCfg.AllowedDomain}
 		if lastCrawled := s.getLastCrawledTime(key, siteCfg); !lastCrawled.IsZero() {
-			entry["last_crawled"] = lastCrawled.Format(time.RFC3339)
+			site.LastCrawled = lastCrawled.Format(time.RFC3339)
 		}
 		if s.jobManager.IsRunning(key) {
-			entry["status"] = "running"
+			site.Status = "running"
 		}
-		sites = append(sites, entry)
+		sites = append(sites, site)
 	}
 
 	// Newest first, capped so the payload stays small for long-running servers.
 	allJobs := s.jobManager.ListJobs()
 	sortJobsNewestFirst(allJobs)
 	const maxJobs = 20
-	if len(allJobs) > maxJobs {
+	capped := len(allJobs) > maxJobs
+	if capped {
 		allJobs = allJobs[:maxJobs]
 	}
-	jobs := make([]map[string]interface{}, 0, len(allJobs))
+	jobs := make([]jobSummary, 0, len(allJobs))
 	for _, j := range allJobs {
-		entry := map[string]interface{}{
-			"job_id":          j.ID,
-			"site_key":        j.SiteKey,
-			"status":          j.Status,
-			"started_at":      j.StartedAt.Format(time.RFC3339),
-			"pages_processed": j.PagesProcessed,
-			"pages_unchanged": j.PagesUnchanged,
-		}
-		if !j.CompletedAt.IsZero() {
-			entry["completed_at"] = j.CompletedAt.Format(time.RFC3339)
-		}
-		if j.ErrorMessage != "" {
-			entry["error_message"] = j.ErrorMessage
-		}
-		jobs = append(jobs, entry)
+		jobs = append(jobs, summarizeJob(j))
 	}
 
-	result := map[string]interface{}{
-		"server": map[string]interface{}{
-			"name":        serverName,
-			"version":     serverVersion,
-			"config_path": s.cfg.ConfigPath,
-		},
-		"sites":       sites,
-		"recent_jobs": jobs,
-		"total_sites": len(sites),
-		"total_jobs":  len(jobs),
-		"jobs_capped": len(s.jobManager.ListJobs()) > maxJobs,
-		"next_actions": "Use search_docs to find where something is documented, list_sites for " +
+	return structuredResult(describeServerResult{
+		Server:     serverIdentity{Name: serverName, Version: serverVersion, ConfigPath: s.cfg.ConfigPath},
+		Sites:      sites,
+		RecentJobs: jobs,
+		TotalSites: len(sites),
+		TotalJobs:  len(jobs),
+		JobsCapped: capped,
+		NextActions: "Use search_docs to find where something is documented, list_sites for " +
 			"full site config, list_pages to enumerate crawled pages, crawl_site to start a " +
 			"crawl, get_job_status to check a job, get_page to fetch a single URL, " +
 			"get_freshness to check how stale a site's crawl is, diff_crawl to see what " +
 			"changed since a given timestamp, read_page to read a crawled page's stored " +
 			"markdown, cancel_crawl to stop a running job.",
-	}
-	return mcp.NewToolResultText(formatJSON(result)), nil
+	}), nil
 }
 
 // pageListEntry is metadata only; full content goes through get_page so
@@ -412,13 +391,13 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 
 	if s.jobManager.IsRunning(siteKey) {
 		existingJob := s.jobManager.GetJobBySite(siteKey)
-		result := map[string]interface{}{
-			"status":   "already_running",
-			"message":  "A crawl is already in progress for this site",
-			"job_id":   existingJob.ID,
-			"site_key": siteKey,
-		}
-		return mcp.NewToolResultText(formatJSON(result)), nil
+		return structuredResult(crawlSiteResult{
+			Status:      "already_running",
+			Message:     "A crawl is already in progress for this site",
+			JobID:       existingJob.ID,
+			SiteKey:     siteKey,
+			Incremental: existingJob.Incremental,
+		}), nil
 	}
 
 	job, err := s.jobManager.CreateJob(siteKey, incremental)
@@ -428,15 +407,13 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 
 	go s.runCrawlJob(job, siteCfg, siteKey)
 
-	result := map[string]interface{}{
-		"status":      "started",
-		"message":     "Crawl started successfully",
-		"job_id":      job.ID,
-		"site_key":    siteKey,
-		"incremental": incremental,
-	}
-
-	return mcp.NewToolResultText(formatJSON(result)), nil
+	return structuredResult(crawlSiteResult{
+		Status:      "started",
+		Message:     "Crawl started successfully",
+		JobID:       job.ID,
+		SiteKey:     siteKey,
+		Incremental: incremental,
+	}), nil
 }
 
 func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -453,27 +430,7 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 		return mcp.NewToolResultError(fmt.Sprintf("job '%s' not found", jobID)), nil
 	}
 
-	result := map[string]interface{}{
-		"job_id":          job.ID,
-		"site_key":        job.SiteKey,
-		"status":          job.Status,
-		"started_at":      job.StartedAt.Format(time.RFC3339),
-		"pages_processed": job.PagesProcessed,
-		"pages_queued":    job.PagesQueued,
-		"pages_unchanged": job.PagesUnchanged,
-		"incremental":     job.Incremental,
-	}
-
-	if !job.CompletedAt.IsZero() {
-		result["completed_at"] = job.CompletedAt.Format(time.RFC3339)
-		result["duration_seconds"] = job.CompletedAt.Sub(job.StartedAt).Seconds()
-	}
-
-	if job.ErrorMessage != "" {
-		result["error_message"] = job.ErrorMessage
-	}
-
-	return mcp.NewToolResultText(formatJSON(result)), nil
+	return structuredResult(summarizeJob(job)), nil
 }
 
 func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string) {

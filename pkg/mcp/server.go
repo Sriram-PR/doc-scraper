@@ -135,6 +135,7 @@ func (s *Server) registerTools() {
 		mcp.WithBoolean("incremental",
 			mcp.Description("Enable incremental mode (skip unchanged pages)"),
 		),
+		outputSchemaFor[crawlSiteResult](),
 	)
 	addTool(crawlSiteTool, s.handleCrawlSite)
 
@@ -149,6 +150,7 @@ func (s *Server) registerTools() {
 			mcp.Required(),
 			mcp.Description("The job ID returned by crawl_site"),
 		),
+		outputSchemaFor[jobSummary](),
 	)
 	addTool(getJobStatusTool, s.handleGetJobStatus)
 
@@ -186,6 +188,7 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 				"require list_sites plus several get_job_status calls. The MCP tool list is "+
 				"already advertised by the protocol so it is not duplicated here.",
 		),
+		outputSchemaFor[describeServerResult](),
 	)
 	addTool(describeServerTool, s.handleDescribeServer)
 

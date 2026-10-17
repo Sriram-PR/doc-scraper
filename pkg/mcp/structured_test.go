@@ -166,3 +166,60 @@ func TestHandleReadPage_StructuredOutput(t *testing.T) {
 	assert.Equal(t, true, got["truncated"])
 	assert.Contains(t, got, "next_offset")
 }
+
+func TestHandleGetJobStatus_StructuredOutput(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	job, err := s.jobManager.CreateJob("docs", true)
+	require.NoError(t, err)
+
+	pending, _ := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
+	got := requireToolResultConforms(t, "get_job_status", pending)
+	assert.EqualValues(t, 0, got["pages_unchanged"], "zero values must not be dropped")
+	assert.Equal(t, true, got["incremental"])
+	assert.NotContains(t, got, "completed_at")
+	assert.NotContains(t, got, "duration_seconds")
+
+	s.jobManager.UpdateStatus(job.ID, JobStatusFailed, "boom")
+	done, _ := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
+	got = requireToolResultConforms(t, "get_job_status", done)
+	assert.Contains(t, got, "completed_at")
+	assert.Contains(t, got, "duration_seconds")
+	assert.Equal(t, "boom", got["error_message"])
+}
+
+func TestHandleDescribeServer_StructuredOutput(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	_, err := s.jobManager.CreateJob("docs", true)
+	require.NoError(t, err)
+
+	result, _ := callJSON(t, s.handleDescribeServer, nil)
+	got := requireToolResultConforms(t, "describe_server", result)
+	jobs := got["recent_jobs"].([]any)
+	require.Len(t, jobs, 1)
+	j := jobs[0].(map[string]any)
+	assert.EqualValues(t, 0, j["pages_queued"], "recent_jobs now carry the full job summary")
+	assert.Equal(t, true, j["incremental"])
+	assert.Equal(t, false, got["jobs_capped"])
+}
+
+func TestHandleCrawlSite_StructuredOutput(t *testing.T) {
+	// Temp state/output dirs and a local docs server: the started job really runs.
+	s, _, _, _ := newCrawlJobServer(t, "docs")
+
+	started, _ := callJSON(t, s.handleCrawlSite, map[string]any{"site_key": "docs"})
+	got := requireToolResultConforms(t, "crawl_site", started)
+	assert.Equal(t, "started", got["status"])
+	assert.Equal(t, false, got["incremental"])
+	jobID := got["job_id"].(string)
+	require.Eventually(t, func() bool {
+		j := s.jobManager.GetJob(jobID)
+		return j != nil && isTerminalStatus(j.Status)
+	}, 10*time.Second, 20*time.Millisecond)
+
+	_, err := s.jobManager.CreateJob("docs", true)
+	require.NoError(t, err)
+	running, _ := callJSON(t, s.handleCrawlSite, map[string]any{"site_key": "docs"})
+	got = requireToolResultConforms(t, "crawl_site", running)
+	assert.Equal(t, "already_running", got["status"])
+	assert.Equal(t, true, got["incremental"], "already_running reports the running job's mode")
+}
