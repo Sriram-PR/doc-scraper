@@ -292,3 +292,50 @@ func TestHandleDiffCrawl_StructuredOutput(t *testing.T) {
 	assert.Equal(t, "h0", changed[0].(map[string]any)["prior_hash"])
 	assert.EqualValues(t, 0, got["unchanged_count"])
 }
+
+func hasClosedObject(v any) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		if ap, ok := x["additionalProperties"].(bool); ok && !ap {
+			return true
+		}
+		for _, e := range x {
+			if hasClosedObject(e) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if hasClosedObject(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Every tool must reach clients with an open, object-root outputSchema.
+func TestToolsList_EveryToolDeclaresAnOpenOutputSchema(t *testing.T) {
+	s := newStdioTestServer(t)
+	res := handleRaw(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{`+
+		`"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`)
+	tools := res["tools"].([]any)
+	require.Len(t, tools, 11)
+	for _, raw := range tools {
+		tool := raw.(map[string]any)
+		name := tool["name"]
+		schema, ok := tool["outputSchema"].(map[string]any)
+		require.True(t, ok, "%s has no outputSchema", name)
+		assert.Equal(t, "object", schema["type"], "%s outputSchema root", name)
+		assert.False(t, hasClosedObject(schema), "%s outputSchema closes an object", name)
+		assert.NotEmpty(t, schema["required"], "%s outputSchema has no required fields", name)
+	}
+}
+
+func TestToolErrors_CarryNoStructuredContent(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	result, _ := callJSON(t, s.handleReadPage, map[string]any{"site_key": "ghost", "url": "https://x/"})
+	require.True(t, result.IsError)
+	assert.Nil(t, result.StructuredContent)
+	assert.Contains(t, result.Content[0].(mcpgo.TextContent).Text, "site 'ghost' not found")
+}
