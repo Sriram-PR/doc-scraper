@@ -257,7 +257,7 @@ func (i *Index) searchChunksRaw(ctx context.Context, match, siteKey string, limi
 		q += ` AND c.site_key = ?`
 		args = append(args, siteKey)
 	}
-	q += ` ORDER BY rank LIMIT ?`
+	q += ` ORDER BY rank, c.url, c.anchor, c.id LIMIT ?`
 	args = append(args, limit)
 
 	rows, err := i.db.QueryContext(ctx, q, args...)

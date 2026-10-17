@@ -119,7 +119,7 @@ func (c *corpus) search(ctx context.Context, q string) ([]hit, error) {
 	}
 	hits := make([]hit, len(res))
 	for i, r := range res {
-		hits[i] = hit{url: r.URL, anchor: r.Anchor, score: r.Rank}
+		hits[i] = hit{url: r.URL, anchor: r.Anchor}
 	}
 	return hits, nil
 }

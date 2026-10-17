@@ -16,8 +16,8 @@
 // expected URL is gone, and expected pages need re-checking either way.
 //
 // Queries live in tools/search-bench/queries/<site_key>.json. Relevance is
-// judged per page: chunks collapse to their page's best rank, ties break by
-// url then anchor. Scores never change the exit code.
+// judged per page, in the order SearchChunks returns: chunks collapse to their
+// page's best rank. Scores never change the exit code.
 package main
 
 import (

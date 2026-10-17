@@ -15,10 +15,10 @@ const (
 
 func TestScoreQuery_CollapsesChunksToPages(t *testing.T) {
 	hits := []hit{
-		{url: pageA, anchor: "one", score: -3},
-		{url: pageA, anchor: "two", score: -2.5},
-		{url: pageA, anchor: "three", score: -2},
-		{url: pageB, anchor: "intro", score: -1},
+		{url: pageA, anchor: "one"},
+		{url: pageA, anchor: "two"},
+		{url: pageA, anchor: "three"},
+		{url: pageB, anchor: "intro"},
 	}
 	r := scoreQuery(hits, []target{{URL: pageB}})
 	assert.Equal(t, 2, r.PageRank)
@@ -28,24 +28,16 @@ func TestScoreQuery_CollapsesChunksToPages(t *testing.T) {
 	assert.False(t, r.HasSection)
 }
 
-func TestScoreQuery_TieBreakIgnoresInputOrder(t *testing.T) {
-	forward := []hit{{url: pageA, score: -1}, {url: pageB, score: -1}}
-	backward := []hit{{url: pageB, score: -1}, {url: pageA, score: -1}}
-	for _, hits := range [][]hit{forward, backward} {
-		r := scoreQuery(hits, []target{{URL: pageB}})
-		assert.Equal(t, 2, r.PageRank)
-		assert.Equal(t, []string{pageA, pageB}, r.TopURLs)
-	}
-}
-
-func TestScoreQuery_TieBreakOnAnchorWithinPage(t *testing.T) {
-	hits := []hit{{url: pageA, anchor: "b", score: -1}, {url: pageA, anchor: "a", score: -1}}
-	r := scoreQuery(hits, []target{{URL: pageA, Anchor: "b"}})
-	assert.Equal(t, 2, r.SectionRank)
+func TestScoreQuery_KeepsInputOrder(t *testing.T) {
+	r := scoreQuery([]hit{{url: pageB, anchor: "z"}, {url: pageA}, {url: pageB, anchor: "a"}},
+		[]target{{URL: pageB, Anchor: "a"}})
+	assert.Equal(t, 1, r.PageRank)
+	assert.Equal(t, 3, r.SectionRank)
+	assert.Equal(t, []string{pageB, pageA}, r.TopURLs)
 }
 
 func TestScoreQuery_AbsentAndZero(t *testing.T) {
-	r := scoreQuery([]hit{{url: pageA, score: -1}}, []target{{URL: pageC}})
+	r := scoreQuery([]hit{{url: pageA}}, []target{{URL: pageC}})
 	assert.Zero(t, r.PageRank)
 	assert.Zero(t, r.ChunkRank)
 	assert.False(t, r.Zero)
@@ -58,9 +50,9 @@ func TestScoreQuery_AbsentAndZero(t *testing.T) {
 
 func TestScoreQuery_SectionMatchesOnlyURLAndAnchor(t *testing.T) {
 	hits := []hit{
-		{url: pageA, anchor: "setup", score: -3},
-		{url: pageB, anchor: "other", score: -2},
-		{url: pageB, anchor: "setup", score: -1},
+		{url: pageA, anchor: "setup"},
+		{url: pageB, anchor: "other"},
+		{url: pageB, anchor: "setup"},
 	}
 	r := scoreQuery(hits, []target{{URL: pageB, Anchor: "setup"}})
 	assert.True(t, r.HasSection)
@@ -70,7 +62,7 @@ func TestScoreQuery_SectionMatchesOnlyURLAndAnchor(t *testing.T) {
 }
 
 func TestScoreQuery_AnyExpectedPageCounts(t *testing.T) {
-	hits := []hit{{url: pageA, score: -3}, {url: pageB, score: -2}, {url: pageC, score: -1}}
+	hits := []hit{{url: pageA}, {url: pageB}, {url: pageC}}
 	r := scoreQuery(hits, []target{{URL: pageC}, {URL: pageB}})
 	assert.Equal(t, 2, r.PageRank)
 }
@@ -78,9 +70,9 @@ func TestScoreQuery_AnyExpectedPageCounts(t *testing.T) {
 func TestScoreQuery_ChunkRankOnlyWithinWindow(t *testing.T) {
 	hits := make([]hit, 0, chunkWindow+1)
 	for i := range chunkWindow {
-		hits = append(hits, hit{url: pageA, anchor: string(rune('a' + i)), score: float64(-100 + i)})
+		hits = append(hits, hit{url: pageA, anchor: string(rune('a' + i))})
 	}
-	hits = append(hits, hit{url: pageB, score: 0})
+	hits = append(hits, hit{url: pageB})
 	r := scoreQuery(hits, []target{{URL: pageB}})
 	assert.Equal(t, 2, r.PageRank)
 	assert.Zero(t, r.ChunkRank)
@@ -89,7 +81,7 @@ func TestScoreQuery_ChunkRankOnlyWithinWindow(t *testing.T) {
 func TestScoreQuery_TopURLsCapped(t *testing.T) {
 	hits := make([]hit, 0, topURLCount+2)
 	for i := range topURLCount + 2 {
-		hits = append(hits, hit{url: "https://x.example/" + string(rune('a'+i)), score: float64(i)})
+		hits = append(hits, hit{url: "https://x.example/" + string(rune('a'+i))})
 	}
 	assert.Len(t, scoreQuery(hits, nil).TopURLs, topURLCount)
 }

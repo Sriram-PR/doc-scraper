@@ -185,3 +185,18 @@ func TestSearchChunksNaturalLanguageRelaxesToOR(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, results, "explicit phrase syntax must NOT be relaxed")
 }
+
+func TestSearchChunksBreaksTiesByURL(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	md := "# Tie\n\nIdentical wording scores identically. " + strings.Repeat("filler ", 40)
+	for _, url := range []string{"https://e/c", "https://e/a", "https://e/b"} {
+		seedPage(t, idx, "s", url, "Tie", "h", md)
+	}
+	results, err := idx.SearchChunks(context.Background(), "identical wording", "", 10)
+	require.NoError(t, err)
+	urls := make([]string, 0, len(results))
+	for _, r := range results {
+		urls = append(urls, r.URL)
+	}
+	assert.Equal(t, []string{"https://e/a", "https://e/b", "https://e/c"}, urls)
+}

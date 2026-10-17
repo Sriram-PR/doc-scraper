@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"maps"
 	"slices"
 )
@@ -15,7 +14,6 @@ const topURLCount = 5
 type hit struct {
 	url    string
 	anchor string
-	score  float64
 }
 
 type target struct {
@@ -36,13 +34,9 @@ type queryResult struct {
 	TopURLs     []string `json:"top_urls"`
 }
 
-// scoreQuery ranks hits by bm25 score (lower is better), breaking ties by url
-// then anchor so equal scores order the same way on every run.
+// scoreQuery scores hits in the order SearchChunks returned them, which is the
+// ranking callers see.
 func scoreQuery(hits []hit, expected []target) queryResult {
-	sorted := slices.Clone(hits)
-	slices.SortFunc(sorted, func(a, b hit) int {
-		return cmp.Or(cmp.Compare(a.score, b.score), cmp.Compare(a.url, b.url), cmp.Compare(a.anchor, b.anchor))
-	})
 
 	wantPage := make(map[string]bool, len(expected))
 	wantSection := make(map[target]bool)
@@ -53,9 +47,9 @@ func scoreQuery(hits []hit, expected []target) queryResult {
 		}
 	}
 
-	r := queryResult{Zero: len(sorted) == 0, HasSection: len(wantSection) > 0, TopURLs: []string{}}
+	r := queryResult{Zero: len(hits) == 0, HasSection: len(wantSection) > 0, TopURLs: []string{}}
 	seen := make(map[string]bool)
-	for i, h := range sorted {
+	for i, h := range hits {
 		if !seen[h.url] {
 			seen[h.url] = true
 			if len(r.TopURLs) < topURLCount {
