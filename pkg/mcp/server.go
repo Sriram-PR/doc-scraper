@@ -259,7 +259,8 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithString("query",
 			mcp.Required(),
 			mcp.Description("Search terms. Plain words are ANDed; when too few results contain every word, "+
-				"the rest are filled with partial matches (match: partial). \"quoted phrases\", OR, and prefix* "+
+				"the rest are filled with partial matches (match: partial) that contain only some words or built-in synonyms "+
+				"of them. \"quoted phrases\", OR, and prefix* "+
 				"work too and are never relaxed."),
 		),
 		mcp.WithString("site_key",
