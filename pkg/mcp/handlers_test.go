@@ -392,8 +392,7 @@ func TestHandleGetFreshness_NeverCrawled(t *testing.T) {
 	_, got := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "docs"})
 	require.NotNil(t, got)
 	assert.Equal(t, "docs", got["site_key"])
-	_, hasLast := got["last_crawl_ended_at"]
-	assert.False(t, hasLast, "expected no last_crawl_ended_at for never-crawled site")
+	assert.NotContains(t, got, "last_crawl", "expected no last_crawl for never-crawled site")
 	assert.Contains(t, got["next_actions"], "No prior crawl recorded")
 }
 
@@ -413,8 +412,10 @@ func TestHandleGetFreshness_AfterCrawl(t *testing.T) {
 	}))
 	_, got := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "docs"})
 	require.NotNil(t, got)
-	assert.InDelta(t, float64(1), got["last_crawl_total_pages"], 0)
-	assert.Equal(t, "full", got["last_crawl_mode"])
+	last, ok := got["last_crawl"].(map[string]any)
+	require.True(t, ok, "last_crawl: %v", got["last_crawl"])
+	assert.InDelta(t, float64(1), last["total_pages"], 0)
+	assert.Equal(t, "full", last["mode"])
 	age, ok := got["age_seconds"].(float64)
 	require.True(t, ok)
 	assert.GreaterOrEqual(t, age, 0.0)
@@ -481,7 +482,7 @@ func TestHandleDiffCrawl_NoBaseline(t *testing.T) {
 	assert.Contains(t, got["note"], "No baseline crawl")
 }
 
-// The documented workflow: read last_crawl_ended_at from get_freshness, crawl
+// The documented workflow: read last_crawl.crawl_ended_at from get_freshness, crawl
 // again, then diff with since set to that value. Freshness reports whole
 // seconds, so the crawl it describes must still be selected as the baseline.
 func TestHandleDiffCrawl_SinceFromFreshnessSelectsThatCrawl(t *testing.T) {
@@ -502,7 +503,9 @@ func TestHandleDiffCrawl_SinceFromFreshnessSelectsThatCrawl(t *testing.T) {
 
 	_, fresh := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "docs"})
 	require.NotNil(t, fresh)
-	since, ok := fresh["last_crawl_ended_at"].(string)
+	last, ok := fresh["last_crawl"].(map[string]any)
+	require.True(t, ok, "last_crawl: %v", fresh["last_crawl"])
+	since, ok := last["crawl_ended_at"].(string)
 	require.True(t, ok)
 
 	record(ended.Add(time.Hour), "h2")

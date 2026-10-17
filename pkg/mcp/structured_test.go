@@ -18,6 +18,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
 // registeredOutputSchema reads the schema from a fully registered server, so
@@ -222,4 +223,72 @@ func TestHandleCrawlSite_StructuredOutput(t *testing.T) {
 	got = requireToolResultConforms(t, "crawl_site", running)
 	assert.Equal(t, "already_running", got["status"])
 	assert.Equal(t, true, got["incremental"], "already_running reports the running job's mode")
+}
+
+func TestHandleGetFreshness_StructuredOutput(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	idx := attachIndex(t, s)
+
+	never, _ := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "docs"})
+	got := requireToolResultConforms(t, "get_freshness", never)
+	assert.NotContains(t, got, "last_crawl")
+	assert.NotContains(t, got, "age_seconds")
+	assert.Equal(t, false, got["output_exists"], "false must not be dropped")
+
+	ended := time.Now().Add(-time.Minute)
+	require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+		SiteKey: "docs", CrawlStartedAt: ended.Add(-time.Minute), CrawlEndedAt: ended, Mode: index.ModeFull,
+		Pages: []index.PageRecord{{URL: "https://docs.example.com/a", Title: "A", ContentHash: "h1"}},
+	}))
+	_, err := s.jobManager.CreateJob("docs", true)
+	require.NoError(t, err)
+	// A pending job counts as running for IsRunning, so running_job is reported.
+
+	crawled, _ := callJSON(t, s.handleGetFreshness, map[string]any{"site_key": "docs"})
+	got = requireToolResultConforms(t, "get_freshness", crawled)
+	last := got["last_crawl"].(map[string]any)
+	endedAt, err := time.Parse(time.RFC3339, last["crawl_ended_at"].(string))
+	require.NoError(t, err)
+	assert.Equal(t, ended.Unix(), endedAt.Unix())
+	assert.EqualValues(t, 1, last["total_pages"])
+	assert.Equal(t, "full", last["mode"])
+	assert.Contains(t, got, "age_seconds")
+	for _, old := range []string{"last_crawl_id", "last_crawl_started_at", "last_crawl_ended_at", "last_crawl_total_pages", "last_crawl_mode"} {
+		assert.NotContains(t, got, old)
+	}
+	running := got["running_job"].(map[string]any)
+	assert.Equal(t, "docs", running["site_key"], "running_job is now a full job summary")
+	assert.Contains(t, running, "status")
+	assert.Contains(t, got["next_actions"], "last_crawl.crawl_ended_at")
+}
+
+func TestHandleDiffCrawl_StructuredOutput(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	idx := attachIndex(t, s)
+
+	none, _ := callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs", "since": time.Now().Format(time.RFC3339)})
+	got := requireToolResultConforms(t, "diff_crawl", none)
+	assert.NotContains(t, got, "current_crawl")
+	assert.Contains(t, got["note"], "No crawl has been recorded")
+	assert.Equal(t, []any{}, got["added"])
+
+	record := func(end time.Time, hash string) {
+		require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+			SiteKey: "docs", CrawlStartedAt: end.Add(-time.Minute), CrawlEndedAt: end, Mode: index.ModeFull,
+			Pages: []index.PageRecord{{URL: "https://docs.example.com/a", Title: "A", ContentHash: hash}},
+		}))
+	}
+	base := time.Now().Add(-time.Hour)
+	record(base, "h0")
+	record(base.Add(30*time.Minute), "h1")
+
+	diff, _ := callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs", "since": base.Format(time.RFC3339)})
+	got = requireToolResultConforms(t, "diff_crawl", diff)
+	assert.Contains(t, got, "baseline_crawl")
+	assert.Contains(t, got, "current_crawl")
+	assert.NotContains(t, got, "note")
+	changed := got["changed"].([]any)
+	require.Len(t, changed, 1)
+	assert.Equal(t, "h0", changed[0].(map[string]any)["prior_hash"])
+	assert.EqualValues(t, 0, got["unchanged_count"])
 }

@@ -193,3 +193,59 @@ type describeServerResult struct {
 	JobsCapped  bool           `json:"jobs_capped"`
 	NextActions string         `json:"next_actions"`
 }
+
+type crawlSummary struct {
+	CrawlID        int64  `json:"crawl_id"`
+	CrawlStartedAt string `json:"crawl_started_at"`
+	CrawlEndedAt   string `json:"crawl_ended_at"`
+	TotalPages     int    `json:"total_pages"`
+	Mode           string `json:"mode" jsonschema_description:"full or incremental"`
+}
+
+func summarizeCrawl(c *index.LatestCrawl) *crawlSummary {
+	if c == nil {
+		return nil
+	}
+	return &crawlSummary{
+		CrawlID:        c.ID,
+		CrawlStartedAt: c.CrawlStartedAt.Format(time.RFC3339),
+		CrawlEndedAt:   c.CrawlEndedAt.Format(time.RFC3339),
+		TotalPages:     c.TotalPages,
+		Mode:           string(c.Mode),
+	}
+}
+
+type freshnessResult struct {
+	SiteKey        string        `json:"site_key"`
+	OutputDir      string        `json:"output_dir"`
+	OutputExists   bool          `json:"output_exists"`
+	StateDirExists bool          `json:"state_dir_exists"`
+	LastCrawl      *crawlSummary `json:"last_crawl,omitempty" jsonschema_description:"Latest recorded crawl; absent if none"`
+	AgeSeconds     *int64        `json:"age_seconds,omitempty" jsonschema_description:"Seconds since last_crawl ended; present with last_crawl"`
+	RunningJob     *jobSummary   `json:"running_job,omitempty"`
+	NextActions    string        `json:"next_actions"`
+}
+
+type diffEntry struct {
+	URL         string `json:"url"`
+	Title       string `json:"title"`
+	ContentHash string `json:"content_hash"`
+	Depth       int    `json:"depth"`
+	PriorHash   string `json:"prior_hash,omitempty" jsonschema_description:"Baseline hash; changed entries only"`
+}
+
+type diffCrawlResult struct {
+	SiteKey        string        `json:"site_key"`
+	Since          string        `json:"since"`
+	Added          []diffEntry   `json:"added"`
+	Removed        []diffEntry   `json:"removed"`
+	Changed        []diffEntry   `json:"changed"`
+	UnchangedCount int           `json:"unchanged_count"`
+	Total          int           `json:"total"`
+	Returned       int           `json:"returned"`
+	Offset         int           `json:"offset"`
+	MaxResults     int           `json:"max_results"`
+	CurrentCrawl   *crawlSummary `json:"current_crawl,omitempty"`
+	BaselineCrawl  *crawlSummary `json:"baseline_crawl,omitempty"`
+	Note           string        `json:"note,omitempty" jsonschema_description:"Why the diff is empty or partial, when it is"`
+}

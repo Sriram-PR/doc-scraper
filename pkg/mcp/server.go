@@ -277,13 +277,14 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("Return the most recent crawl summary for a site "+
-			"(last_crawl_started_at/ended_at, total_pages, mode, age_seconds) plus output/state "+
+			"(last_crawl with its start and end times, total_pages and mode, plus age_seconds), output/state "+
 			"dir presence and any running job. Use this to decide whether to query the existing "+
 			"crawl or run crawl_site first."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config (use list_sites to discover available keys)"),
 		),
+		outputSchemaFor[freshnessResult](),
 	)
 	addTool(getFreshnessTool, s.handleGetFreshness)
 
@@ -295,7 +296,7 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithOpenWorldHintAnnotation(false),
 		mcp.WithDescription("Return added/removed/changed pages between the latest crawl and "+
 			"the most recent crawl whose crawl_ended_at <= since. Hash-based verdicts from the "+
-			"SQLite history index. Pair with get_freshness: pass the last_crawl_ended_at value "+
+			"SQLite history index. Pair with get_freshness: pass its last_crawl.crawl_ended_at value "+
 			"as since after running crawl_site with incremental set to true to see exactly what changed."),
 		mcp.WithString("site_key",
 			mcp.Required(),
@@ -311,6 +312,7 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithNumber("offset",
 			mcp.Description("Pagination offset, 0-based"),
 		),
+		outputSchemaFor[diffCrawlResult](),
 	)
 	addTool(diffCrawlTool, s.handleDiffCrawl)
 }

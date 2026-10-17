@@ -572,11 +572,11 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 	outputExists := dirExists(siteOutputDir)
 	stateExists := dirExists(stateDBPath)
 
-	result := map[string]interface{}{
-		"site_key":         siteKey,
-		"output_dir":       siteOutputDir,
-		"output_exists":    outputExists,
-		"state_dir_exists": stateExists,
+	res := freshnessResult{
+		SiteKey:        siteKey,
+		OutputDir:      siteOutputDir,
+		OutputExists:   outputExists,
+		StateDirExists: stateExists,
 	}
 
 	if s.idx != nil {
@@ -585,41 +585,32 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 			return mcp.NewToolResultError(fmt.Sprintf("failed to query crawl history: %v", err)), nil
 		}
 		if latest != nil {
-			now := time.Now()
-			result["last_crawl_id"] = latest.ID
-			result["last_crawl_started_at"] = latest.CrawlStartedAt.Format(time.RFC3339)
-			result["last_crawl_ended_at"] = latest.CrawlEndedAt.Format(time.RFC3339)
-			result["last_crawl_total_pages"] = latest.TotalPages
-			result["last_crawl_mode"] = string(latest.Mode)
-			result["age_seconds"] = int64(now.Sub(latest.CrawlEndedAt).Seconds())
+			res.LastCrawl = summarizeCrawl(latest)
+			age := int64(time.Since(latest.CrawlEndedAt).Seconds())
+			res.AgeSeconds = &age
 		}
 	}
 
 	if s.jobManager.IsRunning(siteKey) {
 		if job := s.jobManager.GetJobBySite(siteKey); job != nil {
-			result["running_job"] = map[string]interface{}{
-				"job_id":          job.ID,
-				"started_at":      job.StartedAt.Format(time.RFC3339),
-				"pages_processed": job.PagesProcessed,
-				"pages_queued":    job.PagesQueued,
-				"pages_unchanged": job.PagesUnchanged,
-				"incremental":     job.Incremental,
-			}
+			running := summarizeJob(job)
+			res.RunningJob = &running
 		}
 	}
 
-	if s.jsonlDisabled(siteKey) {
-		result["next_actions"] = fmt.Sprintf(jsonlNotIndexedHint, siteKey)
-	} else if _, ok := result["last_crawl_ended_at"]; !ok {
-		result["next_actions"] = "No prior crawl recorded. Run crawl_site to populate the history index."
-	} else {
-		result["next_actions"] = "list_pages to enumerate what was crawled, then read_page to read any " +
+	switch {
+	case s.jsonlDisabled(siteKey):
+		res.NextActions = fmt.Sprintf(jsonlNotIndexedHint, siteKey)
+	case res.LastCrawl == nil:
+		res.NextActions = "No prior crawl recorded. Run crawl_site to populate the history index."
+	default:
+		res.NextActions = "list_pages to enumerate what was crawled, then read_page to read any " +
 			"of those pages from the stored crawl; crawl_site to refresh; diff_crawl with " +
-			"since=last_crawl_ended_at to compute what changed. get_page re-fetches a URL live and " +
+			"since=last_crawl.crawl_ended_at to compute what changed. get_page re-fetches a URL live and " +
 			"does not read this crawl."
 	}
 
-	return mcp.NewToolResultText(formatJSON(result)), nil
+	return structuredResult(res), nil
 }
 
 // handleDiffCrawl returns added/removed/changed pages between the latest crawl
@@ -663,82 +654,49 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 		return mcp.NewToolResultError(fmt.Sprintf("diff_crawl failed: %v", err)), nil
 	}
 
-	added := make([]map[string]interface{}, 0)
-	removed := make([]map[string]interface{}, 0)
-	changed := make([]map[string]interface{}, 0)
+	out := diffCrawlResult{
+		SiteKey:        siteKey,
+		Since:          since.Format(time.RFC3339),
+		Added:          []diffEntry{},
+		Removed:        []diffEntry{},
+		Changed:        []diffEntry{},
+		UnchangedCount: res.UnchangedCount,
+		Total:          res.Total,
+		Returned:       len(res.Entries),
+		Offset:         offset,
+		MaxResults:     maxResults,
+		CurrentCrawl:   summarizeCrawl(res.CurrentCrawl),
+		BaselineCrawl:  summarizeCrawl(res.BaselineCrawl),
+	}
 	for _, e := range res.Entries {
-		entry := map[string]interface{}{
-			"url":          e.URL,
-			"title":        e.Title,
-			"content_hash": e.ContentHash,
-			"depth":        e.Depth,
-		}
+		entry := diffEntry{URL: e.URL, Title: e.Title, ContentHash: e.ContentHash, Depth: e.Depth}
 		switch e.Kind {
 		case "added":
-			added = append(added, entry)
+			out.Added = append(out.Added, entry)
 		case "removed":
-			removed = append(removed, entry)
+			out.Removed = append(out.Removed, entry)
 		case "changed":
-			entry["prior_hash"] = e.PriorHash
-			changed = append(changed, entry)
+			entry.PriorHash = e.PriorHash
+			out.Changed = append(out.Changed, entry)
 		}
-	}
-
-	out := map[string]interface{}{
-		"site_key":        siteKey,
-		"since":           since.Format(time.RFC3339),
-		"added":           added,
-		"removed":         removed,
-		"changed":         changed,
-		"unchanged_count": res.UnchangedCount,
-		"total":           res.Total,
-		"returned":        len(res.Entries),
-		"offset":          offset,
-		"max_results":     maxResults,
-	}
-	if res.CurrentCrawl != nil {
-		out["current_crawl"] = summarizeCrawl(res.CurrentCrawl)
-	}
-	if res.BaselineCrawl != nil {
-		out["baseline_crawl"] = summarizeCrawl(res.BaselineCrawl)
 	}
 	switch {
 	case res.CurrentCrawl == nil && s.jsonlDisabled(siteKey):
-		out["note"] = fmt.Sprintf(jsonlNotIndexedHint, siteKey)
+		out.Note = fmt.Sprintf(jsonlNotIndexedHint, siteKey)
 	case res.CurrentCrawl == nil:
-		out["note"] = "No crawl has been recorded for this site yet. Run crawl_site to seed the history."
+		out.Note = "No crawl has been recorded for this site yet. Run crawl_site to seed the history."
 	case res.BaselineCrawl == nil:
-		out["note"] = "No baseline crawl ended at or before since; cannot diff. Re-issue with an earlier since, or treat the current crawl as the baseline going forward."
+		out.Note = "No baseline crawl ended at or before since; cannot diff. Re-issue with an earlier since, or treat the current crawl as the baseline going forward."
 	case res.BaselineCrawl.ID == res.CurrentCrawl.ID:
-		out["note"] = "Baseline and current crawl are the same (since is newer than the latest crawl_ended_at)."
+		out.Note = "Baseline and current crawl are the same (since is newer than the latest crawl_ended_at)."
 	}
-	return mcp.NewToolResultText(formatJSON(out)), nil
+	return structuredResult(out), nil
 }
 
 // dirExists returns true if path is a directory.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
-}
-
-// summarizeCrawl renders a LatestCrawl for the diff_crawl response payload.
-func summarizeCrawl(c *index.LatestCrawl) map[string]interface{} {
-	return map[string]interface{}{
-		"crawl_id":         c.ID,
-		"crawl_started_at": c.CrawlStartedAt.Format(time.RFC3339),
-		"crawl_ended_at":   c.CrawlEndedAt.Format(time.RFC3339),
-		"total_pages":      c.TotalPages,
-		"mode":             string(c.Mode),
-	}
-}
-
-// formatJSON formats data as an indented JSON string
-func formatJSON(data map[string]interface{}) string {
-	b, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return fmt.Sprintf("{\"error\": %q}", err.Error())
-	}
-	return string(b)
 }
 
 const (
