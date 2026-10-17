@@ -63,11 +63,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	cur := runFile{Version: runFileVersion, Created: time.Now().UTC().Format(time.RFC3339), GitCommit: gitCommit(ctx)}
+	fileBySite := make(map[string]string, len(files))
 	for _, f := range files {
 		qs, err := loadQueries(f)
 		if err != nil {
 			return err
 		}
+		if prev, ok := fileBySite[qs.SiteKey]; ok {
+			return fmt.Errorf("%s: site_key %q is also used by %s", f, qs.SiteKey, prev)
+		}
+		fileBySite[qs.SiteKey] = f
 		if *site != "" && qs.SiteKey != *site {
 			continue
 		}

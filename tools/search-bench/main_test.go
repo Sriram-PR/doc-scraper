@@ -112,6 +112,14 @@ func TestRun_Errors(t *testing.T) {
 			args: []string{"-site", "other"},
 			want: `no query file for site "other"`,
 		},
+		"duplicate site_key": {
+			files: map[string]string{
+				"q/a.json":           `{"site_key":"mini","queries":[{"id":"a","query":"install","tags":["keyword"],"expected":[{"url":"https://mini.example/install"}]}]}`,
+				"q/b.json":           `{"site_key":"mini","queries":[{"id":"b","query":"install","tags":["keyword"],"expected":[{"url":"https://mini.example/install"}]}]}`,
+				"c/mini/pages.jsonl": string(pages),
+			},
+			want: `site_key "mini" is also used by`,
+		},
 		"no query files": {
 			files: map[string]string{"q/readme.txt": "x"},
 			want:  "no query files",

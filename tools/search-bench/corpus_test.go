@@ -45,3 +45,13 @@ func TestLoadCorpus_NoPages(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no page records")
 }
+
+func TestLoadCorpus_CountsOnlyRecordsTheIndexerReads(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(dir+"/spaced", 0o755))
+	line := `{"record_type": "page", "url": "https://x.example/a", "content": "# A\n\nText."}` + "\n"
+	require.NoError(t, os.WriteFile(dir+"/spaced/pages.jsonl", []byte(line), 0o644))
+	_, err := loadCorpus(context.Background(), dir, "spaced")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no page records")
+}

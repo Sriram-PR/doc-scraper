@@ -77,6 +77,10 @@ func loadCorpus(ctx context.Context, dir, siteKey string) (*corpus, error) {
 	return c, nil
 }
 
+// pageRecordMarker is the byte pre-filter crawler.IndexChunksFromJSONL applies
+// before decoding; a record without it is never indexed.
+var pageRecordMarker = []byte(`"record_type":"page"`)
+
 // scanPages mirrors the page filter in crawler.IndexChunksFromJSONL; a URL
 // listed twice counts once, with its last record's chunks, as in the index.
 func scanPages(data []byte) (map[string]struct{}, int, error) {
@@ -84,6 +88,9 @@ func scanPages(data []byte) (map[string]struct{}, int, error) {
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 64<<10), 64<<20)
 	for sc.Scan() {
+		if !bytes.Contains(sc.Bytes(), pageRecordMarker) {
+			continue
+		}
 		var p models.PageJSONL
 		if err := json.Unmarshal(sc.Bytes(), &p); err != nil {
 			continue
