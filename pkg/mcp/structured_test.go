@@ -18,6 +18,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
@@ -338,4 +339,22 @@ func TestToolErrors_CarryNoStructuredContent(t *testing.T) {
 	require.True(t, result.IsError)
 	assert.Nil(t, result.StructuredContent)
 	assert.Contains(t, result.Content[0].(mcpgo.TextContent).Text, "site 'ghost' not found")
+}
+
+func TestSiteEntries_ReportLastCrawledAndRunning(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	writeJSONLRecords(t, jsonlPath, []any{models.CrawlMetaJSONL{
+		RecordType: models.RecordTypeCrawlMeta, SiteKey: "docs", CrawlEndedAt: "2026-05-23T10:00:00Z",
+	}})
+	_, err := s.jobManager.CreateJob("docs", false)
+	require.NoError(t, err)
+
+	listed, _ := callJSON(t, s.handleListSites, nil)
+	described, _ := callJSON(t, s.handleDescribeServer, nil)
+	for tool, result := range map[string]*mcpgo.CallToolResult{"list_sites": listed, "describe_server": described} {
+		got := requireToolResultConforms(t, tool, result)
+		site := got["sites"].([]any)[0].(map[string]any)
+		assert.Equal(t, "2026-05-23T10:00:00Z", site["last_crawled"], tool)
+		assert.Equal(t, "running", site["status"], tool)
+	}
 }

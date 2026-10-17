@@ -38,20 +38,16 @@ func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolReques
 
 	for _, key := range keys {
 		siteCfg := s.cfg.AppConfig.Sites[key]
-		site := siteSummary{
+		lastCrawled, status := s.siteActivity(key, siteCfg)
+		sites = append(sites, siteSummary{
 			Key:            key,
 			Domain:         siteCfg.AllowedDomain,
 			PathPrefix:     siteCfg.AllowedPathPrefix,
 			StartURLsCount: len(siteCfg.StartURLs),
 			MaxDepth:       siteCfg.MaxDepth,
-		}
-		if lastCrawled := s.getLastCrawledTime(key, siteCfg); !lastCrawled.IsZero() {
-			site.LastCrawled = lastCrawled.Format(time.RFC3339)
-		}
-		if s.jobManager.IsRunning(key) {
-			site.Status = "running"
-		}
-		sites = append(sites, site)
+			LastCrawled:    lastCrawled,
+			Status:         status,
+		})
 	}
 
 	return structuredResult(listSitesResult{
@@ -102,14 +98,8 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 	sites := make([]serverSite, 0, len(siteKeys))
 	for _, key := range siteKeys {
 		siteCfg := s.cfg.AppConfig.Sites[key]
-		site := serverSite{Key: key, Domain: siteCfg.AllowedDomain}
-		if lastCrawled := s.getLastCrawledTime(key, siteCfg); !lastCrawled.IsZero() {
-			site.LastCrawled = lastCrawled.Format(time.RFC3339)
-		}
-		if s.jobManager.IsRunning(key) {
-			site.Status = "running"
-		}
-		sites = append(sites, site)
+		lastCrawled, status := s.siteActivity(key, siteCfg)
+		sites = append(sites, serverSite{Key: key, Domain: siteCfg.AllowedDomain, LastCrawled: lastCrawled, Status: status})
 	}
 
 	// Newest first, capped so the payload stays small for long-running servers.
@@ -139,16 +129,6 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 			"changed since a given timestamp, read_page to read a crawled page's stored " +
 			"markdown, cancel_crawl to stop a running job.",
 	}), nil
-}
-
-// pageListEntry is metadata only; full content goes through get_page so
-// list_pages stays cheap on sites with thousands of pages.
-type pageListEntry struct {
-	URL           string `json:"url"`
-	Title         string `json:"title"`
-	Depth         int    `json:"depth"`
-	CrawledAt     string `json:"crawled_at"`
-	ContentLength int    `json:"content_length"`
 }
 
 // handleListPages returns paginated page metadata, URL-sorted, from the site's
@@ -518,6 +498,18 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 
 // getLastCrawledTime returns the end time from the last crawl_meta record in
 // the site's JSONL, or the zero time if none exists.
+// siteActivity returns a site's last_crawled and status values, each empty
+// when absent.
+func (s *Server) siteActivity(key string, siteCfg *config.SiteConfig) (lastCrawled, status string) {
+	if t := s.getLastCrawledTime(key, siteCfg); !t.IsZero() {
+		lastCrawled = t.Format(time.RFC3339)
+	}
+	if s.jobManager.IsRunning(key) {
+		status = "running"
+	}
+	return lastCrawled, status
+}
+
 func (s *Server) getLastCrawledTime(siteKey string, siteCfg *config.SiteConfig) time.Time {
 	siteOutputDir := s.cfg.AppConfig.SiteOutputDir(siteKey)
 	jsonlPath := filepath.Join(siteOutputDir, config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig))

@@ -102,6 +102,16 @@ type searchDocsResult struct {
 	NextActions string               `json:"next_actions"`
 }
 
+// pageListEntry is metadata only; full content goes through get_page so
+// list_pages stays cheap on sites with thousands of pages.
+type pageListEntry struct {
+	URL           string `json:"url"`
+	Title         string `json:"title"`
+	Depth         int    `json:"depth"`
+	CrawledAt     string `json:"crawled_at"`
+	ContentLength int    `json:"content_length"`
+}
+
 type listPagesResult struct {
 	SiteKey    string          `json:"site_key"`
 	Pages      []pageListEntry `json:"pages"`
