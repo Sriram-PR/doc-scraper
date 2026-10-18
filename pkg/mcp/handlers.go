@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -317,8 +318,14 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(fmt.Sprintf("HTTP error: %d %s", resp.StatusCode, resp.Status)), nil
 	}
 
+	body := bufio.NewReader(resp.Body)
+	head, _ := body.Peek(512)
+	if ct := htmlContentType(resp.Header.Get("Content-Type"), head); ct != "" {
+		return mcp.NewToolResultError(fmt.Sprintf("%s is not an HTML page (Content-Type %s); get_page only converts HTML", urlStr, ct)), nil
+	}
+
 	const maxPageSize = 50 * 1024 * 1024
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxPageSize))
+	bodyBytes, err := io.ReadAll(io.LimitReader(body, maxPageSize))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to read response: %v", err)), nil
 	}
@@ -351,6 +358,20 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		ContentLength: len(content),
 		FetchTimeMs:   fetchTimeMs,
 	}), nil
+}
+
+// htmlContentType returns "" for an HTML response, or else the content type
+// to report, sniffing the body when the server sent none.
+func htmlContentType(header string, body []byte) string {
+	ct := header
+	if ct == "" {
+		ct = http.DetectContentType(body)
+	}
+	mediaType, _, err := mime.ParseMediaType(ct)
+	if err == nil && (mediaType == "text/html" || mediaType == "application/xhtml+xml") {
+		return ""
+	}
+	return ct
 }
 
 func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

@@ -100,6 +100,43 @@ func TestHandleGetPage_StructuredOutput(t *testing.T) {
 	assert.Contains(t, got, "fetch_time_ms")
 }
 
+// get_page converts HTML; anything else must come back as a clear error rather
+// than as binary or escaped text dressed up as Markdown.
+func TestHandleGetPage_ContentType(t *testing.T) {
+	for _, tc := range []struct {
+		contentType string
+		body        string
+		ok          bool
+	}{
+		{"application/xhtml+xml", `<html><head><title>T</title></head><body><p>BODY</p></body></html>`, true},
+		{"", `<!DOCTYPE html><html><head><title>T</title></head><body><p>BODY</p></body></html>`, true},
+		{"application/pdf", "%PDF-1.7 BODY", false},
+		{"application/json", `{"BODY": 1}`, false},
+		{"", "%PDF-1.7 BODY", false},
+	} {
+		t.Run(tc.contentType+"/"+tc.body[:4], func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header()["Content-Type"] = nil
+				if tc.contentType != "" {
+					w.Header().Set("Content-Type", tc.contentType)
+				}
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			t.Cleanup(srv.Close)
+			s, _ := newTestServer(t, "docs", "docs.example.com")
+			s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
+
+			result, got := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
+			if tc.ok {
+				require.False(t, result.IsError, "%v", result.Content)
+				assert.Contains(t, got["content"], "BODY")
+				return
+			}
+			assert.Contains(t, errText(t, result), "not an HTML page")
+		})
+	}
+}
+
 func TestHandleCancelCrawl_StructuredOutput(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 	job, err := s.jobManager.CreateJob("docs", false)
