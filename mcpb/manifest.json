@@ -54,7 +54,7 @@
     { "name": "read_page", "description": "Read a crawled page's markdown, no network access" },
     { "name": "search_docs", "description": "Ranked full-text search across crawled docs with snippets and section anchors" },
     { "name": "get_freshness", "description": "Report how stale a site's latest crawl is" },
-    { "name": "diff_crawl", "description": "Report pages added, removed, or changed since a timestamp" },
+    { "name": "diff_crawl", "description": "Report pages added, removed, or changed since the previous crawl or a timestamp" },
     { "name": "get_page", "description": "Fetch a single URL live over the network as markdown" }
   ],
   "compatibility": {

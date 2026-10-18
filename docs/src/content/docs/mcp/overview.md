@@ -11,7 +11,7 @@ sidebar:
 
 - **Offline search and reading.** `search_docs` runs ranked full-text search (BM25, stemming, snippets, section anchors) over everything crawled, and `read_page` returns a stored page's Markdown. Neither makes a network request.
 - **Crawls on demand.** `crawl_site` starts a background crawl of a configured site and returns a job ID; `get_job_status` and `cancel_crawl` manage it.
-- **Freshness.** `get_freshness` reports how old a site's latest crawl is, and `diff_crawl` lists pages added, removed, or changed since a timestamp.
+- **Freshness.** `get_freshness` reports how old a site's latest crawl is, and `diff_crawl` lists pages added, removed, or changed since the previous crawl or a given timestamp.
 - **An explicit live fetch.** `get_page` is the one tool that goes to the network: it fetches a single URL and returns it as Markdown.
 
 The full list is on the [MCP tools](/doc-scraper/mcp/tools/) page.

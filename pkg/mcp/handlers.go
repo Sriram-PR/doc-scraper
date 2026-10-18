@@ -126,7 +126,7 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 			"full site config, list_pages to enumerate crawled pages, crawl_site to start a " +
 			"crawl, get_job_status to check a job, get_page to fetch a single URL, " +
 			"get_freshness to check how stale a site's crawl is, diff_crawl to see what " +
-			"changed since a given timestamp, read_page to read a crawled page's stored " +
+			"the latest crawl changed, read_page to read a crawled page's stored " +
 			"markdown, cancel_crawl to stop a running job.",
 	}), nil
 }
@@ -605,8 +605,8 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 		res.NextActions = "No prior crawl recorded. Run crawl_site to populate the history index."
 	default:
 		res.NextActions = "list_pages to enumerate what was crawled, then read_page to read any " +
-			"of those pages from the stored crawl; crawl_site to refresh; diff_crawl with " +
-			"since=last_crawl.crawl_ended_at to compute what changed. get_page re-fetches a URL live and " +
+			"of those pages from the stored crawl; crawl_site to refresh, then diff_crawl " +
+			"without since to see what that crawl changed. get_page re-fetches a URL live and " +
 			"does not read this crawl."
 	}
 
@@ -614,7 +614,8 @@ func (s *Server) handleGetFreshness(ctx context.Context, request mcp.CallToolReq
 }
 
 // handleDiffCrawl returns added/removed/changed pages between the latest crawl
-// and the most recent crawl whose crawl_ended_at <= since. Hash-based verdicts
+// and the crawl before it, or with since, the most recent crawl whose
+// crawl_ended_at <= since. Hash-based verdicts
 // from the SQLite history index.
 func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString, "since": argString, "max_results": argInteger, "offset": argInteger}); errResult != nil {
@@ -632,12 +633,13 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 	}
 
 	sinceStr := request.GetString("since", "")
-	if sinceStr == "" {
-		return mcp.NewToolResultError("since parameter is required (RFC3339 timestamp, e.g. 2026-05-23T22:00:00Z)"), nil
-	}
-	since, err := time.Parse(time.RFC3339, sinceStr)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid since timestamp %q: expected RFC3339 (e.g. 2026-05-23T22:00:00Z): %v", sinceStr, err)), nil
+	var since time.Time
+	if sinceStr != "" {
+		var err error
+		since, err = time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("invalid since timestamp %q: expected RFC3339 (e.g. 2026-05-23T22:00:00Z): %v", sinceStr, err)), nil
+		}
 	}
 
 	maxResults := request.GetInt("max_results", 100)
@@ -649,14 +651,19 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 	}
 	offset := max(request.GetInt("offset", 0), 0)
 
-	res, err := s.idx.DiffSince(ctx, siteKey, since, maxResults, offset)
+	var res *index.DiffResult
+	var err error
+	if sinceStr == "" {
+		res, err = s.idx.DiffPrevious(ctx, siteKey, maxResults, offset)
+	} else {
+		res, err = s.idx.DiffSince(ctx, siteKey, since, maxResults, offset)
+	}
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("diff_crawl failed: %v", err)), nil
 	}
 
 	out := diffCrawlResult{
 		SiteKey:        siteKey,
-		Since:          since.Format(time.RFC3339),
 		Added:          []diffEntry{},
 		Removed:        []diffEntry{},
 		Changed:        []diffEntry{},
@@ -667,6 +674,9 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 		MaxResults:     maxResults,
 		CurrentCrawl:   summarizeCrawl(res.CurrentCrawl),
 		BaselineCrawl:  summarizeCrawl(res.BaselineCrawl),
+	}
+	if sinceStr != "" {
+		out.Since = since.Format(time.RFC3339)
 	}
 	for _, e := range res.Entries {
 		entry := diffEntry{URL: e.URL, Title: e.Title, ContentHash: e.ContentHash, Depth: e.Depth}
@@ -685,10 +695,12 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 		out.Note = fmt.Sprintf(jsonlNotIndexedHint, siteKey)
 	case res.CurrentCrawl == nil:
 		out.Note = "No crawl has been recorded for this site yet. Run crawl_site to seed the history."
+	case res.BaselineCrawl == nil && sinceStr == "":
+		out.Note = "Only one crawl has been recorded for this site, so there is nothing to compare it with yet. Run crawl_site again to see what changes."
 	case res.BaselineCrawl == nil:
-		out.Note = "No baseline crawl ended at or before since; cannot diff. Re-issue with an earlier since, or treat the current crawl as the baseline going forward."
+		out.Note = "No baseline crawl ended at or before since; cannot diff. Re-issue with an earlier since, or omit since to compare with the previous crawl."
 	case res.BaselineCrawl.ID == res.CurrentCrawl.ID:
-		out.Note = "Baseline and current crawl are the same (since is newer than the latest crawl_ended_at)."
+		out.Note = "since is at or after the latest crawl's crawl_ended_at, so the latest crawl was compared with itself. To see what the latest crawl changed, omit since."
 	}
 	return structuredResult(out), nil
 }

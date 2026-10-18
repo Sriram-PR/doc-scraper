@@ -55,6 +55,20 @@ func scanCrawl(row interface{ Scan(...any) error }) (*LatestCrawl, error) {
 // BaselineCrawl is nil and Entries is empty. Pagination is applied to a stable
 // ordering: Kind alphabetical (added, changed, removed) then URL alphabetical.
 func (i *Index) DiffSince(ctx context.Context, siteKey string, since time.Time, maxResults, offset int) (*DiffResult, error) {
+	return i.diff(ctx, siteKey, maxResults, offset, func(*LatestCrawl) (*LatestCrawl, error) {
+		return i.crawlAtOrBefore(ctx, siteKey, since)
+	})
+}
+
+// DiffPrevious is DiffSince with the crawl recorded just before the current
+// one as the baseline; BaselineCrawl is nil when there is only one crawl.
+func (i *Index) DiffPrevious(ctx context.Context, siteKey string, maxResults, offset int) (*DiffResult, error) {
+	return i.diff(ctx, siteKey, maxResults, offset, func(current *LatestCrawl) (*LatestCrawl, error) {
+		return i.crawlBefore(ctx, siteKey, current)
+	})
+}
+
+func (i *Index) diff(ctx context.Context, siteKey string, maxResults, offset int, baselineFor func(*LatestCrawl) (*LatestCrawl, error)) (*DiffResult, error) {
 	if maxResults <= 0 {
 		maxResults = 100
 	}
@@ -74,7 +88,7 @@ func (i *Index) DiffSince(ctx context.Context, siteKey string, since time.Time, 
 		return res, nil
 	}
 
-	baseline, err := i.crawlAtOrBefore(ctx, siteKey, since)
+	baseline, err := baselineFor(current)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +124,23 @@ func (i *Index) DiffSince(ctx context.Context, siteKey string, since time.Time, 
 	end := min(offset+maxResults, len(entries))
 	res.Entries = entries[offset:end]
 	return res, nil
+}
+
+// crawlBefore returns the crawl recorded just before current, or (nil, nil)
+// if current is the only one. Ordered by id, as GetLatestCrawl is.
+func (i *Index) crawlBefore(ctx context.Context, siteKey string, current *LatestCrawl) (*LatestCrawl, error) {
+	row := i.db.QueryRowContext(ctx,
+		`SELECT `+crawlColumns+` FROM crawls WHERE site_key = ? AND id < ? ORDER BY id DESC LIMIT 1`,
+		siteKey, current.ID,
+	)
+	lc, err := scanCrawl(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scan previous crawl: %w", err)
+	}
+	return lc, nil
 }
 
 // crawlAtOrBefore returns the most recent crawl whose crawl_ended_at <= cutoff,

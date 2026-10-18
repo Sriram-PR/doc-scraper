@@ -21,13 +21,13 @@ sidebar:
 | `read_page` | Return a crawled page's markdown from the stored output, without network access |
 | `search_docs` | Full-text search across crawled docs (BM25, stemming, snippets), without network access |
 | `get_freshness` | Report how stale a site's latest crawl is, from the crawl-history index |
-| `diff_crawl` | Report pages added, removed, or changed since a given timestamp |
+| `diff_crawl` | Report pages added, removed, or changed since the previous crawl, or since a given timestamp |
 
 ## Results
 
 Every tool declares an `outputSchema` and returns its result as `structuredContent`, with the same JSON in a text content block for clients that read only text. Schemas allow additional fields, so newer servers can add fields without breaking clients. Errors are returned as `isError` results with a text message and no `structuredContent`.
 
-`get_freshness` reports the latest crawl as a `last_crawl` object (`crawl_id`, `crawl_started_at`, `crawl_ended_at`, `total_pages`, `mode`), the same shape as `diff_crawl`'s `current_crawl` and `baseline_crawl`. Pass `last_crawl.crawl_ended_at` as `diff_crawl`'s `since`.
+`get_freshness` reports the latest crawl as a `last_crawl` object (`crawl_id`, `crawl_started_at`, `crawl_ended_at`, `total_pages`, `mode`), the same shape as `diff_crawl`'s `current_crawl` and `baseline_crawl`. To see what a crawl changed, call `diff_crawl` without `since` once it finishes: the latest crawl is compared with the one before it. With `since`, the baseline is the most recent crawl whose `crawl_ended_at` is at or before it, so pass a `crawl_ended_at` read before the new crawl, not after.
 
 `search_docs` returns `results` best first. Each result's `match` is `all` when it contains every query word (common words such as "how" or "the" aside) or `partial` when it came from the fallback that fills the remaining slots up to `limit` with results containing only some of the words, or built-in synonyms in their place; partial results always follow full ones. Queries using FTS5 syntax are never relaxed. `rank` is the raw BM25 score and compares only results with the same `match`.
 

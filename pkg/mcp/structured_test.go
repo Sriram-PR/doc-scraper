@@ -264,7 +264,7 @@ func TestHandleGetFreshness_StructuredOutput(t *testing.T) {
 	running := got["running_job"].(map[string]any)
 	assert.Equal(t, "docs", running["site_key"], "running_job is now a full job summary")
 	assert.Contains(t, running, "status")
-	assert.Contains(t, got["next_actions"], "last_crawl.crawl_ended_at")
+	assert.Contains(t, got["next_actions"], "diff_crawl without since")
 }
 
 func TestHandleDiffCrawl_StructuredOutput(t *testing.T) {

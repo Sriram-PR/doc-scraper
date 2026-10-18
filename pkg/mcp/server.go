@@ -297,17 +297,16 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
-		mcp.WithDescription("Return added/removed/changed pages between the latest crawl and "+
-			"the most recent crawl whose crawl_ended_at <= since. Hash-based verdicts from the "+
-			"SQLite history index. Pair with get_freshness: pass its last_crawl.crawl_ended_at value "+
-			"as since after running crawl_site with incremental set to true to see exactly what changed."),
+		mcp.WithDescription("Return added/removed/changed pages between the latest crawl and a baseline "+
+			"crawl: the crawl before it by default, or with since, the most recent crawl whose "+
+			"crawl_ended_at <= since. Hash-based verdicts from the SQLite history index. To see what a "+
+			"crawl changed, run crawl_site, wait for it to finish, then call diff_crawl without since."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config"),
 		),
 		mcp.WithString("since",
-			mcp.Required(),
-			mcp.Description("RFC3339 timestamp; the most recent crawl whose crawl_ended_at <= since, compared to the second, is the baseline (e.g. 2026-05-23T22:00:00Z)"),
+			mcp.Description("RFC3339 timestamp; the most recent crawl whose crawl_ended_at <= since, compared to the second, is the baseline (e.g. 2026-05-23T22:00:00Z). Omit to compare with the previous crawl."),
 		),
 		mcp.WithNumber("max_results",
 			mcp.Description("Maximum diff entries to return (default 100, max 1000)"),

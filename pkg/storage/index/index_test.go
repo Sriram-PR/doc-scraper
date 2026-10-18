@@ -157,6 +157,42 @@ func TestDiffSinceBaselineEqualsCurrent(t *testing.T) {
 	require.Zero(t, res.UnchangedCount)
 }
 
+func TestDiffPreviousComparesLatestWithCrawlBefore(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	t0 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	for i, hash := range []string{"h0", "h1", "h2"} {
+		mustRecord(t, idx, CrawlRecord{
+			SiteKey:        "rust",
+			CrawlStartedAt: t0.Add(time.Duration(i) * time.Hour),
+			CrawlEndedAt:   t0.Add(time.Duration(i)*time.Hour + time.Minute),
+			Mode:           ModeIncremental,
+			Pages:          []PageRecord{{URL: "https://a/", Title: "A", ContentHash: hash}},
+		})
+	}
+	res, err := idx.DiffPrevious(context.Background(), "rust", 100, 0)
+	require.NoError(t, err)
+	require.NotNil(t, res.BaselineCrawl)
+	assert.EqualValues(t, 2, res.BaselineCrawl.ID)
+	assert.EqualValues(t, 3, res.CurrentCrawl.ID)
+	require.Len(t, res.Entries, 1)
+	assert.Equal(t, "changed", res.Entries[0].Kind)
+	assert.Equal(t, "h1", res.Entries[0].PriorHash)
+}
+
+func TestDiffPreviousWithOneCrawlHasNoBaseline(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	t0 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	mustRecord(t, idx, CrawlRecord{
+		SiteKey: "rust", CrawlStartedAt: t0, CrawlEndedAt: t0.Add(time.Minute), Mode: ModeFull,
+		Pages: []PageRecord{{URL: "https://a/", Title: "A", ContentHash: "h"}},
+	})
+	res, err := idx.DiffPrevious(context.Background(), "rust", 100, 0)
+	require.NoError(t, err)
+	require.NotNil(t, res.CurrentCrawl)
+	assert.Nil(t, res.BaselineCrawl)
+	assert.Empty(t, res.Entries)
+}
+
 func TestRetentionPruning(t *testing.T) {
 	idx := newTestIndex(t, 2) // keep 2 most-recent crawls per site
 	t0 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)

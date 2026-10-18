@@ -246,7 +246,7 @@ type diffEntry struct {
 
 type diffCrawlResult struct {
 	SiteKey        string        `json:"site_key"`
-	Since          string        `json:"since"`
+	Since          string        `json:"since,omitempty" jsonschema_description:"Present when since was given"`
 	Added          []diffEntry   `json:"added"`
 	Removed        []diffEntry   `json:"removed"`
 	Changed        []diffEntry   `json:"changed"`

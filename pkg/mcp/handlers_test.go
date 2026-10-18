@@ -430,13 +430,76 @@ func TestHandleGetFreshness_UnknownSite(t *testing.T) {
 	require.True(t, result.IsError)
 }
 
-func TestHandleDiffCrawl_RequiresSinceAndSiteKey(t *testing.T) {
+func TestHandleDiffCrawl_RequiresSiteKey(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 	attachIndex(t, s)
 	r, _ := callJSON(t, s.handleDiffCrawl, map[string]any{})
 	assert.True(t, r.IsError)
-	r, _ = callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs"})
-	assert.True(t, r.IsError, "missing since should error")
+}
+
+// Without since, the latest crawl is compared with the one before it, which is
+// what an agent wants right after an incremental crawl.
+func TestHandleDiffCrawl_WithoutSinceUsesPreviousCrawl(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	idx := attachIndex(t, s)
+	base := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	for i, hash := range []string{"h0", "h1", "h2"} {
+		require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+			SiteKey:        "docs",
+			CrawlStartedAt: base.Add(time.Duration(i) * time.Hour),
+			CrawlEndedAt:   base.Add(time.Duration(i)*time.Hour + time.Minute),
+			Mode:           index.ModeIncremental,
+			Pages:          []index.PageRecord{{URL: "https://docs.example.com/a", Title: "A", ContentHash: hash}},
+		}))
+	}
+
+	r, got := callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs"})
+	require.False(t, r.IsError, "%v", r.Content)
+	baseline, ok := got["baseline_crawl"].(map[string]any)
+	require.True(t, ok, "expected a baseline crawl, got %v", got)
+	assert.EqualValues(t, 2, baseline["crawl_id"])
+	changed := got["changed"].([]any)
+	require.Len(t, changed, 1)
+	assert.Equal(t, "h1", changed[0].(map[string]any)["prior_hash"])
+	assert.NotContains(t, got, "note")
+}
+
+func TestHandleDiffCrawl_WithoutSinceAfterOneCrawl(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	idx := attachIndex(t, s)
+	end := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+		SiteKey: "docs", CrawlStartedAt: end.Add(-time.Minute), CrawlEndedAt: end, Mode: index.ModeFull,
+		Pages: []index.PageRecord{{URL: "https://docs.example.com/a", ContentHash: "h1"}},
+	}))
+
+	_, got := callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs"})
+	require.NotNil(t, got)
+	assert.NotContains(t, got, "baseline_crawl")
+	assert.Contains(t, got["note"], "Only one crawl")
+}
+
+// since at or after the latest crawl's end picks that crawl as its own
+// baseline; the note must say so rather than claim since is newer.
+func TestHandleDiffCrawl_SinceAtLatestCrawlExplainsEmptyDiff(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	idx := attachIndex(t, s)
+	end := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	for i, hash := range []string{"h0", "h1"} {
+		require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+			SiteKey:        "docs",
+			CrawlStartedAt: end.Add(time.Duration(i-1)*time.Hour - time.Minute),
+			CrawlEndedAt:   end.Add(time.Duration(i-1) * time.Hour),
+			Mode:           index.ModeFull,
+			Pages:          []index.PageRecord{{URL: "https://docs.example.com/a", ContentHash: hash}},
+		}))
+	}
+
+	_, got := callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs", "since": end.Format(time.RFC3339)})
+	require.NotNil(t, got)
+	assert.EqualValues(t, 0, got["total"])
+	assert.Contains(t, got["note"], "omit since")
+	assert.NotContains(t, got["note"], "newer than")
 }
 
 func TestHandleDiffCrawl_InvalidSince(t *testing.T) {
