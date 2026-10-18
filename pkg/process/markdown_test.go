@@ -111,10 +111,10 @@ func TestToMarkdown_EmptySelection(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// v1 was quadratic in list and table size (64k items took 69 s); this input
-// takes v2 about 0.15 s without -race.
+// v1 was quadratic in list and table size and took 69 s on this input; v2
+// takes about 0.3 s, or a few seconds under -race.
 func TestToMarkdown_LargeListAndTableAreFast(t *testing.T) {
-	const items = 32000
+	const items = 64000
 	var b strings.Builder
 	b.WriteString("<main><ul>")
 	for i := range items {
@@ -132,5 +132,5 @@ func TestToMarkdown_LargeListAndTableAreFast(t *testing.T) {
 	elapsed := time.Since(start)
 	require.NoError(t, err)
 	assert.Contains(t, got, fmt.Sprintf("- item %d", items-1))
-	assert.Less(t, elapsed, 5*time.Second, "conversion must stay linear in input size")
+	assert.Less(t, elapsed, 20*time.Second, "conversion must stay linear in input size")
 }

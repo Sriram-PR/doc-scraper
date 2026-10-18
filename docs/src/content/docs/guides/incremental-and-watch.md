@@ -12,6 +12,7 @@ sidebar:
 - Change detection is **content-scoped**: it hashes the extracted content-selector region, not the raw page. Churn in the page shell (navigation, analytics, build timestamps, CSRF tokens) outside the content selector does **not** count as a change.
 - Pages whose content region is **unchanged** are skipped without re-converting, re-downloading images, or rewriting output. An unchanged page whose Markdown file is missing from the output is saved again.
 - Pages whose content region **changed** are fully reprocessed and their output is rewritten.
+- After an upgrade that changes the Markdown conversion, the first incremental crawl reprocesses every page once, since the output for the same HTML has changed.
 - Unchanged pages still have their links followed, so a page newly linked from the navigation is found.
 - A page that now returns 404 or 410 is removed: its Markdown file, its JSONL record and its search entries go, and `diff_crawl` lists it as removed. Any other error (a 403 or a server error, for example) leaves its previously-crawled output **as-is**. A run that fails leaves everything in place.
 - If every page fails and none checks out unchanged (the site is down, for example), the run fails and exits `1`. The existing output is kept, and the run is not recorded in crawl history, so `get_freshness` still reports the last good crawl.

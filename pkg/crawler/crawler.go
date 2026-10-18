@@ -760,13 +760,8 @@ func (c *Crawler) cleanSiteOutputDir() error {
 	return errors.New(errMsg)
 }
 
-// markdownFormatVersion is part of the incremental content hash. Bump it when
-// the HTML-to-Markdown output changes, so the next incremental crawl
-// reconverts pages whose HTML did not change.
-const markdownFormatVersion = "markdown-v2"
-
 func contentRegionHash(regionHTML string) string {
-	return utils.CalculateStringSHA256(markdownFormatVersion + "\n" + regionHTML)
+	return utils.CalculateStringSHA256(fmt.Sprintf("markdown-format-%d\n%s", process.MarkdownFormatVersion, regionHTML))
 }
 
 // processSinglePageTask orchestrates the processing pipeline for a single URL (WorkItem).

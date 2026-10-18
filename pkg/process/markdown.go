@@ -14,6 +14,11 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
+// MarkdownFormatVersion is part of the crawler's incremental content hash.
+// Bump it whenever a change here alters the Markdown for the same HTML, so the
+// next incremental crawl reconverts pages whose HTML did not change.
+const MarkdownFormatVersion = 1
+
 // The library guards a Converter with a mutex, so crawl workers share one.
 var markdownConverter = converter.NewConverter(converter.WithPlugins(
 	base.NewBasePlugin(),
@@ -59,11 +64,12 @@ func renderCheckbox(_ converter.Context, w converter.Writer, n *html.Node) conve
 			checked = true
 		}
 	}
-	switch {
-	case !isCheckbox:
-	case checked:
+	if !isCheckbox {
+		return converter.RenderSuccess
+	}
+	if checked {
 		_, _ = w.WriteString("[x] ")
-	default:
+	} else {
 		_, _ = w.WriteString("[ ] ")
 	}
 	return converter.RenderSuccess
