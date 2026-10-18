@@ -18,7 +18,7 @@ sidebar:
 | `get_job_status` | Check the status of a background crawl job |
 | `cancel_crawl` | Cancel a running or pending crawl job by job ID |
 | `list_pages` | Enumerate crawled pages for a site (paginated, metadata only) |
-| `read_page` | Return a crawled page's markdown from the stored output, without network access |
+| `read_page` | Return a crawled page's markdown from the stored output, without network access; pass a search result's `anchor` to read only that section |
 | `search_docs` | Full-text search across crawled docs (BM25, stemming, snippets), without network access |
 | `get_freshness` | Report how stale a site's latest crawl is, from the crawl-history index |
 | `diff_crawl` | Report pages added, removed, or changed since the previous crawl, or since a given timestamp |

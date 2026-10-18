@@ -802,6 +802,42 @@ func TestHandleReadPage_SmallMaxBytesMakesProgress(t *testing.T) {
 	}
 }
 
+// A search result's anchor reads just that section, paged within it.
+func TestHandleReadPage_Anchor(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	body := "# Guide\nintro\n## Install\n" + strings.Repeat("step ", 30) + "\n### Linux\napt\n## Usage\nrun it\n"
+	writeJSONLRecords(t, jsonlPath, []interface{}{
+		models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://docs.example.com/g", Content: body},
+	})
+	install := "## Install\n" + strings.Repeat("step ", 30) + "\n### Linux\napt\n"
+	installAt := strings.Index(body, "## Install")
+
+	got := callReadPage(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/g", "anchor": "install"})
+	assert.Equal(t, install, got["content"])
+	assert.EqualValues(t, installAt, got["offset"])
+	assert.EqualValues(t, installAt+len(install), got["section_end"])
+	assert.Equal(t, false, got["truncated"])
+	assert.EqualValues(t, len(body), got["total_length"])
+
+	var rebuilt strings.Builder
+	args := map[string]any{"site_key": "docs", "url": "https://docs.example.com/g", "anchor": "install", "max_bytes": 40}
+	for range 20 {
+		part := callReadPage(t, s, args)
+		rebuilt.WriteString(part["content"].(string))
+		next, ok := part["next_offset"]
+		if !ok {
+			break
+		}
+		args["offset"] = next
+	}
+	assert.Equal(t, install, rebuilt.String(), "following next_offset stays within the section")
+
+	r, _ := callJSON(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/g", "anchor": "nope"})
+	msg := errText(t, r)
+	assert.Contains(t, msg, `anchor "nope"`)
+	assert.Contains(t, msg, "usage", "the error lists the page's anchors")
+}
+
 func TestHandleReadPage_UnknownURL(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
 	seedCorpus(t, jsonlPath)

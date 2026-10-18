@@ -134,7 +134,8 @@ type readPageResult struct {
 	ContentLength int      `json:"content_length" jsonschema_description:"Bytes of content in this response"`
 	TotalLength   int      `json:"total_length" jsonschema_description:"Bytes of the whole stored page"`
 	Offset        int      `json:"offset"`
-	Truncated     bool     `json:"truncated"`
+	SectionEnd    *int     `json:"section_end,omitempty" jsonschema_description:"Byte offset where the anchor's section ends; present when anchor was given"`
+	Truncated     bool     `json:"truncated" jsonschema_description:"More of the page, or of the anchor's section, follows"`
 	Depth         int      `json:"depth"`
 	CrawledAt     string   `json:"crawled_at"`
 	ContentHash   string   `json:"content_hash"`

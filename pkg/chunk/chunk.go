@@ -65,6 +65,76 @@ func Split(markdown string) []Chunk {
 	return chunks
 }
 
+// Section returns the byte range of the section whose heading has the given
+// anchor, as Split assigns anchors: from the heading line up to the next
+// heading of the same or a higher level, so subsections are included.
+func Section(markdown, anchor string) (start, end int, ok bool) {
+	hs := headings(markdown)
+	for i, h := range hs {
+		if anchor == "" || h.anchor != anchor {
+			continue
+		}
+		for _, next := range hs[i+1:] {
+			if next.level <= h.level {
+				return h.start, next.start, true
+			}
+		}
+		return h.start, len(markdown), true
+	}
+	return 0, 0, false
+}
+
+// Anchors returns the page's heading anchors in document order.
+func Anchors(markdown string) []string {
+	var out []string
+	for _, h := range headings(markdown) {
+		if h.anchor != "" {
+			out = append(out, h.anchor)
+		}
+	}
+	return out
+}
+
+type heading struct {
+	anchor string
+	level  int
+	start  int
+}
+
+// headings walks the markdown the way splitSections does, so anchors match.
+func headings(markdown string) []heading {
+	var (
+		out      []heading
+		inFence  bool
+		fenceTok string
+		slugs    = map[string]int{}
+	)
+	for pos := 0; pos < len(markdown); {
+		lineStart := pos
+		pos = len(markdown)
+		if i := strings.IndexByte(markdown[lineStart:], '\n'); i >= 0 {
+			pos = lineStart + i + 1
+		}
+		line := strings.TrimSuffix(strings.TrimSuffix(markdown[lineStart:pos], "\n"), "\r")
+		trimmed, structural := structuralText(line)
+		if !structural {
+			continue
+		}
+		if tok, rest := fenceToken(trimmed); tok != "" {
+			if !inFence {
+				inFence, fenceTok = true, tok
+			} else if tok[0] == fenceTok[0] && len(tok) >= len(fenceTok) && strings.TrimSpace(rest) == "" {
+				inFence = false
+			}
+			continue
+		}
+		if level, text, ok := parseHeading(trimmed); ok && !inFence {
+			out = append(out, heading{anchor: dedupedSlug(text, slugs), level: level, start: lineStart})
+		}
+	}
+	return out
+}
+
 // mergeTinyParts absorbs sub-minChunkBytes parts of one section into their
 // neighbors: the first part (typically a bare heading stranded by an oversized
 // unit after it) merges forward, later ones merge backward. A merge is skipped

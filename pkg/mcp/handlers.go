@@ -24,6 +24,7 @@ import (
 	"github.com/andybalholm/cascadia"
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
@@ -830,7 +831,7 @@ func sliceAtRuneBoundary(s string, offset, maxBytes int) (chunk string, start in
 // handleReadPage serves a page's markdown out of the stored crawl. This is the
 // counterpart to get_page, which always re-fetches over the network.
 func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString, "url": argString, "max_bytes": argInteger, "offset": argInteger}); errResult != nil {
+	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString, "url": argString, "anchor": argString, "max_bytes": argInteger, "offset": argInteger}); errResult != nil {
 		return errResult, nil
 	}
 	siteKey := request.GetString("site_key", "")
@@ -867,8 +868,21 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 				"or get_page to fetch it live.", urlStr, siteKey)), nil
 	}
 
-	chunk, start := sliceAtRuneBoundary(record.Content, offset, maxBytes)
-	end := start + len(chunk)
+	content := record.Content
+	var sectionEnd *int
+	if anchor := strings.TrimPrefix(request.GetString("anchor", ""), "#"); anchor != "" {
+		secStart, secEnd, ok := chunk.Section(content, anchor)
+		if !ok {
+			return mcp.NewToolResultError(fmt.Sprintf("anchor %q is not a heading on %s; its anchors are: %s",
+				anchor, record.URL, strings.Join(chunk.Anchors(content), ", "))), nil
+		}
+		content = content[:secEnd]
+		offset = max(offset, secStart)
+		sectionEnd = &secEnd
+	}
+
+	part, start := sliceAtRuneBoundary(content, offset, maxBytes)
+	end := start + len(part)
 	headings := record.Headings
 	if headings == nil {
 		headings = []string{}
@@ -878,11 +892,12 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		SiteKey:       siteKey,
 		URL:           record.URL,
 		Title:         record.Title,
-		Content:       chunk,
-		ContentLength: len(chunk),
+		Content:       part,
+		ContentLength: len(part),
 		TotalLength:   len(record.Content),
 		Offset:        start,
-		Truncated:     end < len(record.Content),
+		SectionEnd:    sectionEnd,
+		Truncated:     end < len(content),
 		Depth:         record.Depth,
 		CrawledAt:     record.CrawledAt,
 		ContentHash:   record.ContentHash,

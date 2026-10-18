@@ -285,3 +285,38 @@ func TestParseHeadingEdgeCases(t *testing.T) {
 	assert.Equal(t, 2, level)
 	assert.Equal(t, "Closing hashes", text)
 }
+
+func TestSection(t *testing.T) {
+	md := "intro\n# Guide\ntext\n## Install\nsteps\n```\n# not a heading\n```\n### Linux\napt\n## Install\nagain\n# Next\nend"
+	for _, tc := range []struct {
+		anchor string
+		want   string
+	}{
+		{"guide", "# Guide\ntext\n## Install\nsteps\n```\n# not a heading\n```\n### Linux\napt\n## Install\nagain\n"},
+		{"install", "## Install\nsteps\n```\n# not a heading\n```\n### Linux\napt\n"},
+		{"linux", "### Linux\napt\n"},
+		{"install-1", "## Install\nagain\n"},
+		{"next", "# Next\nend"},
+	} {
+		start, end, ok := Section(md, tc.anchor)
+		require.True(t, ok, tc.anchor)
+		assert.Equal(t, tc.want, md[start:end], tc.anchor)
+	}
+	for _, anchor := range []string{"missing", "not-a-heading", ""} {
+		_, _, ok := Section(md, anchor)
+		assert.False(t, ok, anchor)
+	}
+}
+
+// Search results carry Split's anchors; each must resolve to a section.
+func TestSectionFindsEverySplitAnchor(t *testing.T) {
+	md := "# A\n\nBody.\n\n## B\n\n" + strings.Repeat("words ", 600) + "\n\n## B\n\nAgain.\n\n### C d\n\n```\n## fenced\n```\n"
+	for _, c := range Split(md) {
+		if c.Anchor == "" {
+			continue
+		}
+		start, end, ok := Section(md, c.Anchor)
+		require.True(t, ok, c.Anchor)
+		assert.Less(t, start, end, c.Anchor)
+	}
+}

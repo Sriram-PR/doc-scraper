@@ -232,8 +232,9 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithDescription("Return a page's markdown from the stored crawl output, without any "+
 			"network access. This is the counterpart to get_page: read_page serves the crawled copy "+
 			"that already had the site's content_selector applied, while get_page re-fetches the URL "+
-			"live. Use list_pages to discover URLs, then read_page to read them. Large pages are "+
-			"truncated at max_bytes; follow next_offset to read the rest."),
+			"live. Use list_pages to discover URLs, then read_page to read them. Pass a search_docs "+
+			"result's anchor to read only that section. Large pages are truncated at max_bytes; follow "+
+			"next_offset to read the rest."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config (use list_sites to discover available keys)"),
@@ -241,6 +242,9 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		mcp.WithString("url",
 			mcp.Required(),
 			mcp.Description("URL of a crawled page, as reported by list_pages"),
+		),
+		mcp.WithString("anchor",
+			mcp.Description("Heading anchor, as in a search_docs result; returns only that section, subsections included"),
 		),
 		mcp.WithInteger("max_bytes",
 			mcp.Description("Maximum content bytes to return (default: 102400, max: 1048576)"),
