@@ -75,6 +75,10 @@ type Crawler struct {
 	foundSitemaps   map[string]bool // Tracks sitemaps discovered by robots.txt
 	foundSitemapsMu sync.Mutex
 
+	// Pages that answered 404 or 410; dropped from the corpus when the run completes.
+	gonePages   []*url.URL
+	gonePagesMu sync.Mutex
+
 	// Output file management (Markdown files + JSONL + llms.txt)
 	output *OutputManager
 
@@ -329,8 +333,11 @@ func (c *Crawler) Run(resume bool) (err error) {
 // run is recorded in crawl history and, when staged, swapped over the live
 // corpus; the search index follows whatever corpus is live.
 func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
-	c.output.Finalize()
 	completed := runErr == nil
+	if completed {
+		c.dropGonePages(runLog)
+	}
+	c.output.Finalize()
 	staged := c.stage != nil && c.stage.Staged
 
 	if staged {
@@ -349,6 +356,23 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 	}
 	c.output.writeChunks()
 	return runErr
+}
+
+// dropGonePages removes pages the site no longer serves. An incremental crawl
+// works in place on the previous corpus, so without this a deleted page would
+// stay in the output, the history index and search.
+func (c *Crawler) dropGonePages(runLog *slog.Logger) {
+	c.gonePagesMu.Lock()
+	defer c.gonePagesMu.Unlock()
+	for _, u := range c.gonePages {
+		if p, ok := c.contentProcessor.OutputPathForURL(u, c.siteCfg, c.siteOutputDir); ok {
+			if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+				runLog.Warn("Failed to remove the Markdown file of a page the site no longer serves", "path", p, "err", err)
+			}
+		}
+		c.output.DropPage(u)
+		runLog.Info("Removed a page the site no longer serves", "url", u.String())
+	}
 }
 
 func (c *Crawler) commitStage() error {
@@ -866,6 +890,11 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	finalURL, resp, fetchErr := c.fetchAndValidatePage(currentURL, parsedOriginalURL, taskLog)
 	// fetchAndValidatePage closes resp.Body on error if resp is not nil.
 	if handleTaskError(fetchErr) {
+		if resp != nil && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone) {
+			c.gonePagesMu.Lock()
+			c.gonePages = append(c.gonePages, parsedOriginalURL)
+			c.gonePagesMu.Unlock()
+		}
 		return
 	}
 	// If successful, resp.Body is open and passed to the next stage.

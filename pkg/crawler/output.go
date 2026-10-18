@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
@@ -56,6 +58,9 @@ type OutputManager struct {
 	// Set by the crawler before Run; both feed the crawl_meta record at Close.
 	crawlStartTime time.Time
 	pagesRecorded  atomic.Int64
+
+	// Normalized URLs whose records finalizeJSONL leaves out.
+	droppedPages map[string]struct{}
 
 	// Optional crawl-history index. SetIndex wires both fields; if idx is nil
 	// the index write at Close is skipped.
@@ -353,6 +358,28 @@ type pageSpan struct {
 	length int
 }
 
+// DropPage leaves the page's record out of the finalized JSONL. Records are
+// matched by normalized URL, since a requeued URL comes from the visited DB in
+// normalized form while records keep the URL as fetched.
+func (om *OutputManager) DropPage(u *url.URL) {
+	if om.droppedPages == nil {
+		om.droppedPages = map[string]struct{}{}
+	}
+	om.droppedPages[parse.NormalizeURL(u)] = struct{}{}
+}
+
+func (om *OutputManager) isDropped(rawURL string) bool {
+	if len(om.droppedPages) == 0 {
+		return false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	_, ok := om.droppedPages[parse.NormalizeURL(u)]
+	return ok
+}
+
 // finalizeJSONL rewrites the streamed JSONL into canonical form: one page record
 // per URL (last wins), sorted, plus a single crawl_meta. It indexes by byte offset
 // and copies records through, so only URLs and offsets are held in memory, never
@@ -366,6 +393,11 @@ func (om *OutputManager) finalizeJSONL() {
 		om.log.Warn("Failed to index JSONL for finalize; appending crawl_meta over existing file", "path", om.jsonlFilePath, "err", err)
 		om.appendCrawlMeta()
 		return
+	}
+	for u := range spans {
+		if om.isDropped(u) {
+			delete(spans, u)
+		}
 	}
 	om.pagesRecorded.Store(int64(len(spans)))
 

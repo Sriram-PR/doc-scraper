@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -608,19 +610,25 @@ func TestCrawlerRun_FrontmatterAndTables(t *testing.T) {
 // mutableDocServer serves per-path HTML that tests can change between crawls, and
 // counts hits per path so incremental re-fetch behavior can be asserted.
 type mutableDocServer struct {
-	mu   sync.Mutex
-	body map[string]string
-	hits map[string]int
+	mu     sync.Mutex
+	body   map[string]string
+	status map[string]int
+	hits   map[string]int
 }
 
 func newMutableDocServer(t *testing.T) (*httptest.Server, *mutableDocServer) {
 	t.Helper()
-	ms := &mutableDocServer{body: map[string]string{}, hits: map[string]int{}}
+	ms := &mutableDocServer{body: map[string]string{}, status: map[string]int{}, hits: map[string]int{}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ms.mu.Lock()
 		ms.hits[r.URL.Path]++
 		body, ok := ms.body[r.URL.Path]
+		code := ms.status[r.URL.Path]
 		ms.mu.Unlock()
+		if code != 0 {
+			w.WriteHeader(code)
+			return
+		}
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -642,6 +650,12 @@ func (m *mutableDocServer) remove(path string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.body, path)
+}
+
+func (m *mutableDocServer) setStatus(path string, code int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.status[path] = code
 }
 
 func (m *mutableDocServer) hitCount(path string) int {
@@ -914,6 +928,60 @@ func TestCrawlerRun_Incremental404LeavesOutput(t *testing.T) {
 	body, err := os.ReadFile(md)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "KEEP ME", "previously-crawled content must be preserved")
+}
+
+// TestCrawlerRun_IncrementalDropsGonePages covers a page deleted from the site:
+// a 404 or 410 on an incremental re-check removes it from the corpus, while a
+// 403 (often a block, not a deletion) or a server error keeps it.
+func TestCrawlerRun_IncrementalDropsGonePages(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		kept   bool
+	}{
+		{http.StatusNotFound, false},
+		{http.StatusGone, false},
+		{http.StatusForbidden, true},
+		{http.StatusInternalServerError, true},
+	} {
+		t.Run(strconv.Itoa(tc.status), func(t *testing.T) {
+			server, ms := newMutableDocServer(t)
+			ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+				`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+			ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`)
+			appCfg := newTestAppConfig(t)
+			appCfg.EnableIncremental = true
+			siteCfg := baseSiteConfig(server, "/docs/index.html")
+			siteCfg.ContentSelector = "#c"
+			aURL := server.URL + "/docs/a.html"
+
+			runResumableCrawl(t, appCfg, siteCfg, false)
+			require.True(t, jsonlHasURL(t, appCfg, siteCfg, aURL))
+			require.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"), 1)
+
+			ms.setStatus("/docs/a.html", tc.status)
+			runResumableCrawl(t, appCfg, siteCfg, true)
+
+			assert.Equal(t, tc.kept, jsonlHasURL(t, appCfg, siteCfg, aURL), "pages.jsonl record")
+			assert.Equal(t, tc.kept, len(mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A")) == 1, "markdown file")
+			assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/index.html"))
+		})
+	}
+}
+
+func mdFilesContaining(t *testing.T, dir, marker string) []string {
+	t.Helper()
+	var found []string
+	require.NoError(t, filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".md") {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		if err == nil && strings.Contains(string(b), marker) {
+			found = append(found, p)
+		}
+		return err
+	}))
+	return found
 }
 
 // TestCrawlerRun_IncrementalDedupesJSONL is the regression test for the resume/
