@@ -38,8 +38,8 @@ printf '%s\n' \
 ```
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"doc-scraper","version":"2.15.0"}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"doc-scraper","version":"2.15.1"}}}
 {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"sites\":[{\"key\":\"demo\",\"domain\":\"example.com\",\"path_prefix\":\"\",\"start_urls_count\":1,\"max_depth\":0}],\"config_path\":\"/tmp/mcpdemo/config.yaml\",\"total_sites\":1}"}],"structuredContent":{"sites":[{"key":"demo","domain":"example.com","path_prefix":"","start_urls_count":1,"max_depth":0}],"config_path":"/tmp/mcpdemo/config.yaml","total_sites":1}}}
 ```
 
-Output from doc-scraper 2.15.0, 2026-10-18. Each tool result carries the data twice: as structuredContent, which matches the tool's outputSchema, and as the same JSON in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
+Output from doc-scraper 2.15.1, 2026-10-18. Each tool result carries the data twice: as structuredContent, which matches the tool's outputSchema, and as the same JSON in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
