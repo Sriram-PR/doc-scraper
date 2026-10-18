@@ -760,6 +760,15 @@ func (c *Crawler) cleanSiteOutputDir() error {
 	return errors.New(errMsg)
 }
 
+// markdownFormatVersion is part of the incremental content hash. Bump it when
+// the HTML-to-Markdown output changes, so the next incremental crawl
+// reconverts pages whose HTML did not change.
+const markdownFormatVersion = "markdown-v2"
+
+func contentRegionHash(regionHTML string) string {
+	return utils.CalculateStringSHA256(markdownFormatVersion + "\n" + regionHTML)
+}
+
 // processSinglePageTask orchestrates the processing pipeline for a single URL (WorkItem).
 func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slog.Logger) { //nolint:gocyclo // multi-stage page processing pipeline
 	currentURL := workItem.URL
@@ -944,7 +953,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	if handleTaskError(outerErr) {
 		return
 	}
-	contentHash = utils.CalculateStringSHA256(contentRegionHTML)
+	contentHash = contentRegionHash(contentRegionHTML)
 
 	// Release semaphores early: HTTP fetch is done, remaining work is local
 	// computation + image downloads (which acquire their own semaphores). The
