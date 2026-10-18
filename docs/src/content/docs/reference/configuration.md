@@ -106,7 +106,7 @@ sites:
 |--------|------|-------------|---------|
 | `timeout` | Duration | Overall request timeout | `45s` |
 | `max_idle_conns_per_host` | Integer | Idle connections per host | `2` |
-| `allow_private_networks` | Boolean | Disables the SSRF guard that blocks dials to loopback / private / link-local / CGNAT / multicast addresses. Set to `true` only if you intentionally crawl internal documentation servers reachable via private IPs. The guard also works behind a proxy set with `HTTP_PROXY` / `HTTPS_PROXY`: the proxy itself may be on a private address, and each target is checked before it is sent to the proxy. If a target's hostname cannot be resolved locally, the request is refused | `false` |
+| `allow_private_networks` | Boolean | Disables the SSRF guard that blocks dials to loopback / private / link-local / CGNAT / multicast addresses, including NAT64, 6to4 and IPv4-compatible IPv6 addresses that carry one. Set to `true` only if you intentionally crawl internal documentation servers reachable via private IPs. The guard also works behind a proxy set with `HTTP_PROXY` / `HTTPS_PROXY`: the proxy itself may be on a private address, and each target is checked before it is sent to the proxy. If a target's hostname cannot be resolved locally, the request is refused | `false` |
 
 ## Site options
 

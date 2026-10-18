@@ -14,10 +14,34 @@ import (
 // for SSRF defense since it commonly addresses internal infrastructure.
 var cgnatRange = netip.MustParsePrefix("100.64.0.0/10")
 
+var (
+	nat64Range         = netip.MustParsePrefix("64:ff9b::/96")
+	nat64LocalUseRange = netip.MustParsePrefix("64:ff9b:1::/48")
+	sixToFourRange     = netip.MustParsePrefix("2002::/16")
+	ipv4CompatRange    = netip.MustParsePrefix("::/96")
+)
+
+// embeddedIPv4 returns the IPv4 address an IPv6 translation or tunnel address
+// routes to, so a gateway on the path cannot be used to reach a blocked one.
+func embeddedIPv4(addr netip.Addr) (netip.Addr, bool) {
+	if !addr.Is6() {
+		return netip.Addr{}, false
+	}
+	b := addr.As16()
+	switch {
+	case nat64Range.Contains(addr), nat64LocalUseRange.Contains(addr), ipv4CompatRange.Contains(addr):
+		return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
+	case sixToFourRange.Contains(addr):
+		return netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]}), true
+	}
+	return netip.Addr{}, false
+}
+
 // IsBlockedAddr reports whether the given IP address should be rejected from
 // outbound HTTP dials to prevent SSRF against internal infrastructure. It
 // blocks loopback, unspecified, link-local, private (RFC 1918 / RFC 4193),
-// CGNAT, and multicast addresses.
+// CGNAT, and multicast addresses, and NAT64, 6to4 and IPv4-compatible IPv6
+// addresses that carry one of them.
 func IsBlockedAddr(addr netip.Addr) bool {
 	if !addr.IsValid() {
 		return true
@@ -33,6 +57,9 @@ func IsBlockedAddr(addr netip.Addr) bool {
 	}
 	if addr.Is4() && cgnatRange.Contains(addr) {
 		return true
+	}
+	if v4, ok := embeddedIPv4(addr); ok {
+		return IsBlockedAddr(v4)
 	}
 	return false
 }

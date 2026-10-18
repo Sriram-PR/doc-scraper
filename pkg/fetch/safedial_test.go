@@ -47,6 +47,13 @@ func TestIsBlockedAddr(t *testing.T) {
 		// Blocked: multicast
 		{"IPv4Multicast", "224.0.0.1", true},
 		{"IPv6Multicast", "ff00::1", true},
+		// Blocked: IPv6 forms that carry a blocked IPv4 address
+		{"NAT64Loopback", "64:ff9b::7f00:1", true},
+		{"NAT64IMDS", "64:ff9b::a9fe:a9fe", true},
+		{"NAT64LocalUsePrivate", "64:ff9b:1::a00:1", true},
+		{"SixToFourLoopback", "2002:7f00:1::", true},
+		{"SixToFourPrivate", "2002:c0a8:101::1", true},
+		{"IPv4CompatibleLoopback", "::7f00:1", true},
 
 		// Allowed: public addresses
 		{"PublicCloudflare", "1.1.1.1", false},
@@ -57,6 +64,8 @@ func TestIsBlockedAddr(t *testing.T) {
 		{"PublicJustBelowPrivate172", "172.15.255.255", false},
 		{"PublicJustAbovePrivate172", "172.32.0.1", false},
 		{"IPv6PublicGoogle", "2001:4860:4860::8888", false},
+		{"NAT64Public", "64:ff9b::101:101", false},
+		{"SixToFourPublic", "2002:808:808::1", false},
 	}
 
 	for _, tt := range tests {
