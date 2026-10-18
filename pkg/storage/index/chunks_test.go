@@ -61,10 +61,26 @@ func TestSearchChunksMalformedQueryFallsBack(t *testing.T) {
 	seedPage(t, idx, "s", "https://e/x", "Page", "h",
 		"# Page\n\nsome AND NOT \"quoted content here. "+strings.Repeat("filler ", 40))
 
-	for _, q := range []string{`"unbalanced`, `AND`, `(dangling`, `col:val`} {
+	for _, q := range []string{`"unbalanced`, `NOT`, `(dangling`, `col:val`, `NEAR(some,content)`, `*some`} {
 		_, err := idx.SearchChunks(context.Background(), q, "", 5)
 		assert.NoError(t, err, "query %q must not surface a syntax error", q)
 	}
+}
+
+// Every chunk contains words like "the" and "to", so a query of nothing else
+// matches arbitrary chunks as full matches.
+func TestSearchChunksStopwordOnlyQueryRejected(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	seedPage(t, idx, "s", "https://e/x", "Page", "h",
+		"# Page\n\nHow to use the thing is a question of taste. "+strings.Repeat("filler ", 40))
+
+	for _, q := range []string{"the is to of", "a the of", "How do I"} {
+		_, err := idx.SearchChunks(context.Background(), q, "", 5)
+		require.ErrorIs(t, err, ErrNoSearchableTerms, "query %q", q)
+	}
+	results, err := idx.SearchChunks(context.Background(), `"how to use the"`, "", 5)
+	require.NoError(t, err, "a quoted phrase is searched as typed")
+	assert.Len(t, results, 1)
 }
 
 func TestSearchChunksEmptyQueryRejected(t *testing.T) {

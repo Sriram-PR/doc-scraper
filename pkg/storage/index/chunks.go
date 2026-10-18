@@ -158,13 +158,15 @@ func (i *Index) SiteHasChunks(ctx context.Context, siteKey string) (bool, error)
 	return true, nil
 }
 
-// ErrNoSearchableTerms is returned for queries containing no letters or digits.
+// ErrNoSearchableTerms is returned for queries containing no letters or
+// digits, or only unquoted stopwords.
 var ErrNoSearchableTerms = errors.New("query has no searchable terms")
 
 // SearchChunks runs a ranked full-text query. siteKey narrows to one site when
 // non-empty. The query is tried verbatim first so phrase and prefix syntax
-// work; if FTS5 rejects it (unbalanced quotes and similar), it is retried with
-// every term quoted, so arbitrary agent input never surfaces a syntax error.
+// work; if FTS5 rejects it (unbalanced quotes, a misused NEAR and similar), it
+// is retried with every term quoted, so arbitrary agent input never surfaces
+// a syntax error.
 // When that returns fewer than limit results, relaxed rewrites fill the rest
 // after them. The slice order is the ranking; Rank is comparable only within
 // one Match level.
@@ -182,6 +184,9 @@ func (i *Index) SearchChunks(ctx context.Context, query, siteKey string, limit i
 	if !strings.ContainsFunc(query, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
 		return nil, ErrNoSearchableTerms
 	}
+	if !strings.Contains(query, `"`) && !slices.ContainsFunc(strings.Fields(query), func(w string) bool { return !isStopword(w) }) {
+		return nil, fmt.Errorf("%w: every word is a common word such as the or to; add one that names what you are looking for", ErrNoSearchableTerms)
+	}
 	if limit <= 0 {
 		limit = 10
 	}
@@ -193,7 +198,9 @@ type rawSearch func(ctx context.Context, match, siteKey string, limit int, exclu
 
 func searchStaged(ctx context.Context, query, siteKey string, limit int, raw rawSearch) ([]SearchResult, error) {
 	results, ids, err := raw(ctx, query, siteKey, limit, nil)
-	if err != nil && looksLikeFTSSyntaxError(err) {
+	// FTS5 reports query mistakes as generic SQL logic errors, so any failure
+	// other than cancellation gets the quoted retry.
+	if err != nil && ctx.Err() == nil {
 		results, ids, err = raw(ctx, quoteFTSTerms(query), siteKey, limit, nil)
 	}
 	if err != nil {
@@ -381,13 +388,6 @@ func (i *Index) searchChunksRaw(ctx context.Context, match, siteKey string, limi
 		return nil, nil, err
 	}
 	return out, ids, nil
-}
-
-func looksLikeFTSSyntaxError(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "fts5: syntax error") ||
-		strings.Contains(msg, "unterminated string") ||
-		strings.Contains(msg, "no such column")
 }
 
 // quoteFTSTerms rebuilds the query as quoted bareword terms, neutralizing

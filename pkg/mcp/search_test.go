@@ -105,14 +105,14 @@ func TestHandleSearchDocs_UnusualQueries(t *testing.T) {
 	require.NoError(t, s.idx.ReplaceChunks(context.Background(),
 		"docs", "https://docs.example.com/retries", "Retries", "h1", chunk.Split(md)))
 
-	for _, q := range []string{"AND", "OR", "NOT", "NEAR(", "retry\x00limits", "retry\x01 limits", "-retry", "retry:", "^retry", "retry*", "col:retry", "{retry}"} {
+	for _, q := range []string{"NOT", "NEAR(", "retry\x00limits", "retry\x01 limits", "-retry", "retry:", "^retry", "retry*", "col:retry", "{retry}"} {
 		_, res := callSearchDocs(t, s, map[string]any{"query": q})
 		assert.False(t, res.IsError, "query %q", q)
 	}
 	got, _ := callSearchDocs(t, s, map[string]any{"query": "retry\x00limits"})
 	assert.EqualValues(t, 1, got["count"])
 
-	for _, q := range []string{"*", "**", "\x00", "()", "(", "\"\"", "- ^ :"} {
+	for _, q := range []string{"*", "**", "\x00", "()", "(", "\"\"", "- ^ :", "AND", "OR", "the is to"} {
 		_, res := callSearchDocs(t, s, map[string]any{"query": q})
 		require.True(t, res.IsError, "query %q", q)
 		assert.Contains(t, res.Content[0].(mcpgo.TextContent).Text, "no searchable terms", "query %q", q)
