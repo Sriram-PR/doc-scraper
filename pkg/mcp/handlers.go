@@ -18,8 +18,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	md "github.com/JohannesKaufmann/html-to-markdown"
-	"github.com/JohannesKaufmann/html-to-markdown/plugin"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/andybalholm/cascadia"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -30,6 +28,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
@@ -347,9 +346,11 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(fmt.Sprintf("content selector '%s' not found on page", contentSelector)), nil
 	}
 
-	converter := md.NewConverter("", true, nil)
-	converter.Use(plugin.GitHubFlavored())
-	content := strings.TrimSpace(converter.Convert(contentSelection.First()))
+	content, err := process.ToMarkdown(contentSelection.First())
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to convert page: %v", err)), nil
+	}
+	content = strings.TrimSpace(content)
 
 	fetchTimeMs := time.Since(startTime).Milliseconds()
 

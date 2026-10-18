@@ -101,6 +101,24 @@ func TestHandleGetPage_StructuredOutput(t *testing.T) {
 	assert.Contains(t, got, "fetch_time_ms")
 }
 
+func TestHandleGetPage_ConvertsTablesAndTaskLists(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<html><head><title>T</title></head><body>`+
+			`<table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>alpha</td></tr></tbody></table>`+
+			`<ul><li><input type="checkbox" checked> done</li></ul></body></html>`)
+	}))
+	t.Cleanup(srv.Close)
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
+
+	result, _ := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
+	got := requireToolResultConforms(t, "get_page", result)
+	assert.Contains(t, got["content"], "| alpha")
+	assert.Contains(t, got["content"], "- [x]  done")
+	assert.NotContains(t, got["content"], "<!--")
+}
+
 // A large page must not come back whole: get_page pages its Markdown like
 // read_page, and following next_offset rebuilds the full content.
 func TestHandleGetPage_PaginatesLargePages(t *testing.T) {

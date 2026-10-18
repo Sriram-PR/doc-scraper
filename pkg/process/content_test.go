@@ -640,5 +640,5 @@ func TestProcessAndSaveContent_RewritesInternalLinks(t *testing.T) {
 	assert.Contains(t, md, "[DotRel](https://e.com/blog/post.html?a=1#x)")
 	assert.Contains(t, md, "[External](https://elsewhere.org/x)")
 	assert.Contains(t, md, "[Mail](mailto:a@e.com)")
-	assert.Contains(t, md, "[Broken](http://[::1)", "unparseable links are kept, not dropped")
+	assert.Contains(t, md, "[Broken](http://%5B::1)", "unparseable links are kept, not dropped (the converter percent-encodes the bracket)")
 }

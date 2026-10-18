@@ -12,8 +12,6 @@ import (
 	"time"
 	"unicode"
 
-	md "github.com/JohannesKaufmann/html-to-markdown"
-	"github.com/JohannesKaufmann/html-to-markdown/plugin"
 	"github.com/PuerkitoBio/goquery"
 	"gopkg.in/yaml.v3"
 
@@ -29,20 +27,15 @@ type ContentProcessor struct {
 	appCfg               *config.AppConfig
 	detector             *detect.ContentDetector
 	readabilityExtractor *detect.ReadabilityExtractor
-	markdownConverter    *md.Converter
 }
 
 func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig, log *slog.Logger) *ContentProcessor {
-	converter := md.NewConverter("", true, nil)
-	converter.Use(plugin.GitHubFlavored())
-
 	return &ContentProcessor{
 		imgProcessor:         imgProcessor,
 		appCfg:               appCfg,
 		log:                  log,
 		detector:             detect.NewContentDetector(log),
 		readabilityExtractor: detect.NewReadabilityExtractor(),
-		markdownConverter:    converter,
 	}
 }
 
@@ -246,7 +239,12 @@ func (cp *ContentProcessor) ProcessAndSaveContent(
 
 	cp.cleanupHTML(mainContent)
 
-	markdownContent := cp.markdownConverter.Convert(mainContent)
+	markdownContent, convErr := ToMarkdown(mainContent)
+	if convErr != nil {
+		err = fmt.Errorf("%w: %w", utils.ErrParsing, convErr)
+		taskLog.Error(err.Error())
+		return "", nil, 0, err
+	}
 
 	outputDirForFile := filepath.Dir(currentPageFullOutputPath)
 	if mkdirErr := os.MkdirAll(outputDirForFile, 0755); mkdirErr != nil {

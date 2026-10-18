@@ -16,8 +16,6 @@ import (
 
 	"golang.org/x/term"
 
-	md "github.com/JohannesKaufmann/html-to-markdown"
-	"github.com/JohannesKaufmann/html-to-markdown/plugin"
 	"github.com/PuerkitoBio/goquery"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
@@ -196,9 +194,11 @@ func buildAddPreview(report *discover.Report, site *config.SiteConfig, log *slog
 	p.NavLeak = hasNavResidue(selection)
 
 	pageText := textLen(report.Doc.Find("body"))
-	conv := md.NewConverter("", true, nil)
-	conv.Use(plugin.GitHubFlavored())
-	markdown := conv.Convert(selection)
+	markdown, err := process.ToMarkdown(selection)
+	if err != nil {
+		p.Err = err.Error()
+		return p
+	}
 	p.Markdown = markdown
 	p.Chars = len(markdown)
 	if pageText > 0 {
