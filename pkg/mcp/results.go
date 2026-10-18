@@ -145,7 +145,7 @@ type jobSummary struct {
 	Status          JobStatus `json:"status" jsonschema_description:"pending, running, completed, failed or cancelled"`
 	StartedAt       string    `json:"started_at"`
 	PagesProcessed  int64     `json:"pages_processed"`
-	PagesQueued     int64     `json:"pages_queued"`
+	PagesQueued     int64     `json:"pages_queued" jsonschema_description:"Pages waiting to be crawled; for a cancelled job, the pages left uncrawled"`
 	PagesUnchanged  int64     `json:"pages_unchanged" jsonschema_description:"Incremental re-checks whose content had not changed; not counted in pages_processed"`
 	Incremental     bool      `json:"incremental"`
 	CompletedAt     string    `json:"completed_at,omitempty"`

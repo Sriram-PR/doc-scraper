@@ -287,6 +287,8 @@ func TestCancelAll(t *testing.T) {
 	assert.Equal(t, JobStatusCancelled, jm.GetJob(job1.ID).Status)
 	assert.Equal(t, JobStatusCancelled, jm.GetJob(job2.ID).Status)
 	assert.Equal(t, JobStatusCompleted, jm.GetJob(job3.ID).Status) // completed stays completed
+	assert.Equal(t, shutdownCancelledMsg, jm.GetJob(job1.ID).ErrorMessage, "a shutdown is not a user cancel")
+	assert.Empty(t, jm.GetJob(job3.ID).ErrorMessage)
 
 	// bysite cleared: new jobs allowed for cancelled sites
 	newJob, err := jm.CreateJob("site-a", false)

@@ -26,10 +26,11 @@ const (
 )
 
 const (
-	jobsFilename     = "mcp_jobs.json"
-	jobsFileVersion  = 1
-	flushInterval    = 2 * time.Second
-	restartFailedMsg = "MCP server restarted during crawl"
+	jobsFilename         = "mcp_jobs.json"
+	jobsFileVersion      = 1
+	flushInterval        = 2 * time.Second
+	restartFailedMsg     = "MCP server restarted during crawl"
+	shutdownCancelledMsg = "MCP server shut down during crawl"
 	// maxTerminalJobs bounds retained finished jobs so a long-lived server does
 	// not grow m.jobs (and the persisted file) without limit. Active jobs are
 	// never pruned.
@@ -567,6 +568,7 @@ func (m *JobManager) CancelAll() {
 			job.cancel()
 			job.Status = JobStatusCancelled
 			job.CompletedAt = time.Now()
+			job.ErrorMessage = shutdownCancelledMsg
 		}
 	}
 	m.bysite = make(map[string]string)
