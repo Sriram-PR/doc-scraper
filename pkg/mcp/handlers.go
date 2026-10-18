@@ -436,7 +436,7 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 
 	return structuredResult(crawlSiteResult{
 		Status:      "started",
-		Message:     "Crawl started successfully",
+		Message:     "Crawl started. Call get_job_status with wait_seconds to wait for it to finish.",
 		JobID:       job.ID,
 		SiteKey:     siteKey,
 		Incremental: incremental,
@@ -444,7 +444,7 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 }
 
 func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if errResult := checkArgTypes(request, map[string]argKind{"job_id": argString}); errResult != nil {
+	if errResult := checkArgTypes(request, map[string]argKind{"job_id": argString, "wait_seconds": argInteger}); errResult != nil {
 		return errResult, nil
 	}
 	jobID := request.GetString("job_id", "")
@@ -457,8 +457,35 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 		return mcp.NewToolResultError(fmt.Sprintf("job '%s' not found", jobID)), nil
 	}
 
+	wait := time.Duration(min(max(request.GetInt("wait_seconds", 0), 0), maxJobWaitSeconds)) * time.Second
+	if wait > 0 && !isTerminalStatus(job.Status) {
+		deadline := time.NewTimer(wait)
+		defer deadline.Stop()
+		tick := time.NewTicker(jobWaitPoll)
+		defer tick.Stop()
+	wait:
+		for !isTerminalStatus(job.Status) {
+			select {
+			case <-ctx.Done():
+				break wait
+			case <-deadline.C:
+				break wait
+			case <-tick.C:
+				if j := s.jobManager.GetJob(jobID); j != nil {
+					job = j
+				}
+			}
+		}
+	}
+
 	return structuredResult(summarizeJob(job)), nil
 }
+
+const (
+	// Short enough for MCP clients' tool-call timeouts.
+	maxJobWaitSeconds = 60
+	jobWaitPoll       = 250 * time.Millisecond
+)
 
 // crawlRestartWait bounds how long crawl_site waits for a cancelled crawl of
 // the same site to close its store.

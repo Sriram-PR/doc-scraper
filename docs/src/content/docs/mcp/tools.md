@@ -15,7 +15,7 @@ sidebar:
 | `list_sites` | List all configured sites (key, domain, path prefix, depth, last crawled time, and a running flag) |
 | `get_page` | Fetch a single HTML page live over the network and return content as markdown, paginated like `read_page` |
 | `crawl_site` | Start a background crawl for a site (returns job ID) |
-| `get_job_status` | Check the status of a background crawl job |
+| `get_job_status` | Check the status of a background crawl job, optionally waiting up to 60 seconds for it to finish |
 | `cancel_crawl` | Cancel a running or pending crawl job by job ID |
 | `list_pages` | Enumerate crawled pages for a site (paginated, metadata only) |
 | `read_page` | Return a crawled page's markdown from the stored output, without network access; pass a search result's `anchor` to read only that section |
@@ -62,8 +62,8 @@ Result: Returns job ID for tracking progress
 
 ```
 Tool: get_job_status
-Arguments: { "job_id": "abc-123-def" }
-Result: Returns status, live page counts (pages_processed, pages_queued, pages_unchanged), and completion info. On an incremental crawl, pages_unchanged counts re-checked pages whose content had not changed; pages_processed excludes them.
+Arguments: { "job_id": "abc-123-def", "wait_seconds": 60 }
+Result: Waits until the job finishes or 60 seconds pass, then returns status, live page counts (pages_processed, pages_queued, pages_unchanged), and completion info. On an incremental crawl, pages_unchanged counts re-checked pages whose content had not changed; pages_processed excludes them.
 ```
 
 **Enumerate crawled pages:**

@@ -152,10 +152,15 @@ func (s *Server) registerTools() {
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(false),
-		mcp.WithDescription("Get the status of a crawl job"),
+		mcp.WithDescription("Get the status and page counts of a crawl job. Set wait_seconds to wait for "+
+			"the job to finish instead of polling: the call returns as soon as the job completes, fails or "+
+			"is cancelled, or when the wait runs out, with the status at that moment."),
 		mcp.WithString("job_id",
 			mcp.Required(),
 			mcp.Description("The job ID returned by crawl_site"),
+		),
+		mcp.WithInteger("wait_seconds",
+			mcp.Description("Seconds to wait for the job to finish before returning (default: 0, max: 60)"),
 		),
 		outputSchemaFor[jobSummary](),
 	)

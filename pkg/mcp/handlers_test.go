@@ -902,3 +902,27 @@ func TestIndexToolsExplainJSONLDisabled(t *testing.T) {
 	assert.Contains(t, got["next_actions"], "docs", "a search across all sites names the sites it skipped")
 	assert.Contains(t, got["next_actions"], "enable_jsonl_output is false")
 }
+
+// wait_seconds lets an agent block until a crawl finishes instead of polling.
+func TestHandleGetJobStatus_WaitSeconds(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	job, err := s.jobManager.CreateJob("docs", false)
+	require.NoError(t, err)
+	s.jobManager.UpdateStatus(job.ID, JobStatusRunning, "")
+
+	started := time.Now()
+	_, got := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID, "wait_seconds": 1})
+	assert.Equal(t, "running", got["status"], "a job still running when the wait ends is reported as running")
+	assert.GreaterOrEqual(t, time.Since(started), time.Second)
+
+	time.AfterFunc(200*time.Millisecond, func() { s.jobManager.UpdateStatus(job.ID, JobStatusCompleted, "") })
+	started = time.Now()
+	_, got = callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID, "wait_seconds": 30})
+	assert.Equal(t, "completed", got["status"])
+	assert.Less(t, time.Since(started), 5*time.Second, "returns as soon as the job finishes")
+
+	started = time.Now()
+	_, got = callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
+	assert.Equal(t, "completed", got["status"])
+	assert.Less(t, time.Since(started), time.Second, "no wait by default")
+}
