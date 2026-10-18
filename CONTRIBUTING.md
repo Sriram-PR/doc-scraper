@@ -22,12 +22,12 @@ PRs that clearly weren't reviewed (code that doesn't build, calls to functions t
 
 ## Setup
 
-You need Go 1.26 or later and [golangci-lint](https://golangci-lint.run/) v2.12.2 or later.
+You need Go 1.26 or later and [golangci-lint](https://golangci-lint.run/) v2.15.0 or later, the version CI uses. With Go 1.27, versions before v2.13.0 fail to type-check the code.
 
 ```bash
 git clone https://github.com/Sriram-PR/doc-scraper.git
 cd doc-scraper
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 make check
 ```
 
