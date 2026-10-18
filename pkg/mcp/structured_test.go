@@ -374,6 +374,26 @@ func TestToolsList_EveryToolDeclaresAnOpenOutputSchema(t *testing.T) {
 	}
 }
 
+// The handlers reject fractions for counts and offsets, so the input schema
+// must say integer or clients will send 2.5 and get an error.
+func TestToolsList_CountsAndOffsetsAreIntegers(t *testing.T) {
+	s := newStdioTestServer(t)
+	res := handleRaw(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
+	seen := 0
+	for _, raw := range res["tools"].([]any) {
+		tool := raw.(map[string]any)
+		props, _ := tool["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		for name, p := range props {
+			switch name {
+			case "limit", "max_results", "max_bytes", "offset":
+				seen++
+				assert.Equal(t, "integer", p.(map[string]any)["type"], "%s.%s", tool["name"], name)
+			}
+		}
+	}
+	assert.Equal(t, 7, seen)
+}
+
 func TestToolErrors_CarryNoStructuredContent(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 	result, _ := callJSON(t, s.handleReadPage, map[string]any{"site_key": "ghost", "url": "https://x/"})
