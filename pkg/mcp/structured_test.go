@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -98,6 +99,49 @@ func TestHandleGetPage_StructuredOutput(t *testing.T) {
 	assert.Contains(t, got["content"], "BODY")
 	assert.Equal(t, srv.URL+"/p", got["url"])
 	assert.Contains(t, got, "fetch_time_ms")
+}
+
+// A large page must not come back whole: get_page pages its Markdown like
+// read_page, and following next_offset rebuilds the full content.
+func TestHandleGetPage_PaginatesLargePages(t *testing.T) {
+	var body strings.Builder
+	body.WriteString("<html><head><title>Big</title></head><body>")
+	for i := range 8000 {
+		fmt.Fprintf(&body, "<p>paragraph %d héllo</p>", i)
+	}
+	body.WriteString("</body></html>")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, body.String())
+	}))
+	t.Cleanup(srv.Close)
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
+
+	result, first := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/big"})
+	requireToolResultConforms(t, "get_page", result)
+	n := len(first["content"].(string))
+	assert.True(t, n <= 102400 && n > 102390, "default page is about 100 KiB, got %d bytes", n)
+	assert.Equal(t, true, first["truncated"])
+	total := int(first["total_length"].(float64))
+	require.Greater(t, total, 102400)
+
+	var rebuilt strings.Builder
+	args := map[string]any{"url": srv.URL + "/big", "max_bytes": 50000}
+	for range 20 {
+		_, got := callJSON(t, s.handleGetPage, args)
+		require.NotNil(t, got)
+		rebuilt.WriteString(got["content"].(string))
+		next, ok := got["next_offset"]
+		if !ok {
+			assert.Equal(t, false, got["truncated"])
+			break
+		}
+		args["offset"] = next
+	}
+	assert.Equal(t, total, rebuilt.Len())
+	assert.True(t, strings.HasPrefix(rebuilt.String(), "paragraph 0 héllo"))
+	assert.True(t, strings.HasSuffix(rebuilt.String(), "paragraph 7999 héllo"))
 }
 
 // get_page converts HTML; anything else must come back as a clear error rather
@@ -391,7 +435,7 @@ func TestToolsList_CountsAndOffsetsAreIntegers(t *testing.T) {
 			}
 		}
 	}
-	assert.Equal(t, 7, seen)
+	assert.Equal(t, 9, seen)
 }
 
 func TestToolErrors_CarryNoStructuredContent(t *testing.T) {

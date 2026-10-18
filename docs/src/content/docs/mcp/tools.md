@@ -13,7 +13,7 @@ sidebar:
 |------|-------------|
 | `describe_server` | Orientation manifest: server identity + sites + recent jobs in one call (call this first) |
 | `list_sites` | List all configured sites (key, domain, path prefix, depth, last crawled time, and a running flag) |
-| `get_page` | Fetch a single URL live over the network and return content as markdown |
+| `get_page` | Fetch a single HTML page live over the network and return content as markdown, paginated like `read_page` |
 | `crawl_site` | Start a background crawl for a site (returns job ID) |
 | `get_job_status` | Check the status of a background crawl job |
 | `cancel_crawl` | Cancel a running or pending crawl job by job ID |
@@ -47,7 +47,7 @@ Result: Returns each configured site's key, domain, path prefix, max depth, last
 ```
 Tool: get_page
 Arguments: { "url": "https://docs.example.com/guide", "content_selector": "article" }
-Result: Returns page content as markdown with metadata
+Result: Returns up to max_bytes (default 102400) of the page as markdown with metadata; when truncated, pass next_offset as offset to read the rest
 ```
 
 **Start a background crawl:**

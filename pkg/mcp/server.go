@@ -106,15 +106,22 @@ func (s *Server) registerTools() {
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithOpenWorldHintAnnotation(true),
-		mcp.WithDescription("Fetch a URL live over the network and return its content as markdown. "+
+		mcp.WithDescription("Fetch an HTML page live over the network and return its content as markdown. "+
 			"This is an on-demand fetch independent of any crawl: it does not read the stored crawl "+
-			"output, and it ignores the site's configured content_selector and scope."),
+			"output, and it ignores the site's configured content_selector and scope. Large pages are "+
+			"truncated at max_bytes; follow next_offset to read the rest (each call fetches the page again)."),
 		mcp.WithString("url",
 			mcp.Required(),
 			mcp.Description("The URL to fetch"),
 		),
 		mcp.WithString("content_selector",
 			mcp.Description("CSS selector for main content (defaults to 'body')"),
+		),
+		mcp.WithInteger("max_bytes",
+			mcp.Description("Maximum content bytes to return (default: 102400, max: 1048576)"),
+		),
+		mcp.WithInteger("offset",
+			mcp.Description("Byte offset into the page content, for reading a truncated page in parts (default: 0)"),
 		),
 		outputSchemaFor[getPageResult](),
 	)

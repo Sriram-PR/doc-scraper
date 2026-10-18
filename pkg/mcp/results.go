@@ -82,7 +82,11 @@ type getPageResult struct {
 	URL           string `json:"url"`
 	Title         string `json:"title"`
 	Content       string `json:"content" jsonschema_description:"Page content converted to markdown"`
-	ContentLength int    `json:"content_length"`
+	ContentLength int    `json:"content_length" jsonschema_description:"Bytes of content in this response"`
+	TotalLength   int    `json:"total_length" jsonschema_description:"Bytes of the whole converted page"`
+	Offset        int    `json:"offset"`
+	Truncated     bool   `json:"truncated"`
+	NextOffset    *int   `json:"next_offset,omitempty" jsonschema_description:"Pass as offset to read the next part; present only when truncated"`
 	FetchTimeMs   int64  `json:"fetch_time_ms"`
 }
 

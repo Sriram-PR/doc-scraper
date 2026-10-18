@@ -275,9 +275,10 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 }
 
 func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if errResult := checkArgTypes(request, map[string]argKind{"url": argString, "content_selector": argString}); errResult != nil {
+	if errResult := checkArgTypes(request, map[string]argKind{"url": argString, "content_selector": argString, "max_bytes": argInteger, "offset": argInteger}); errResult != nil {
 		return errResult, nil
 	}
+	maxBytes, offset := pageWindow(request)
 	urlStr := request.GetString("url", "")
 	if urlStr == "" {
 		return mcp.NewToolResultError("url parameter is required"), nil
@@ -351,13 +352,35 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 
 	fetchTimeMs := time.Since(startTime).Milliseconds()
 
-	return structuredResult(getPageResult{
+	part, start := sliceAtRuneBoundary(content, offset, maxBytes)
+	end := start + len(part)
+	res := getPageResult{
 		URL:           parsedURL.String(),
 		Title:         title,
-		Content:       content,
-		ContentLength: len(content),
+		Content:       part,
+		ContentLength: len(part),
+		TotalLength:   len(content),
+		Offset:        start,
+		Truncated:     end < len(content),
 		FetchTimeMs:   fetchTimeMs,
-	}), nil
+	}
+	if res.Truncated {
+		res.NextOffset = &end
+	}
+	return structuredResult(res), nil
+}
+
+// pageWindow reads the max_bytes and offset arguments shared by read_page and
+// get_page.
+func pageWindow(request mcp.CallToolRequest) (maxBytes, offset int) {
+	maxBytes = request.GetInt("max_bytes", defaultReadPageBytes)
+	if maxBytes <= 0 {
+		maxBytes = defaultReadPageBytes
+	}
+	if maxBytes > maxReadPageBytes {
+		maxBytes = maxReadPageBytes
+	}
+	return maxBytes, request.GetInt("offset", 0)
 }
 
 // htmlContentType returns "" for an HTML response, or else the content type
@@ -823,14 +846,7 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		return errResult, nil
 	}
 
-	maxBytes := request.GetInt("max_bytes", defaultReadPageBytes)
-	if maxBytes <= 0 {
-		maxBytes = defaultReadPageBytes
-	}
-	if maxBytes > maxReadPageBytes {
-		maxBytes = maxReadPageBytes
-	}
-	offset := request.GetInt("offset", 0)
+	maxBytes, offset := pageWindow(request)
 
 	jsonlPath, jsonlEnabled := s.siteJSONLPath(siteKey, siteCfg)
 	if !jsonlEnabled {
