@@ -53,9 +53,9 @@ func TestGetOutputPathForURL_RootURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
-			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
+			path, ok := cp.OutputPathForURL(parsed, &siteCfg, siteOutputDir)
+			assert.Equal(t, tt.expectedOK, ok, "OutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "OutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -103,9 +103,9 @@ func TestGetOutputPathForURL_FileLikeURLs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
-			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
+			path, ok := cp.OutputPathForURL(parsed, &siteCfg, siteOutputDir)
+			assert.Equal(t, tt.expectedOK, ok, "OutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "OutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -145,7 +145,7 @@ func TestGetOutputPathForURL_DirectoryLikeURLs(t *testing.T) {
 		{
 			name:         "PrefixRootWithSlash",
 			inputURL:     "https://example.com/docs/",
-			expectedPath: filepath.Join(siteOutputDir, "docs", "index.md"),
+			expectedPath: filepath.Join(siteOutputDir, "index.md"),
 			expectedOK:   true,
 		},
 	}
@@ -153,9 +153,9 @@ func TestGetOutputPathForURL_DirectoryLikeURLs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
-			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
+			path, ok := cp.OutputPathForURL(parsed, &siteCfg, siteOutputDir)
+			assert.Equal(t, tt.expectedOK, ok, "OutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "OutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -203,10 +203,10 @@ func TestGetOutputPathForURL_ScopeViolations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
+			path, ok := cp.OutputPathForURL(parsed, &siteCfg, siteOutputDir)
+			assert.Equal(t, tt.expectedOK, ok, "OutputPathForURL(%q) ok", tt.inputURL)
 			if ok {
-				assert.Empty(t, path, "getOutputPathForURL(%q) returned a path for out-of-scope URL", tt.inputURL)
+				assert.Empty(t, path, "OutputPathForURL(%q) returned a path for out-of-scope URL", tt.inputURL)
 			}
 		})
 	}
@@ -243,9 +243,9 @@ func TestGetOutputPathForURL_HTTPScheme(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
-			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
-			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
+			path, ok := cp.OutputPathForURL(parsed, &siteCfg, siteOutputDir)
+			assert.Equal(t, tt.expectedOK, ok, "OutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "OutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -283,9 +283,9 @@ func TestGetOutputPathForURL_PathPrefixVariations(t *testing.T) {
 				AllowedPathPrefix: tt.allowedPathPrefix,
 			}
 			parsed, _ := url.Parse(tt.inputURL)
-			path, ok := cp.getOutputPathForURL(parsed, &siteCfg, "/output")
-			assert.Equal(t, tt.expectedOK, ok, "getOutputPathForURL(%q) ok", tt.inputURL)
-			assert.Equal(t, tt.expectedPath, path, "getOutputPathForURL(%q) path", tt.inputURL)
+			path, ok := cp.OutputPathForURL(parsed, &siteCfg, "/output")
+			assert.Equal(t, tt.expectedOK, ok, "OutputPathForURL(%q) ok", tt.inputURL)
+			assert.Equal(t, tt.expectedPath, path, "OutputPathForURL(%q) path", tt.inputURL)
 		})
 	}
 }
@@ -315,14 +315,14 @@ func TestGetOutputPathForURL_PathTraversal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.inputURL)
-			gotPath, ok := cp.getOutputPathForURL(parsed, &siteCfg, siteOutputDir)
+			gotPath, ok := cp.OutputPathForURL(parsed, &siteCfg, siteOutputDir)
 			// Two acceptable outcomes: (a) function rejects URL outright (ok=false),
 			// or (b) function returns a path that stays within siteOutputDir.
 			if ok {
 				cleanedDir := filepath.Clean(siteOutputDir)
 				cleanedFull := filepath.Clean(gotPath)
 				assert.True(t, cleanedFull == cleanedDir || strings.HasPrefix(cleanedFull, cleanedDir+string(filepath.Separator)),
-					"getOutputPathForURL(%q) returned escape path %q (siteOutputDir=%q)", tt.inputURL, gotPath, siteOutputDir)
+					"OutputPathForURL(%q) returned escape path %q (siteOutputDir=%q)", tt.inputURL, gotPath, siteOutputDir)
 			}
 		})
 	}

@@ -768,6 +768,28 @@ func TestCrawlerRun_IncrementalCountsUnchangedPages(t *testing.T) {
 	assert.EqualValues(t, 1, p.PagesUnchanged, "one page changed")
 }
 
+func TestCrawlerRun_IncrementalResavesUnchangedPageWithMissingFile(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>A1</p></main></body></html>`)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	md := filepath.Join(siteOutputDir(appCfg, siteCfg), "a.md")
+	require.FileExists(t, md)
+	require.NoError(t, os.Remove(md))
+
+	p := runResumableCrawl(t, appCfg, siteCfg, true)
+	assert.EqualValues(t, 1, p.PagesProcessed, "the page whose file is gone is saved again")
+	assert.EqualValues(t, 1, p.PagesUnchanged, "the page whose file is present is still skipped")
+	assert.FileExists(t, md)
+}
+
 func TestCrawlerRun_CountsSavedAndFailedPages(t *testing.T) {
 	server, ms := newMutableDocServer(t)
 	ms.set("/docs/index.html", `<html><head><title>Index</title></head><body>

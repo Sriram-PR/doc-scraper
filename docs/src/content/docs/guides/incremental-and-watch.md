@@ -10,7 +10,7 @@ sidebar:
 `crawl -incremental` (which implies `--resume`, and is also what `watch` mode uses) re-fetches every previously-crawled page and re-checks it for changes:
 
 - Change detection is **content-scoped**: it hashes the extracted content-selector region, not the raw page. Churn in the page shell (navigation, analytics, build timestamps, CSRF tokens) outside the content selector does **not** count as a change.
-- Pages whose content region is **unchanged** are skipped without re-converting, re-downloading images, or rewriting output.
+- Pages whose content region is **unchanged** are skipped without re-converting, re-downloading images, or rewriting output. An unchanged page whose Markdown file is missing from the output is saved again.
 - Pages whose content region **changed** are fully reprocessed and their output is rewritten.
 - Unchanged pages still have their links followed, so a page newly linked from the navigation is found.
 - A page that now returns an error (e.g. 404) on re-crawl leaves its previously-crawled output **as-is**; nothing is pruned.

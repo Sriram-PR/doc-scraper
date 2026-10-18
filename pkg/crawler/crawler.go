@@ -927,11 +927,13 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		if hashErr != nil {
 			taskLog.Warn(fmt.Sprintf("Failed to check content hash for incremental crawl: %v", hashErr))
 			// Continue processing despite hash check error
-		} else if exists && existingHash == contentHash {
+		} else if exists && existingHash == contentHash && c.savedFileExists(finalURL) {
 			taskLog.Info("Page content unchanged (hash match) - skipping processing")
 			c.unchangedCounter.Add(1)
 			skipped = true
 			return
+		} else if exists && existingHash == contentHash {
+			taskLog.Info("Page content unchanged but its saved file is missing - saving it again")
 		} else if exists {
 			taskLog.Debug("Page content changed - will reprocess")
 		} else {
@@ -955,6 +957,18 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.
+}
+
+// savedFileExists reports whether a page's Markdown file is where this
+// version saves it; a deleted file, or one saved under an older path layout,
+// must not be skipped as unchanged.
+func (c *Crawler) savedFileExists(pageURL *url.URL) bool {
+	p, ok := c.contentProcessor.OutputPathForURL(pageURL, c.siteCfg, c.siteOutputDir)
+	if !ok {
+		return true
+	}
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // handleSetupAndResumeCheck parses the URL, normalizes it, and checks its status in the DB.

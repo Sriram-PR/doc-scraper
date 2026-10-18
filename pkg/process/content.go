@@ -169,7 +169,7 @@ func (cp *ContentProcessor) ProcessAndSaveContent(
 ) (savedFilePath string, markdownBytes []byte, imageCount int, err error) {
 	taskLog = taskLog.With("page_title", pageTitle)
 
-	currentPageFullOutputPath, pageInScope := cp.getOutputPathForURL(finalURL, siteCfg, siteOutputDir)
+	currentPageFullOutputPath, pageInScope := cp.OutputPathForURL(finalURL, siteCfg, siteOutputDir)
 	if !pageInScope {
 		err = fmt.Errorf("%w: output path calculation failed unexpectedly for in-scope URL '%s'", utils.ErrScopeViolation, finalURL.String())
 		taskLog.Error(err.Error())
@@ -268,9 +268,9 @@ func (cp *ContentProcessor) ProcessAndSaveContent(
 	return currentPageFullOutputPath, []byte(markdownContent), imgRewriteCount, nil
 }
 
-// getOutputPathForURL maps a crawled URL to a sanitized local filesystem path, performing scope
+// OutputPathForURL maps a crawled URL to a sanitized local filesystem path, performing scope
 // checks. Returns the absolute output path and true if in scope, otherwise ("", false).
-func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *config.SiteConfig, siteOutputDir string) (string, bool) {
+func (cp *ContentProcessor) OutputPathForURL(targetURL *url.URL, siteCfg *config.SiteConfig, siteOutputDir string) (string, bool) {
 	if (targetURL.Scheme != "http" && targetURL.Scheme != "https") ||
 		targetURL.Hostname() != siteCfg.AllowedDomain {
 		return "", false
@@ -290,7 +290,9 @@ func (cp *ContentProcessor) getOutputPathForURL(targetURL *url.URL, siteCfg *con
 	if normalizedPath == "" {
 		normalizedPath = "/"
 	}
-	relativePath := strings.TrimPrefix(normalizedPath, siteCfg.AllowedPathPrefix)
+	// normalizedPath has lost its trailing slash, so the prefix must too, or
+	// the prefix root itself ("/docs/" -> "/docs") would keep its full path.
+	relativePath := strings.TrimPrefix(normalizedPath, strings.TrimSuffix(siteCfg.AllowedPathPrefix, "/"))
 	relativePath = strings.TrimPrefix(relativePath, "/")
 
 	if relativePath != "" {
@@ -442,7 +444,7 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 			return
 		}
 
-		targetOutputPath, isInScope := cp.getOutputPathForURL(linkURL, siteCfg, siteOutputDir)
+		targetOutputPath, isInScope := cp.OutputPathForURL(linkURL, siteCfg, siteOutputDir)
 		if !isInScope {
 			// A relative href to a page outside the crawl resolves nowhere in the saved output.
 			element.SetAttr("href", linkURL.String())
