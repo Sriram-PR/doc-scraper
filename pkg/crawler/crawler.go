@@ -805,6 +805,15 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			logAttrs = append(logAttrs, "page_title", pageTitle)
 		}
 
+		// A task cut off by cancelling the crawl did not fail: recording it would
+		// count it as processed and wipe its content hash, so the next
+		// incremental crawl would reprocess an unchanged page.
+		if taskErr != nil && !panicked && c.crawlCtx.Err() != nil {
+			taskLog.With(logAttrs...).Info(fmt.Sprintf("Task abandoned, crawl cancelled: %v", taskErr))
+			c.wg.Done()
+			return
+		}
+
 		if taskErr != nil {
 			finalStatus = models.PageStatusFailure
 			finalErrorType = taskErr.Error()

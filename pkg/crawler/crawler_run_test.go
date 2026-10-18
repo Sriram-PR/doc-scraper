@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1141,6 +1142,68 @@ func TestCrawlerRun_ResumeKeepsEnqueuedDepth(t *testing.T) {
 		got[strings.TrimPrefix(u, server.URL)] = d
 	}
 	assert.Equal(t, want, got, "resumed crawl must match the uninterrupted baseline, depths included")
+}
+
+// A page whose fetch is cut off by cancelling the crawl was not processed: it
+// must not count as processed, and it must keep its stored content hash, or the
+// next incremental crawl reprocesses it as if it had changed.
+func TestCrawlerRun_CancelledIncrementalLeavesInFlightPageUntouched(t *testing.T) {
+	var block atomic.Bool
+	blocked := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/docs/index.html":
+			_, _ = io.WriteString(w, `<html><head><title>Doc</title></head><body><main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+		case "/docs/a.html":
+			if block.Load() {
+				select {
+				case blocked <- struct{}{}:
+				default:
+				}
+				<-r.Context().Done()
+				return
+			}
+			_, _ = io.WriteString(w, `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+
+	block.Store(true)
+	logger := silentLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, true, logger)
+	require.NoError(t, err)
+	fetcher := fetch.NewFetcher(fetch.NewClient(appCfg.HTTPClientSettings, logger), appCfg, logger)
+	c, err := NewCrawlerWithOptions(appCfg, siteCfg, testSiteKey, logger, store, fetcher, fetch.NewRateLimiter(0, logger), ctx, cancel, true, nil)
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = c.Run(true)
+	}()
+	select {
+	case <-blocked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a.html was never requested")
+	}
+	cancel()
+	<-done
+	require.NoError(t, store.Close())
+	assert.EqualValues(t, 0, c.GetProgress().PagesProcessed, "the cut-off fetch of a.html is not a processed page")
+
+	block.Store(false)
+	p := runResumableCrawl(t, appCfg, siteCfg, true)
+	assert.EqualValues(t, 0, p.PagesProcessed, "nothing changed, so nothing is reprocessed")
+	assert.EqualValues(t, 2, p.PagesUnchanged)
 }
 
 func TestCrawlerRun_CancelDuringInitialRobotsFetchReturns(t *testing.T) {
