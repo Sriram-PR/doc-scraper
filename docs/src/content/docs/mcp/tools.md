@@ -26,7 +26,7 @@ Its `initialize` response carries `instructions` that tell the agent to call `de
 
 ## Results
 
-Every tool declares an `outputSchema` and returns its result as `structuredContent`, with the same JSON in a text content block for clients that read only text. Schemas allow additional fields, so newer servers can add fields without breaking clients. Errors are returned as `isError` results with a text message and no `structuredContent`.
+Every tool declares an `outputSchema` and returns its result as `structuredContent`, with the same JSON value in a text content block for clients that read only text. The text is not byte-identical to other encoders' output: Go escapes `<`, `>` and `&` in strings as `\u003c`, `\u003e` and `\u0026`, which decode to the same characters. Schemas allow additional fields, so newer servers can add fields without breaking clients. Errors are returned as `isError` results with a text message and no `structuredContent`.
 
 Numeric limits (`max_results`, `limit`, `max_bytes`, `wait_seconds`) above their maximum are capped, and 0 or a negative value means the default. Results echo the values actually used: `max_results` and `offset` in `list_pages` and `diff_crawl`, `limit` in `search_docs`, and `offset` in `read_page` and `get_page`. An offset past the end returns nothing and is echoed as the end. All timestamps are UTC in RFC 3339 form, such as `2026-10-18T13:52:28Z`.
 
