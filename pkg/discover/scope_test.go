@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
 )
 
 func mustURL(t *testing.T, s string) *url.URL {
@@ -166,4 +168,38 @@ func TestBuildDraft_EvidenceCountsExcludedTrees(t *testing.T) {
 	d := BuildDraft(r, "")
 	assert.Contains(t, d.Evidence, "allowed_path_prefix: /docs/ covers 40 of 200 sitemap URLs, not counting 86 in excluded version/locale trees")
 	assert.Equal(t, []string{"^/docs/next/"}, d.Site.DisallowedPathPatterns)
+}
+
+func TestBuildDraft_EvidenceNamesSamplePage(t *testing.T) {
+	r := &Report{
+		FinalURL:  mustURL(t, "https://vitepress.example/"),
+		Detection: detect.DetectionResult{Framework: detect.FrameworkVitePress, Selector: ".vp-doc", Confidence: detect.ConfidenceHigh, Source: detect.SourceGenerator},
+		Sample:    &SamplePage{URL: mustURL(t, "https://vitepress.example/guide/intro")},
+		Scope:     ScopeInfo{Prefix: "/"},
+	}
+	d := BuildDraft(r, "")
+	assert.Equal(t, ".vp-doc", d.Site.ContentSelector)
+	assert.Contains(t, d.Evidence, "content_selector: vitepress detected via generator (high confidence), validated on /guide/intro; the seed page is a landing layout")
+}
+
+func TestBuildDraft_SeedValidatedEvidenceUnchanged(t *testing.T) {
+	r := &Report{
+		FinalURL:  mustURL(t, "https://vitepress.example/guide/intro"),
+		Detection: detect.DetectionResult{Framework: detect.FrameworkVitePress, Selector: ".vp-doc", Confidence: detect.ConfidenceHigh, Source: detect.SourceGenerator},
+		Scope:     ScopeInfo{Prefix: "/guide/"},
+	}
+	d := BuildDraft(r, "")
+	assert.Contains(t, d.Evidence, "content_selector: vitepress detected via generator (high confidence), validated on the fetched page")
+}
+
+func TestBuildDraft_AutoEvidenceCarriesSampleNote(t *testing.T) {
+	r := &Report{
+		FinalURL:   mustURL(t, "https://vitepress.example/"),
+		Detection:  detect.DetectionResult{Framework: detect.FrameworkVitePress, Fallback: true, Confidence: detect.ConfidenceUnvalidated, Source: detect.SourceGenerator},
+		SampleNote: "checked /guide/intro: detected mkdocs there",
+		Scope:      ScopeInfo{Prefix: "/"},
+	}
+	d := BuildDraft(r, "")
+	assert.Equal(t, "auto", d.Site.ContentSelector)
+	assert.Contains(t, d.Evidence, `content_selector: vitepress recognized but no selector matched this page; "auto" will use readability extraction; checked /guide/intro: detected mkdocs there`)
 }

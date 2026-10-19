@@ -49,15 +49,22 @@ func BuildDraft(r *Report, selectorOverride string) *Draft {
 		d.Evidence = append(d.Evidence, "content_selector: provided via -selector")
 	case r.Detection.Selector != "":
 		d.Site.ContentSelector = r.Detection.Selector
-		d.Evidence = append(d.Evidence, fmt.Sprintf("content_selector: %s detected via %s (%s confidence), validated on the fetched page",
-			r.Detection.Framework, r.Detection.Source, r.Detection.Confidence))
+		where := "validated on the fetched page"
+		if r.Sample != nil {
+			where = fmt.Sprintf("validated on %s; the seed page is a landing layout", r.Sample.URL.Path)
+		}
+		d.Evidence = append(d.Evidence, fmt.Sprintf("content_selector: %s detected via %s (%s confidence), %s",
+			r.Detection.Framework, r.Detection.Source, r.Detection.Confidence, where))
 	default:
 		d.Site.ContentSelector = "auto"
+		line := "content_selector: no framework recognized; \"auto\" will use readability extraction"
 		if r.Detection.Framework != detect.FrameworkUnknown {
-			d.Evidence = append(d.Evidence, fmt.Sprintf("content_selector: %s recognized but no selector matched this page; \"auto\" will use readability extraction", r.Detection.Framework))
-		} else {
-			d.Evidence = append(d.Evidence, "content_selector: no framework recognized; \"auto\" will use readability extraction")
+			line = fmt.Sprintf("content_selector: %s recognized but no selector matched this page; \"auto\" will use readability extraction", r.Detection.Framework)
 		}
+		if r.SampleNote != "" {
+			line += "; " + r.SampleNote
+		}
+		d.Evidence = append(d.Evidence, line)
 		d.Warnings = append(d.Warnings, "extraction falls back to readability; review the preview carefully, code blocks are at risk")
 	}
 
