@@ -1,12 +1,17 @@
 package discover
 
 import (
+	"context"
+	"fmt"
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
 )
 
 var nonHTMLExt = map[string]struct{}{".pdf": {}, ".xml": {}, ".json": {}, ".txt": {}, ".zip": {}}
@@ -90,4 +95,51 @@ func robotsRuleMatches(rule, p string) bool {
 	}
 	re, err := regexp.Compile(expr)
 	return err == nil && re.MatchString(p)
+}
+
+// SamplePage is the docs page a content selector was validated on when the
+// seed page failed validation.
+type SamplePage struct {
+	URL *url.URL
+	Doc *goquery.Document
+}
+
+const littleContentWarning = "the page has very little content; a crawl of it may capture little or nothing"
+
+// confirmOnSample re-runs detection on one other docs page when the seed
+// recognized a framework but its selector failed validation there, as landing
+// layouts do. The sample's result is adopted only for the same framework with
+// a validated selector.
+func (d *Discoverer) confirmOnSample(ctx context.Context, r *Report) {
+	det := r.Detection
+	if !det.Fallback || det.Confidence == detect.ConfidenceJSRendered ||
+		det.Framework == detect.FrameworkUnknown || det.Framework == detect.FrameworkJSShell {
+		return
+	}
+	u := samplePage(r)
+	if u == nil {
+		r.SampleNote = "no other page in scope to check the selector on"
+		return
+	}
+	doc, finalURL, err := d.fetchPage(ctx, u)
+	if err != nil {
+		r.SampleNote = fmt.Sprintf("checked %s: %v", u.Path, err)
+		return
+	}
+	if !sameSite(finalURL.Hostname(), r.FinalURL.Hostname()) {
+		r.SampleNote = fmt.Sprintf("checked %s: redirected to %s", u.Path, finalURL.Hostname())
+		return
+	}
+	res := detect.DetectPage(doc)
+	switch {
+	case res.Framework != det.Framework:
+		r.SampleNote = fmt.Sprintf("checked %s: detected %s there", u.Path, res.Framework)
+		return
+	case res.Fallback:
+		r.SampleNote = fmt.Sprintf("checked %s: the %s selector matched nothing there either", u.Path, det.Framework)
+		return
+	}
+	r.Detection = res
+	r.Sample = &SamplePage{URL: finalURL, Doc: doc}
+	r.Warnings = slices.DeleteFunc(r.Warnings, func(w string) bool { return w == littleContentWarning })
 }

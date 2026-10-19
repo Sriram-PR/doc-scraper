@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -277,4 +278,109 @@ func TestDiscoverer_EmptyContainerIsNotReportedAsValidated(t *testing.T) {
 	assert.Equal(t, "auto", draft.Site.ContentSelector)
 	assert.NotContains(t, strings.Join(draft.Evidence, "\n"), "validated on the fetched page")
 	assert.Contains(t, strings.Join(draft.Warnings, "\n"), "readability")
+}
+
+const vpLanding = `<!DOCTYPE html><html><head><title>Demo</title>
+<meta name="generator" content="VitePress v1.6.4"></head><body>
+<div id="VPContent"><div class="VPHome"><h1>Demo</h1><p>Fast docs.</p>
+<div class="vp-doc"><p>Short intro.</p></div></div></div></body></html>`
+
+var vpDoc = `<!DOCTYPE html><html><head><title>Intro</title>
+<meta name="generator" content="VitePress v1.6.4"></head><body>
+<div id="VPContent"><main class="main"><div class="vp-doc"><h1>Intro</h1>
+<p>` + strings.Repeat("Real documentation body text with plenty of length for validation. ", 6) + `</p>
+</div></main></div></body></html>`
+
+// siteServer serves pages by exact path, a sitemap of the given paths, and
+// counts hits per path. A page value "redirect-off-host" redirects to the
+// same server under the hostname localhost, which is a different site.
+func siteServer(t *testing.T, pages map[string]string, sitemap []string) (*httptest.Server, func(string) int) {
+	t.Helper()
+	var mu sync.Mutex
+	hits := map[string]int{}
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits[r.URL.Path]++
+		mu.Unlock()
+		if r.URL.Path == "/sitemap.xml" {
+			fmt.Fprint(w, `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
+			for _, p := range sitemap {
+				fmt.Fprintf(w, "<url><loc>%s%s</loc></url>", srv.URL, p)
+			}
+			fmt.Fprint(w, `</urlset>`)
+			return
+		}
+		page, ok := pages[r.URL.Path]
+		switch {
+		case !ok:
+			http.NotFound(w, r)
+		case page == "redirect-off-host":
+			http.Redirect(w, r, strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)+"/elsewhere", http.StatusFound)
+		default:
+			fmt.Fprint(w, page)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func(p string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return hits[p]
+	}
+}
+
+func TestDiscoverer_LandingSeedAdoptsSelectorFromSample(t *testing.T) {
+	srv, _ := siteServer(t, map[string]string{"/": vpLanding, "/guide/intro": vpDoc}, []string{"/", "/guide/intro"})
+	r, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/")
+	require.NoError(t, err)
+
+	assert.Equal(t, detect.FrameworkVitePress, r.Detection.Framework)
+	assert.Equal(t, ".vp-doc, main.main, #VPContent", r.Detection.Selector)
+	assert.Equal(t, detect.ConfidenceHigh, r.Detection.Confidence)
+	require.NotNil(t, r.Sample)
+	assert.Equal(t, "/guide/intro", r.Sample.URL.Path)
+	assert.NotNil(t, r.Sample.Doc)
+	assert.Empty(t, r.SampleNote)
+	assert.NotContains(t, strings.Join(r.Warnings, "\n"), "very little content")
+}
+
+func TestDiscoverer_LandingSeedKeepsFallbackWhenSampleFails(t *testing.T) {
+	cases := []struct {
+		name     string
+		pages    map[string]string
+		sitemap  []string
+		wantNote string
+	}{
+		{"sample 404", map[string]string{"/": vpLanding}, []string{"/", "/guide/intro"}, "checked /guide/intro: "},
+		{"other framework", map[string]string{"/": vpLanding, "/guide/intro": fmt.Sprintf(fixturePage, "https://x.example")}, []string{"/", "/guide/intro"},
+			"checked /guide/intro: detected mkdocs-material there"},
+		{"still unvalidated", map[string]string{"/": vpLanding, "/guide/intro": vpLanding}, []string{"/", "/guide/intro"},
+			"checked /guide/intro: the vitepress selector matched nothing there either"},
+		{"redirect off host", map[string]string{"/": vpLanding, "/guide/intro": "redirect-off-host", "/elsewhere": vpDoc}, []string{"/", "/guide/intro"},
+			"checked /guide/intro: redirected to localhost"},
+		{"no candidate", map[string]string{"/": vpLanding}, []string{"/"}, "no other page in scope to check the selector on"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := siteServer(t, tc.pages, tc.sitemap)
+			r, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/")
+			require.NoError(t, err)
+
+			assert.Nil(t, r.Sample)
+			assert.True(t, r.Detection.Fallback)
+			assert.Empty(t, r.Detection.Selector)
+			assert.Contains(t, r.SampleNote, tc.wantNote)
+		})
+	}
+}
+
+func TestDiscoverer_ValidatedSeedFetchesNoSample(t *testing.T) {
+	srv, hits := siteServer(t, map[string]string{"/guide/intro": vpDoc, "/guide/other": vpDoc}, []string{"/guide/intro", "/guide/other"})
+	r, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/guide/intro")
+	require.NoError(t, err)
+
+	assert.False(t, r.Detection.Fallback)
+	assert.Nil(t, r.Sample)
+	assert.Empty(t, r.SampleNote)
+	assert.Equal(t, 0, hits("/guide/other"))
 }

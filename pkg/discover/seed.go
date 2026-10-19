@@ -93,8 +93,7 @@ func analyzeSeedPage(r *Report) {
 		r.Warnings = append(r.Warnings,
 			"the page appears to be JavaScript-rendered ("+string(r.Detection.Framework)+"); a static crawl will likely capture little or no content")
 	case r.Detection.Fallback && tinyBody:
-		r.Warnings = append(r.Warnings,
-			"the page has very little content; a crawl of it may capture little or nothing")
+		r.Warnings = append(r.Warnings, littleContentWarning)
 	}
 }
 

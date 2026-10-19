@@ -33,7 +33,12 @@ type Report struct {
 	Sitemap   SitemapInfo
 	LlmsTxt   LlmsTxtInfo
 	Scope     ScopeInfo
-	Warnings  []string
+	// Sample is the docs page the content selector was validated on when the
+	// seed page failed validation; nil when the seed validated or no sample did.
+	Sample *SamplePage
+	// SampleNote says why a sample page did not confirm the selector.
+	SampleNote string
+	Warnings   []string
 }
 
 // Discoverer performs the discovery fetches. Client should come from
@@ -45,8 +50,8 @@ type Discoverer struct {
 }
 
 // Run probes rawURL and assembles a Report. Request budget: robots.txt, the
-// seed page, llms.txt, up to nine sitemap probes, and at most two
-// sitemap-index children.
+// seed page, llms.txt, up to nine sitemap probes, at most two sitemap-index
+// children, and one sample page when the seed's selector fails validation.
 func (d *Discoverer) Run(ctx context.Context, rawURL string) (*Report, error) {
 	seed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || seed.Host == "" || (seed.Scheme != "http" && seed.Scheme != "https") {
@@ -78,6 +83,7 @@ func (d *Discoverer) Run(ctx context.Context, rawURL string) (*Report, error) {
 	r.LlmsTxt = d.fetchLlmsTxt(ctx, r.FinalURL)
 	r.Sitemap = d.fetchSitemap(ctx, r.FinalURL, r.Robots.Sitemaps)
 	analyzeScope(r)
+	d.confirmOnSample(ctx, r)
 	return r, nil
 }
 
