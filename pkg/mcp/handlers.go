@@ -826,6 +826,16 @@ func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
 	return nil, scanner.Err()
 }
 
+func (s *Server) anySiteIndexed(ctx context.Context) bool {
+	for key := range s.cfg.AppConfig.Sites {
+		// On a lookup error, assume content so the caller keeps its generic hint.
+		if has, err := s.idx.SiteHasChunks(ctx, key); err != nil || has {
+			return true
+		}
+	}
+	return false
+}
+
 // siteWithPage returns another configured site whose stored crawl holds
 // pageURL, or "" if none does.
 func (s *Server) siteWithPage(exclude, pageURL string) string {
@@ -1030,6 +1040,11 @@ func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolReque
 	if len(results) == 0 {
 		hint := "No matches. Broaden the query, or check the corpus with list_sites and list_pages."
 		if siteKey == "" {
+			if !s.anySiteIndexed(ctx) {
+				hint = "No site has indexed content yet. Run crawl_site for one of: " +
+					strings.Join(config.GetAllSiteKeys(s.cfg.AppConfig), ", ") +
+					" (existing crawls are indexed automatically shortly after server start)."
+			}
 			if off := s.unindexedOptOuts(ctx); len(off) > 0 {
 				hint += " Not searched, enable_jsonl_output is false: " + strings.Join(off, ", ") +
 					". Remove the setting (it defaults to true) and re-run crawl_site for them."

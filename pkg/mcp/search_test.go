@@ -145,3 +145,11 @@ func TestHandleSearchDocs_OptedOutSiteWithOldChunksIsSearched(t *testing.T) {
 		assert.NotContains(t, got["next_actions"], "enable_jsonl_output")
 	}
 }
+
+func TestHandleSearchDocs_EmptyIndexGlobalSearchSuggestsCrawl(t *testing.T) {
+	s := newTestServerWithIndex(t, "docs")
+	got, _ := callSearchDocs(t, s, map[string]any{"query": "nothingmatches"})
+	assert.EqualValues(t, 0, got["count"])
+	assert.Contains(t, got["next_actions"], "crawl_site")
+	assert.NotContains(t, got["next_actions"], "Broaden")
+}
