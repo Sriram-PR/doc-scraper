@@ -826,6 +826,24 @@ func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
 	return nil, scanner.Err()
 }
 
+// siteWithPage returns another configured site whose stored crawl holds
+// pageURL, or "" if none does.
+func (s *Server) siteWithPage(exclude, pageURL string) string {
+	for _, key := range config.GetAllSiteKeys(s.cfg.AppConfig) {
+		if key == exclude {
+			continue
+		}
+		jsonlPath, enabled := s.siteJSONLPath(key, s.cfg.AppConfig.Sites[key])
+		if !enabled {
+			continue
+		}
+		if record, err := findPageRecord(jsonlPath, pageURL); err == nil && record != nil {
+			return key
+		}
+	}
+	return ""
+}
+
 const maxEchoedInputBytes = 200
 
 // clipInput shortens a caller-supplied value before it is echoed in an error,
@@ -909,9 +927,13 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError(fmt.Sprintf("failed to read crawl output for site '%s': %v", siteKey, err)), nil
 	}
 	if record == nil {
-		return mcp.NewToolResultError(fmt.Sprintf(
-			"url '%s' is not in the stored crawl for site '%s'. Use list_pages to see what was crawled, "+
-				"or get_page to fetch it live.", clipInput(urlStr), siteKey)), nil
+		msg := fmt.Sprintf("url '%s' is not in the stored crawl for site '%s'.", clipInput(urlStr), siteKey)
+		if other := s.siteWithPage(siteKey, urlStr); other != "" {
+			msg += fmt.Sprintf(" It is in the stored crawl for site_key '%s'; call read_page with that site_key.", other)
+		} else {
+			msg += " Use list_pages to see what was crawled, or get_page to fetch it live."
+		}
+		return mcp.NewToolResultError(msg), nil
 	}
 
 	content := record.Content

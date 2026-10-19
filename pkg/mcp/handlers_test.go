@@ -927,6 +927,21 @@ func TestHandleGetJobStatus_WaitSeconds(t *testing.T) {
 	assert.Less(t, time.Since(started), time.Second, "no wait by default")
 }
 
+func TestHandleReadPage_UnknownURLNamesSiteThatHasIt(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	seedCorpus(t, jsonlPath)
+	s.cfg.AppConfig.Sites["other"] = &config.SiteConfig{AllowedDomain: "other.example.com", AllowedPathPrefix: "/"}
+	writeJSONLRecords(t, filepath.Join(filepath.Dir(filepath.Dir(jsonlPath)), "other", "pages.jsonl"), []interface{}{
+		models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://other.example.com/x", Title: "X", Content: "# X"},
+	})
+
+	text := readPageError(t, s, map[string]any{"site_key": "docs", "url": "https://other.example.com/x/"})
+	assert.Contains(t, text, "site_key 'other'")
+
+	text = readPageError(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/missing"})
+	assert.NotContains(t, text, "other")
+}
+
 // A huge argument must not come back whole in the error text.
 func TestHandlers_ClipEchoedInput(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
