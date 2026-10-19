@@ -143,7 +143,7 @@ func (s *Server) registerTools() {
 			"so a cancelled or failed crawl leaves the previous corpus intact."),
 		mcp.WithString("site_key",
 			mcp.Required(),
-			mcp.Description("Site key from config file (e.g., 'langchain_py', 'rust_docs')"),
+			mcp.Description("Site key from config (use list_sites to discover available keys)"),
 		),
 		mcp.WithBoolean("incremental",
 			mcp.Description("Enable incremental mode (skip unchanged pages)"),

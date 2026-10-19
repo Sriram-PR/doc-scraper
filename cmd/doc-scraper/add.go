@@ -105,7 +105,7 @@ func doAdd(opts addOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	ua := cfg.DefaultUserAgent
 	if ua == "" {
-		ua = "github.com/Sriram-PR/doc-scraper/1.0"
+		ua = fetch.DefaultUserAgent()
 	}
 	d := &discover.Discoverer{
 		Client:    fetch.NewClient(cfg.HTTPClientSettings, log),

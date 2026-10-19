@@ -34,17 +34,17 @@ Example:
   doc-scraper mcp-server -config config.yaml
 
 Available MCP Tools:
-  describe_server Orientation manifest: sites + recent jobs (call this first)
+  describe_server Orientation manifest: server identity, sites, and recent jobs (call this first)
   list_sites      List all configured sites
-  get_page        Fetch a single URL as markdown
+  get_page        Fetch a single URL live over the network as markdown
   crawl_site      Start a background crawl for a site
-  get_job_status  Check the status of a crawl job
+  get_job_status  Check the status of a crawl job, optionally waiting for it to finish
   cancel_crawl    Cancel a running or pending crawl job
   list_pages      Enumerate crawled pages for a site (paginated, metadata only)
   read_page       Return a crawled page's markdown from stored output, no network access
-  search_docs     Full-text search across crawled docs (BM25, stemming), no network access
+  search_docs     Ranked full-text search across crawled docs with snippets and section anchors, no network access
   get_freshness   Report how stale a site's latest crawl is
-  diff_crawl      Report pages added, removed, or changed since a timestamp
+  diff_crawl      Report pages added, removed, or changed since the previous crawl or a timestamp
 `)
 	}
 

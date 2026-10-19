@@ -117,17 +117,49 @@ sites:
 
 func helpToolNames(t *testing.T, bin string) []string {
 	t.Helper()
+	tools := helpTools(t, bin)
+	names := make([]string, 0, len(tools))
+	for name := range tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// helpTools maps each tool in mcp-server -h to its one-line description.
+func helpTools(t *testing.T, bin string) map[string]string {
+	t.Helper()
 	out, err := exec.Command(bin, "mcp-server", "-h").CombinedOutput()
 	require.NoError(t, err)
 	_, after, ok := strings.Cut(string(out), "Available MCP Tools:\n")
 	require.True(t, ok, "help has no Available MCP Tools section:\n%s", out)
-	var names []string
+	tools := map[string]string{}
 	for _, line := range strings.Split(after, "\n") {
-		if strings.TrimSpace(line) == "" {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			break
 		}
-		names = append(names, strings.Fields(line)[0])
+		name, desc, _ := strings.Cut(line, " ")
+		tools[name] = strings.TrimSpace(desc)
 	}
-	sort.Strings(names)
-	return names
+	return tools
+}
+
+// The Desktop Extension manifest lists tools by hand; it must match the help.
+func TestSmoke_ManifestToolsMatchHelp(t *testing.T) {
+	bin := smokeBinary(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "mcpb", "manifest.json"))
+	require.NoError(t, err)
+	var manifest struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"tools"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &manifest))
+	got := map[string]string{}
+	for _, tool := range manifest.Tools {
+		got[tool.Name] = tool.Description
+	}
+	assert.Equal(t, helpTools(t, bin), got)
 }

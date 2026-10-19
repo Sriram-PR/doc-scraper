@@ -305,7 +305,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 
 	userAgent := s.cfg.AppConfig.DefaultUserAgent
 	if userAgent == "" {
-		userAgent = "github.com/Sriram-PR/doc-scraper/1.0"
+		userAgent = fetch.DefaultUserAgent()
 	}
 	req.Header.Set("User-Agent", userAgent)
 

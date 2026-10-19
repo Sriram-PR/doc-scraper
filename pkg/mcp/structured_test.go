@@ -21,6 +21,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/version"
 )
 
 // registeredOutputSchema reads the schema from a fully registered server, so
@@ -99,6 +100,22 @@ func TestHandleGetPage_StructuredOutput(t *testing.T) {
 	assert.Contains(t, got["content"], "BODY")
 	assert.Equal(t, srv.URL+"/p", got["url"])
 	assert.Contains(t, got, "fetch_time_ms")
+}
+
+func TestHandleGetPage_DefaultUserAgentCarriesVersion(t *testing.T) {
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.UserAgent()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<html><body><p>BODY</p></body></html>`)
+	}))
+	t.Cleanup(srv.Close)
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
+	s.cfg.AppConfig.DefaultUserAgent = ""
+
+	callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
+	assert.Equal(t, "github.com/Sriram-PR/doc-scraper/"+version.Version, gotUA)
 }
 
 func TestHandleGetPage_ConvertsTablesAndTaskLists(t *testing.T) {

@@ -45,14 +45,14 @@
     }
   },
   "tools": [
-    { "name": "describe_server", "description": "Orientation manifest: server identity, sites, and recent jobs in one call" },
+    { "name": "describe_server", "description": "Orientation manifest: server identity, sites, and recent jobs (call this first)" },
     { "name": "list_sites", "description": "List all configured sites" },
     { "name": "crawl_site", "description": "Start a background crawl for a site" },
-    { "name": "get_job_status", "description": "Check a background crawl job" },
-    { "name": "cancel_crawl", "description": "Cancel a running crawl job" },
-    { "name": "list_pages", "description": "Enumerate crawled pages for a site" },
-    { "name": "read_page", "description": "Read a crawled page's markdown, no network access" },
-    { "name": "search_docs", "description": "Ranked full-text search across crawled docs with snippets and section anchors" },
+    { "name": "get_job_status", "description": "Check the status of a crawl job, optionally waiting for it to finish" },
+    { "name": "cancel_crawl", "description": "Cancel a running or pending crawl job" },
+    { "name": "list_pages", "description": "Enumerate crawled pages for a site (paginated, metadata only)" },
+    { "name": "read_page", "description": "Return a crawled page's markdown from stored output, no network access" },
+    { "name": "search_docs", "description": "Ranked full-text search across crawled docs with snippets and section anchors, no network access" },
     { "name": "get_freshness", "description": "Report how stale a site's latest crawl is" },
     { "name": "diff_crawl", "description": "Report pages added, removed, or changed since the previous crawl or a timestamp" },
     { "name": "get_page", "description": "Fetch a single URL live over the network as markdown" }
