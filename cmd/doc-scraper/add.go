@@ -164,6 +164,8 @@ func loadConfigForAdd(path string) (*config.AppConfig, error) {
 }
 
 type addPreview struct {
+	URL            string  `json:"url"`
+	Sampled        bool    `json:"-"`
 	Markdown       string  `json:"markdown"`
 	Chars          int     `json:"chars"`
 	PageTextRatio  float64 `json:"page_text_ratio"`
@@ -174,18 +176,23 @@ type addPreview struct {
 	Err            string  `json:"error,omitempty"`
 }
 
-// buildAddPreview extracts the seed page exactly as a crawl would (same
+// buildAddPreview extracts the previewed page (the sampled docs page when the
+// seed failed validation, otherwise the seed) exactly as a crawl would (same
 // SelectMainContent path, readability fallback included) and converts it to
 // markdown, reporting the fidelity numbers the user needs to judge the draft.
 func buildAddPreview(report *discover.Report, site *config.SiteConfig, log *slog.Logger) addPreview {
-	var p addPreview
+	doc, pageURL := report.Doc, report.FinalURL
+	if report.Sample != nil {
+		doc, pageURL = report.Sample.Doc, report.Sample.URL
+	}
+	p := addPreview{URL: pageURL.String(), Sampled: report.Sample != nil}
 	cp := process.NewContentProcessor(nil, &config.AppConfig{}, log)
-	selection, _, err := cp.SelectMainContent(report.Doc, report.FinalURL, site, log)
+	selection, _, err := cp.SelectMainContent(doc, pageURL, site, log)
 	if err != nil {
 		p.Err = err.Error()
 		return p
 	}
-	p.CodeBlocksSeen = report.Doc.Find("pre").Length()
+	p.CodeBlocksSeen = doc.Find("pre").Length()
 	p.CodeBlocksKept = selection.Find("pre").Length()
 	if selection.Is("pre") {
 		p.CodeBlocksKept++
@@ -193,7 +200,7 @@ func buildAddPreview(report *discover.Report, site *config.SiteConfig, log *slog
 	p.Headings = selection.Find("h1, h2, h3, h4").Length()
 	p.NavLeak = hasNavResidue(selection)
 
-	pageText := textLen(report.Doc.Find("body"))
+	pageText := textLen(doc.Find("body"))
 	markdown, err := process.ToMarkdown(selection)
 	if err != nil {
 		p.Err = err.Error()
@@ -241,7 +248,11 @@ func printAddDraft(stdout io.Writer, draft *discover.Draft, preview addPreview, 
 		fmt.Fprintf(stdout, "  # %s\n", e)
 	}
 
-	fmt.Fprintf(stdout, "\nPreview of %s:\n", "the fetched page")
+	header := "the fetched page"
+	if preview.Sampled {
+		header = preview.URL + " (the seed page is a landing layout)"
+	}
+	fmt.Fprintf(stdout, "\nPreview of %s:\n", header)
 	if preview.Err != "" {
 		fmt.Fprintf(stdout, "  extraction failed: %s\n", preview.Err)
 	} else {

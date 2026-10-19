@@ -78,6 +78,7 @@ func TestDoAdd_DryRun(t *testing.T) {
 	assert.Contains(t, out, "npm i vitepress", "preview shows the extracted code block")
 	assert.Contains(t, out, "code blocks 1/1")
 	assert.Contains(t, out, "nothing written")
+	assert.Contains(t, out, "Preview of the fetched page:")
 
 	data, _ := os.ReadFile(cfgPath)
 	assert.NotContains(t, string(data), "vp-doc", "dry run must not touch the config")
@@ -250,6 +251,74 @@ func TestHasNavResidue(t *testing.T) {
 			doc, err := goquery.NewDocumentFromReader(strings.NewReader("<html><body><main><p>" + prose + "</p>" + tc.html + "</main></body></html>"))
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, hasNavResidue(doc.Find("main")))
+		})
+	}
+}
+
+func addLandingFixtureServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	landing := `<!DOCTYPE html><html><head><title>Demo</title>
+<meta name="generator" content="VitePress v1.6.4"></head><body>
+<div id="VPContent"><div class="VPHome"><h1>Demo</h1><p>Fast docs.</p>
+<div class="vp-doc"><p>Short intro.</p></div></div></div></body></html>`
+	guide := `<!DOCTYPE html><html><head><title>Intro</title>
+<meta name="generator" content="VitePress v1.6.4"></head><body>
+<div id="VPContent"><main class="main"><div class="vp-doc"><h1>Intro</h1>
+<p>` + strings.Repeat("Guide page body text with plenty of length for validation. ", 6) + `</p>
+<pre><code>npm i vitepress</code></pre>
+</div></main></div></body></html>`
+	mux.HandleFunc("/sitemap.xml", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `<?xml version="1.0"?><urlset><url><loc>%s/</loc></url><url><loc>%s/guide/intro</loc></url></urlset>`, srv.URL, srv.URL)
+	})
+	mux.HandleFunc("/guide/intro", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, guide) })
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, landing)
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestDoAdd_LandingSeedPreviewsSampledPage(t *testing.T) {
+	srv := addLandingFixtureServer(t)
+	cfgPath := addFixtureConfig(t)
+	var stdout, stderr bytes.Buffer
+
+	code := doAdd(addOptions{configPath: cfgPath, rawURL: srv.URL + "/", dryRun: true}, strings.NewReader(""), &stdout, &stderr)
+
+	assert.Equal(t, addExitDrafted, code, stderr.String())
+	out := stdout.String()
+	assert.Contains(t, out, "content_selector: '.vp-doc, main.main, #VPContent'")
+	assert.Contains(t, out, "validated on /guide/intro; the seed page is a landing layout")
+	assert.Contains(t, out, "Preview of "+srv.URL+"/guide/intro (the seed page is a landing layout):")
+	assert.Contains(t, out, "npm i vitepress", "preview comes from the sampled page")
+}
+
+func TestDoAdd_JSONPreviewURL(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		srv      func(*testing.T) *httptest.Server
+		seedPath string
+		wantPath string
+	}{
+		{"seed validated", addFixtureServer, "/guide/", "/guide/"},
+		{"sampled page", addLandingFixtureServer, "/", "/guide/intro"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := tc.srv(t)
+			var stdout, stderr bytes.Buffer
+			code := doAdd(addOptions{configPath: addFixtureConfig(t), rawURL: srv.URL + tc.seedPath, dryRun: true, jsonOut: true},
+				strings.NewReader(""), &stdout, &stderr)
+			require.Equal(t, addExitDrafted, code, stderr.String())
+			var result addJSONResult
+			require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+			assert.Equal(t, srv.URL+tc.wantPath, result.Preview.URL)
 		})
 	}
 }
