@@ -141,7 +141,7 @@ func (m *JobManager) load() {
 		}
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	// Shared already-cancelled context: loaded jobs are terminal and only need
 	// a non-nil ctx for GetContext.
 	deadCtx, deadCancel := context.WithCancel(context.Background())
@@ -432,7 +432,7 @@ func (m *JobManager) newJobLocked(siteKey string, incremental bool) *Job {
 		SiteKey:     siteKey,
 		Status:      JobStatusPending,
 		Seq:         m.seq.Add(1),
-		StartedAt:   time.Now(),
+		StartedAt:   time.Now().UTC(),
 		Incremental: incremental,
 		ctx:         ctx,
 		cancel:      cancel,
@@ -486,7 +486,7 @@ func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg strin
 	if job, exists := m.jobs[jobID]; exists {
 		job.Status = status
 		if status == JobStatusCompleted || status == JobStatusFailed || status == JobStatusCancelled {
-			job.CompletedAt = time.Now()
+			job.CompletedAt = time.Now().UTC()
 			m.releaseSiteLocked(job)
 		}
 		if errorMsg != "" {
@@ -545,7 +545,7 @@ func (m *JobManager) CancelJob(jobID string) bool {
 		if job.Status == JobStatusPending || job.Status == JobStatusRunning {
 			job.cancel()
 			job.Status = JobStatusCancelled
-			job.CompletedAt = time.Now()
+			job.CompletedAt = time.Now().UTC()
 			m.releaseSiteLocked(job)
 			cancelled = true
 		}
@@ -567,7 +567,7 @@ func (m *JobManager) CancelAll() {
 		if job.Status == JobStatusPending || job.Status == JobStatusRunning {
 			job.cancel()
 			job.Status = JobStatusCancelled
-			job.CompletedAt = time.Now()
+			job.CompletedAt = time.Now().UTC()
 			job.ErrorMessage = shutdownCancelledMsg
 		}
 	}

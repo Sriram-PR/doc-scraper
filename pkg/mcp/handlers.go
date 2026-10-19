@@ -242,7 +242,7 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 			URL:           p.URL,
 			Title:         p.Title,
 			Depth:         p.Depth,
-			CrawledAt:     p.CrawledAt,
+			CrawledAt:     utcTimestamp(p.CrawledAt),
 			ContentLength: len(p.Content),
 		})
 	}
@@ -253,8 +253,9 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 	sort.Slice(pages, func(i, j int) bool { return pages[i].URL < pages[j].URL })
 
 	total := len(pages)
+	offset = min(offset, total)
 	var pageSlice []pageListEntry
-	if offset >= total {
+	if offset == total {
 		pageSlice = []pageListEntry{}
 	} else {
 		end := offset + maxResults
@@ -575,7 +576,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 // when absent.
 func (s *Server) siteActivity(key string, siteCfg *config.SiteConfig) (lastCrawled, status string) {
 	if t := s.getLastCrawledTime(key, siteCfg); !t.IsZero() {
-		lastCrawled = t.Format(time.RFC3339)
+		lastCrawled = utcTime(t)
 	}
 	if s.jobManager.IsRunning(key) {
 		status = "running"
@@ -743,13 +744,13 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 		UnchangedCount: res.UnchangedCount,
 		Total:          res.Total,
 		Returned:       len(res.Entries),
-		Offset:         offset,
+		Offset:         min(offset, res.Total),
 		MaxResults:     maxResults,
 		CurrentCrawl:   summarizeCrawl(res.CurrentCrawl),
 		BaselineCrawl:  summarizeCrawl(res.BaselineCrawl),
 	}
 	if sinceStr != "" {
-		out.Since = since.Format(time.RFC3339)
+		out.Since = utcTime(since)
 	}
 	for _, e := range res.Entries {
 		entry := diffEntry{URL: e.URL, Title: e.Title, ContentHash: e.ContentHash, Depth: e.Depth}
@@ -977,7 +978,7 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		SectionEnd:    sectionEnd,
 		Truncated:     end < len(content),
 		Depth:         record.Depth,
-		CrawledAt:     record.CrawledAt,
+		CrawledAt:     utcTimestamp(record.CrawledAt),
 		ContentHash:   record.ContentHash,
 		Headings:      headings,
 		Source:        "stored_crawl",
@@ -1034,6 +1035,7 @@ func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolReque
 		Query:       query,
 		SiteKey:     siteKey,
 		Count:       len(results),
+		Limit:       limit,
 		Results:     results,
 		NextActions: "Use read_page with a result's site_key and url to read the full page.",
 	}

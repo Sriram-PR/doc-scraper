@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1252,5 +1254,45 @@ func TestCrawlerRun_CancelDuringInitialRobotsFetchReturns(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run did not return after the crawl was cancelled during the initial robots.txt fetch")
+	}
+}
+
+// On a host east of UTC, a local timestamp lands on a different date than the
+// UTC one the index and MCP tools report.
+// It re-runs itself in a child process with TZ set, since changing time.Local
+// in-process races with the crawler's background goroutines.
+func TestCrawlerRun_WritesUTCTimestamps(t *testing.T) {
+	if os.Getenv("DOC_SCRAPER_TZ_CHILD") == "" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestCrawlerRun_WritesUTCTimestamps$", "-test.count=1", "-test.v")
+		cmd.Env = append(os.Environ(), "DOC_SCRAPER_TZ_CHILD=1", "TZ=Pacific/Kiritimati")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		if strings.Contains(string(out), "--- SKIP") {
+			t.Skip("TZ is not honored on this platform")
+		}
+		return
+	}
+	if _, offset := time.Now().Zone(); offset == 0 {
+		t.Skip("TZ is not honored on this platform")
+	}
+
+	server, _ := newDocServer(t, map[string]string{
+		"/docs/index.html": `<html><head><title>T</title></head><body><p>Body.</p></body></html>`,
+	})
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	md, err := os.ReadFile(filepath.Join(outDir, "index.md"))
+	require.NoError(t, err)
+	assert.Regexp(t, `(?m)^crawled_at: "?\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"?$`, string(md))
+
+	jsonl, err := os.ReadFile(filepath.Join(outDir, "pages.jsonl"))
+	require.NoError(t, err)
+	stamps := regexp.MustCompile(`"(crawled_at|crawl_started_at|crawl_ended_at)":"([^"]*)"`).FindAllStringSubmatch(string(jsonl), -1)
+	require.Len(t, stamps, 3)
+	for _, m := range stamps {
+		assert.Regexp(t, `Z$`, m[2], m[1])
 	}
 }

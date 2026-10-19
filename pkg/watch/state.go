@@ -81,7 +81,7 @@ func (m *StateManager) Save() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.state.UpdatedAt = time.Now()
+	m.state.UpdatedAt = time.Now().UTC()
 
 	if err := os.MkdirAll(m.stateDir, 0755); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
@@ -118,7 +118,7 @@ func (m *StateManager) UpdateSiteState(siteKey string, success bool, counts Page
 	defer m.mu.Unlock()
 
 	m.state.Sites[siteKey] = SiteState{
-		LastRunTime:    time.Now(),
+		LastRunTime:    time.Now().UTC(),
 		LastRunSuccess: success,
 		PagesSaved:     counts.Saved,
 		PagesUnchanged: counts.Unchanged,

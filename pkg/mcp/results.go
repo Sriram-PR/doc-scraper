@@ -102,6 +102,7 @@ type searchDocsResult struct {
 	Query       string               `json:"query"`
 	SiteKey     string               `json:"site_key,omitempty" jsonschema_description:"Present when the search was limited to one site"`
 	Count       int                  `json:"count"`
+	Limit       int                  `json:"limit"`
 	Results     []index.SearchResult `json:"results"`
 	NextActions string               `json:"next_actions"`
 }
@@ -158,12 +159,25 @@ type jobSummary struct {
 	ErrorMessage    string    `json:"error_message,omitempty"`
 }
 
+func utcTime(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
+}
+
+// utcTimestamp rewrites a stored RFC3339 timestamp in UTC; older crawls
+// wrote the host's offset.
+func utcTimestamp(s string) string {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return utcTime(t)
+	}
+	return s
+}
+
 func summarizeJob(j *Job) jobSummary {
 	sum := jobSummary{
 		JobID:          j.ID,
 		SiteKey:        j.SiteKey,
 		Status:         j.Status,
-		StartedAt:      j.StartedAt.Format(time.RFC3339),
+		StartedAt:      utcTime(j.StartedAt),
 		PagesProcessed: j.PagesProcessed,
 		PagesQueued:    j.PagesQueued,
 		PagesUnchanged: j.PagesUnchanged,
@@ -171,7 +185,7 @@ func summarizeJob(j *Job) jobSummary {
 		ErrorMessage:   j.ErrorMessage,
 	}
 	if !j.CompletedAt.IsZero() {
-		sum.CompletedAt = j.CompletedAt.Format(time.RFC3339)
+		sum.CompletedAt = utcTime(j.CompletedAt)
 		d := j.CompletedAt.Sub(j.StartedAt).Seconds()
 		sum.DurationSeconds = &d
 	}
@@ -223,8 +237,8 @@ func summarizeCrawl(c *index.LatestCrawl) *crawlSummary {
 	}
 	return &crawlSummary{
 		CrawlID:        c.ID,
-		CrawlStartedAt: c.CrawlStartedAt.Format(time.RFC3339),
-		CrawlEndedAt:   c.CrawlEndedAt.Format(time.RFC3339),
+		CrawlStartedAt: utcTime(c.CrawlStartedAt),
+		CrawlEndedAt:   utcTime(c.CrawlEndedAt),
 		TotalPages:     c.TotalPages,
 		Mode:           string(c.Mode),
 	}

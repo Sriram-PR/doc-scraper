@@ -252,7 +252,7 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 
 // Run starts the crawling process for the configured site and blocks until completion or cancellation.
 func (c *Crawler) Run(resume bool) (err error) {
-	c.output.crawlStartTime = time.Now()
+	c.output.crawlStartTime = time.Now().UTC()
 	c.output.SetIndex(c.idx, deriveMode(resume, c.appCfg.EnableIncremental))
 	runLog := c.log.With("domain", c.siteCfg.AllowedDomain, "resume", resume)
 	runLog.Info(fmt.Sprintf("Crawl starting with %d worker(s)...", c.appCfg.NumWorkers))
@@ -840,7 +840,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			pageEntry := &models.PageDBEntry{
 				Status:      finalStatus,
 				ErrorType:   finalErrorType,
-				LastAttempt: time.Now(),
+				LastAttempt: time.Now().UTC(),
 				Depth:       currentDepth,
 			}
 			if finalStatus == models.PageStatusSuccess {

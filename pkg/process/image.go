@@ -297,7 +297,7 @@ func (ip *ImageProcessor) processSingleImageTask(
 			imgErrMu.Unlock()
 		}
 
-		now := time.Now()
+		now := time.Now().UTC()
 		var entryToSave models.ImageDBEntry
 		if imgTaskErr == nil && imgDownloaded {
 			entryToSave = models.ImageDBEntry{

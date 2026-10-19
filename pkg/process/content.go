@@ -54,7 +54,7 @@ func buildPageFrontmatter(title, pageURL, body string, depth int) string {
 	fm := pageFrontmatter{
 		Title:     title,
 		URL:       pageURL,
-		CrawledAt: time.Now().Format(time.RFC3339),
+		CrawledAt: time.Now().UTC().Format(time.RFC3339),
 		Depth:     depth,
 	}
 	if len(body) > 0 {

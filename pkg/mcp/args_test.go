@@ -148,3 +148,38 @@ func TestResponsesNeverContainNull(t *testing.T) {
 		assertNoNulls(t, name, got)
 	}
 }
+
+func TestHandleSearchDocs_EchoesEffectiveLimit(t *testing.T) {
+	s := newTestServerWithIndex(t, "docs")
+	for _, tc := range []struct {
+		limit any
+		want  int
+	}{{nil, 10}, {0.0, 10}, {-3.0, 10}, {7.0, 7}, {100.0, 50}} {
+		args := map[string]any{"query": "nothingmatches"}
+		if tc.limit != nil {
+			args["limit"] = tc.limit
+		}
+		got, _ := callSearchDocs(t, s, args)
+		assert.EqualValues(t, tc.want, got["limit"], "limit %v", tc.limit)
+	}
+}
+
+func TestOffsetPastEndEchoesTotal(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	seedCorpus(t, jsonlPath)
+	idx := attachIndex(t, s)
+	got := callListPages(t, s, map[string]any{"site_key": "docs", "offset": 100.0})
+	assert.EqualValues(t, 2, got["offset"])
+
+	base := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	for i, hash := range []string{"h0", "h1"} {
+		require.NoError(t, idx.RecordCrawl(context.Background(), index.CrawlRecord{
+			SiteKey: "docs", CrawlStartedAt: base.Add(time.Duration(i) * time.Hour),
+			CrawlEndedAt: base.Add(time.Duration(i)*time.Hour + time.Minute), Mode: index.ModeIncremental,
+			Pages: []index.PageRecord{{URL: "https://docs.example.com/a", Title: "A", ContentHash: hash}},
+		}))
+	}
+	_, got = callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs", "offset": 50.0})
+	assert.EqualValues(t, 1, got["total"])
+	assert.EqualValues(t, 1, got["offset"])
+}

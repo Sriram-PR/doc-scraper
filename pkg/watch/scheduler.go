@@ -158,12 +158,12 @@ func (s *Scheduler) logSchedule() {
 			}
 			s.log.Info(fmt.Sprintf("  %s: last run %v (%s, %d pages saved, %d unchanged, %d failed), next run %v",
 				siteKey,
-				state.LastRunTime.Format(time.RFC3339),
+				state.LastRunTime.UTC().Format(time.RFC3339),
 				status,
 				state.PagesSaved,
 				state.PagesUnchanged,
 				state.PagesFailed,
-				nextRun.Format(time.RFC3339)))
+				nextRun.UTC().Format(time.RFC3339)))
 		} else {
 			s.log.Info(fmt.Sprintf("  %s: never run, will run immediately", siteKey))
 		}
@@ -194,7 +194,7 @@ func (s *Scheduler) logNextRun() {
 		if until < 0 {
 			until = 0
 		}
-		s.log.Info(fmt.Sprintf("Next crawl: %s in %v (at %s)", next.site, until.Round(time.Second), next.time.Format("15:04:05")))
+		s.log.Info(fmt.Sprintf("Next crawl: %s in %v (at %s)", next.site, until.Round(time.Second), next.time.UTC().Format("15:04:05")+" UTC"))
 	}
 }
 

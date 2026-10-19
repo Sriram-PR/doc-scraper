@@ -137,7 +137,7 @@ func (s *BadgerStore) MarkPageVisited(normalizedPageURL string, depth int) (bool
 	key := []byte(pageKeyPrefix + normalizedPageURL)
 	pending, errJson := json.Marshal(models.PageDBEntry{
 		Status:      models.PageStatusPending,
-		LastAttempt: time.Now(),
+		LastAttempt: time.Now().UTC(),
 		Depth:       depth,
 	})
 	if errJson != nil {

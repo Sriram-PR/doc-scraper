@@ -284,7 +284,7 @@ func (om *OutputManager) PagesSaved() int {
 // passed through to avoid re-reading the file from disk.
 func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte, pageTitle string, currentDepth int, taskLog *slog.Logger) {
 	om.pagesRecorded.Add(1)
-	crawledAtStr := time.Now().Format(time.RFC3339)
+	crawledAtStr := time.Now().UTC().Format(time.RFC3339)
 
 	if om.resolved.EnableJSONLOutput && markdownBytes != nil {
 		var contentHash string
@@ -346,8 +346,8 @@ func (om *OutputManager) buildCrawlMeta() models.CrawlMetaJSONL {
 		RecordType:     models.RecordTypeCrawlMeta,
 		SiteKey:        om.siteKey,
 		AllowedDomain:  om.siteCfg.AllowedDomain,
-		CrawlStartedAt: om.crawlStartTime.Format(time.RFC3339),
-		CrawlEndedAt:   time.Now().Format(time.RFC3339),
+		CrawlStartedAt: om.crawlStartTime.UTC().Format(time.RFC3339),
+		CrawlEndedAt:   time.Now().UTC().Format(time.RFC3339),
 		TotalPages:     int(om.pagesRecorded.Load()),
 	}
 }

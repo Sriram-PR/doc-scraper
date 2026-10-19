@@ -1,7 +1,9 @@
 package watch
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -153,4 +155,22 @@ func TestStateManagerFailedRunRetriesSooner(t *testing.T) {
 	// An interval shorter than the retry delay is not stretched.
 	backdate(sm, "failed", 6*time.Minute)
 	assert.True(t, sm.ShouldRun("failed", 5*time.Minute))
+}
+
+func TestStateManager_SavesUTCTimes(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewStateManager(tmpDir)
+	require.NoError(t, sm.Load())
+	sm.UpdateSiteState("s", true, PageCounts{}, "")
+	state, _ := sm.GetSiteState("s")
+	assert.Equal(t, time.UTC, state.LastRunTime.Location())
+	require.NoError(t, sm.Save())
+
+	raw, err := os.ReadFile(filepath.Join(tmpDir, stateFileName))
+	require.NoError(t, err)
+	stamps := regexp.MustCompile(`"(last_run_time|updated_at)": "([^"]*)"`).FindAllStringSubmatch(string(raw), -1)
+	require.Len(t, stamps, 2)
+	for _, m := range stamps {
+		assert.Regexp(t, `Z$`, m[2], m[1])
+	}
 }
