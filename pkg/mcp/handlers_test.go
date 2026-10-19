@@ -926,3 +926,56 @@ func TestHandleGetJobStatus_WaitSeconds(t *testing.T) {
 	assert.Equal(t, "completed", got["status"])
 	assert.Less(t, time.Since(started), time.Second, "no wait by default")
 }
+
+// A huge argument must not come back whole in the error text.
+func TestHandlers_ClipEchoedInput(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	seedCorpus(t, jsonlPath)
+	idx, err := index.Open(filepath.Join(t.TempDir(), "index.db"), 5, silentTestLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = idx.Close() })
+	s.idx = idx
+	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 5 * time.Second}
+	huge := strings.Repeat("A", 1<<20)
+
+	cases := []struct {
+		name string
+		fn   func(context.Context, mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error)
+		args map[string]any
+	}{
+		{"list_pages site_key", s.handleListPages, map[string]any{"site_key": huge}},
+		{"get_freshness site_key", s.handleGetFreshness, map[string]any{"site_key": huge}},
+		{"crawl_site site_key", s.handleCrawlSite, map[string]any{"site_key": huge}},
+		{"get_job_status job_id", s.handleGetJobStatus, map[string]any{"job_id": huge}},
+		{"cancel_crawl job_id", s.handleCancelCrawl, map[string]any{"job_id": huge}},
+		{"diff_crawl since", s.handleDiffCrawl, map[string]any{"site_key": "docs", "since": huge}},
+		{"read_page url", s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/" + huge}},
+		{"read_page anchor", s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a", "anchor": huge}},
+		{"get_page url", s.handleGetPage, map[string]any{"url": "https://" + huge + ".invalid/"}},
+		{"get_page selector", s.handleGetPage, map[string]any{"url": "https://docs.example.com/", "content_selector": "[" + huge}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := mcpgo.CallToolRequest{}
+			req.Params.Arguments = tc.args
+			result, err := tc.fn(context.Background(), req)
+			require.NoError(t, err)
+			require.True(t, result.IsError)
+			text := result.Content[0].(mcpgo.TextContent).Text
+			assert.Less(t, len(text), 4096, "error text starts %q", text[:min(len(text), 200)])
+			assert.Contains(t, text, "bytes")
+		})
+	}
+}
+
+func TestClipInput_KeepsBothEndsOnRuneBoundaries(t *testing.T) {
+	assert.Equal(t, "short", clipInput("short"))
+
+	v := "x" + strings.Repeat("é", 300) + ": no such host."
+	got := clipInput(v)
+	assert.True(t, utf8.ValidString(got))
+	assert.Less(t, len(got), 260)
+	assert.Contains(t, got, "[616 bytes]")
+	assert.True(t, strings.HasPrefix(got, "xé"))
+	assert.True(t, strings.HasSuffix(got, ": no such host."))
+}

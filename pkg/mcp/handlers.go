@@ -72,7 +72,7 @@ func (s *Server) handleCancelCrawl(ctx context.Context, request mcp.CallToolRequ
 
 	job := s.jobManager.GetJob(jobID)
 	if job == nil {
-		return mcp.NewToolResultError(fmt.Sprintf("job '%s' not found", jobID)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("job '%s' not found", clipInput(jobID))), nil
 	}
 
 	cancelled := s.jobManager.CancelJob(jobID)
@@ -287,12 +287,12 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	contentSelector := request.GetString("content_selector", "body")
 	selector, err := cascadia.Compile(contentSelector)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid CSS selector %q: %v", contentSelector, err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("invalid CSS selector %q: %s", clipInput(contentSelector), clipInput(err.Error()))), nil
 	}
 
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid URL: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("invalid URL: %s", clipInput(err.Error()))), nil
 	}
 
 	startTime := time.Now()
@@ -300,7 +300,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	client := fetch.NewClient(s.cfg.AppConfig.HTTPClientSettings, s.log)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to create request: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("failed to create request: %s", clipInput(err.Error()))), nil
 	}
 
 	userAgent := s.cfg.AppConfig.DefaultUserAgent
@@ -311,7 +311,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch URL: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch URL: %s", clipInput(err.Error()))), nil
 	}
 	defer resp.Body.Close()
 
@@ -322,7 +322,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	body := bufio.NewReader(resp.Body)
 	head, _ := body.Peek(512)
 	if ct := htmlContentType(resp.Header.Get("Content-Type"), head); ct != "" {
-		return mcp.NewToolResultError(fmt.Sprintf("%s is not an HTML page (Content-Type %s); get_page only converts HTML", urlStr, ct)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("%s is not an HTML page (Content-Type %s); get_page only converts HTML", clipInput(urlStr), clipInput(ct))), nil
 	}
 
 	const maxPageSize = 50 * 1024 * 1024
@@ -343,7 +343,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 
 	contentSelection := doc.FindMatcher(selector)
 	if contentSelection.Length() == 0 {
-		return mcp.NewToolResultError(fmt.Sprintf("content selector '%s' not found on page", contentSelector)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("content selector '%s' not found on page", clipInput(contentSelector))), nil
 	}
 
 	content, err := process.ToMarkdown(contentSelection.First())
@@ -455,7 +455,7 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 
 	job := s.jobManager.GetJob(jobID)
 	if job == nil {
-		return mcp.NewToolResultError(fmt.Sprintf("job '%s' not found", jobID)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("job '%s' not found", clipInput(jobID))), nil
 	}
 
 	wait := time.Duration(min(max(request.GetInt("wait_seconds", 0), 0), maxJobWaitSeconds)) * time.Second
@@ -622,7 +622,7 @@ func (s *Server) resolveSiteOrError(siteKey string) (*config.SiteConfig, *mcp.Ca
 	if exists {
 		return siteCfg, nil
 	}
-	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", siteKey, config.GetAllSiteKeys(s.cfg.AppConfig)))
+	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", clipInput(siteKey), config.GetAllSiteKeys(s.cfg.AppConfig)))
 }
 
 // handleGetFreshness answers "is the local crawl recent enough to query, or
@@ -711,7 +711,7 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 		var err error
 		since, err = time.Parse(time.RFC3339, sinceStr)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("invalid since timestamp %q: expected RFC3339 (e.g. 2026-05-23T22:00:00Z): %v", sinceStr, err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("invalid since timestamp %q: expected RFC3339 (e.g. 2026-05-23T22:00:00Z): %s", clipInput(sinceStr), clipInput(err.Error()))), nil
 		}
 	}
 
@@ -826,6 +826,24 @@ func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
 	return nil, scanner.Err()
 }
 
+const maxEchoedInputBytes = 200
+
+// clipInput shortens a caller-supplied value before it is echoed in an error,
+// keeping both ends so the reason at the tail of a wrapped error survives.
+func clipInput(v string) string {
+	if len(v) <= maxEchoedInputBytes {
+		return v
+	}
+	head, tail := maxEchoedInputBytes/2, len(v)-maxEchoedInputBytes/2
+	for head > 0 && !utf8.RuneStart(v[head]) {
+		head--
+	}
+	for tail < len(v) && !utf8.RuneStart(v[tail]) {
+		tail++
+	}
+	return fmt.Sprintf("%s...[%d bytes]...%s", v[:head], len(v), v[tail:])
+}
+
 // sliceAtRuneBoundary returns up to maxBytes of s starting at offset, snapping
 // both cuts to rune boundaries so a page split across several reads never
 // yields invalid UTF-8.
@@ -893,7 +911,7 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 	if record == nil {
 		return mcp.NewToolResultError(fmt.Sprintf(
 			"url '%s' is not in the stored crawl for site '%s'. Use list_pages to see what was crawled, "+
-				"or get_page to fetch it live.", urlStr, siteKey)), nil
+				"or get_page to fetch it live.", clipInput(urlStr), siteKey)), nil
 	}
 
 	content := record.Content
@@ -902,7 +920,7 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		secStart, secEnd, ok := chunk.Section(content, anchor)
 		if !ok {
 			return mcp.NewToolResultError(fmt.Sprintf("anchor %q is not a heading on %s; its anchors are: %s",
-				anchor, record.URL, strings.Join(chunk.Anchors(content), ", "))), nil
+				clipInput(anchor), record.URL, strings.Join(chunk.Anchors(content), ", "))), nil
 		}
 		content = content[:secEnd]
 		offset = max(offset, secStart)
