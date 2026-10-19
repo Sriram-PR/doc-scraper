@@ -6,6 +6,7 @@ sidebar:
 ---
 
 `doc-scraper mcp-server` exposes these tools over stdio to any [Model Context Protocol](https://modelcontextprotocol.io/) client.
+Its `initialize` response carries `instructions` that tell the agent to call `describe_server` first. The tool list is fixed, so the server does not advertise `listChanged`.
 
 ## Tools
 

@@ -204,6 +204,21 @@ func TestNewServer_DoesNotAdvertiseLogging(t *testing.T) {
 	assert.Contains(t, caps, "tools")
 }
 
+func TestInitialize_SendsInstructions(t *testing.T) {
+	s := newStdioTestServer(t)
+	res := handleRaw(t, s, stdioInitialize)
+	assert.Contains(t, res["instructions"], "describe_server")
+}
+
+// The tool set never changes after startup, so clients must not wait for
+// notifications/tools/list_changed.
+func TestInitialize_ToolsListNotChanging(t *testing.T) {
+	s := newStdioTestServer(t)
+	caps := handleRaw(t, s, stdioInitialize)["capabilities"].(map[string]any)
+	tools := caps["tools"].(map[string]any)
+	assert.NotEqual(t, true, tools["listChanged"])
+}
+
 func TestToolsList_AdvertisesCacheTTL(t *testing.T) {
 	s := newStdioTestServer(t)
 	res := handleRaw(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{`+

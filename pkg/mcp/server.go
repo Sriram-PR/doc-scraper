@@ -20,6 +20,10 @@ import (
 
 const serverName = "doc-scraper"
 
+const serverInstructions = "Call describe_server first: it lists the configured sites, when each was last crawled, and recent crawl jobs. " +
+	"search_docs, list_pages and read_page work offline on stored crawls; run crawl_site for a site that has not been crawled yet. " +
+	"get_page fetches a URL live."
+
 // The tool set is fixed at startup.
 const toolsListCacheTTL = time.Hour
 
@@ -56,6 +60,8 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		serverName,
 		serverVersion,
 		server.WithMethodCacheHints(mcp.MethodToolsList, toolsListCacheTTL.Milliseconds(), mcp.CacheScopePrivate),
+		server.WithToolCapabilities(false),
+		server.WithInstructions(serverInstructions),
 	)
 
 	logEntry := cfg.Logger.With("component", "mcp")
