@@ -130,6 +130,10 @@ func (d *Discoverer) confirmOnSample(ctx context.Context, r *Report) {
 		r.SampleNote = fmt.Sprintf("checked %s: redirected to %s", u.Path, finalURL.Hostname())
 		return
 	}
+	if !sampleable(r, finalURL) {
+		r.SampleNote = fmt.Sprintf("checked %s: redirected to %s", u.Path, finalURL.Path)
+		return
+	}
 	res := detect.DetectPage(doc)
 	switch {
 	case res.Framework != det.Framework:

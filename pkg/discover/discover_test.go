@@ -293,7 +293,8 @@ var vpDoc = `<!DOCTYPE html><html><head><title>Intro</title>
 
 // siteServer serves pages by exact path, a sitemap of the given paths, and
 // counts hits per path. A page value "redirect-off-host" redirects to the
-// same server under the hostname localhost, which is a different site.
+// same server under the hostname localhost, which is a different site, and
+// "redirect:<path>" redirects to that path on the same server.
 func siteServer(t *testing.T, pages map[string]string, sitemap []string) (*httptest.Server, func(string) int) {
 	t.Helper()
 	var mu sync.Mutex
@@ -317,6 +318,8 @@ func siteServer(t *testing.T, pages map[string]string, sitemap []string) (*httpt
 			http.NotFound(w, r)
 		case page == "redirect-off-host":
 			http.Redirect(w, r, strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)+"/elsewhere", http.StatusFound)
+		case strings.HasPrefix(page, "redirect:"):
+			http.Redirect(w, r, strings.TrimPrefix(page, "redirect:"), http.StatusFound)
 		default:
 			fmt.Fprint(w, page)
 		}
@@ -359,11 +362,17 @@ func TestDiscoverer_LandingSeedKeepsFallbackWhenSampleFails(t *testing.T) {
 		{"redirect off host", map[string]string{"/": vpLanding, "/guide/intro": "redirect-off-host", "/elsewhere": vpDoc}, []string{"/", "/guide/intro"},
 			"checked /guide/intro: redirected to localhost"},
 		{"no candidate", map[string]string{"/": vpLanding}, []string{"/"}, "no other page in scope to check the selector on"},
+		{"redirect out of scope", map[string]string{"/docs/": vpLanding, "/docs/intro": "redirect:/blog/post", "/blog/post": vpDoc}, []string{"/docs/", "/docs/intro", "/docs/x/1", "/docs/x/2", "/docs/x/3"},
+			"checked /docs/intro: redirected to /blog/post"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, _ := siteServer(t, tc.pages, tc.sitemap)
-			r, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/")
+			seed := "/"
+			if _, ok := tc.pages["/docs/"]; ok {
+				seed = "/docs/"
+			}
+			r, err := testDiscoverer(srv).Run(context.Background(), srv.URL+seed)
 			require.NoError(t, err)
 
 			assert.Nil(t, r.Sample)
