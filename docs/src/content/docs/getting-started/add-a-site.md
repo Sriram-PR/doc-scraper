@@ -15,10 +15,10 @@ doc-scraper add https://vitepress.dev/guide/what-is-vitepress
 
 `add` makes a handful of polite requests: the page itself, `robots.txt`, `llms.txt`, and the sitemap. From those it reports:
 
-- the detected framework and content selector, validated against the fetched page (see [how detection works](/doc-scraper/frameworks/overview/));
+- the detected framework and content selector, validated against the fetched page (see [how detection works](/doc-scraper/frameworks/overview/)); when the page is a landing layout where the framework's selector finds no content, `add` fetches one docs page from the sitemap or the page's links and validates the selector there instead;
 - a crawl scope clustered from the sitemap, with page counts as evidence;
 - sibling version or locale trees, proposed as exclusions;
-- a Markdown preview of the extracted page with code-block fidelity numbers.
+- a Markdown preview of the extracted page with code-block fidelity numbers (the docs page checked instead, when the seed is a landing layout).
 
 Sites whose robots.txt disallows crawling the given path are refused, and robots rules that restrict AI crawlers are surfaced as a warning.
 

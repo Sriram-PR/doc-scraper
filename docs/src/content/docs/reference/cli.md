@@ -60,7 +60,7 @@ Re-crawl sites on a schedule. One of `-site`, `-sites`, or `-all-sites` is requi
 doc-scraper add https://vitepress.dev/guide/what-is-vitepress
 ```
 
-Probes the site with a handful of polite requests (the page, robots.txt, llms.txt, the sitemap), then shows what it found before anything is written: the detected framework and content selector (validated against the fetched page), a crawl scope clustered from the sitemap with page counts as evidence, sibling version/locale trees proposed as exclusions, and a markdown preview of the extracted page with code-block fidelity numbers. The entry is appended to your config only after you confirm; the rest of the file is preserved byte-for-byte, comments included.
+Probes the site with a handful of polite requests (the page, robots.txt, llms.txt, the sitemap), then shows what it found before anything is written: the detected framework and content selector (validated against the fetched page, or against one docs page from the sitemap when the fetched page is a landing layout), a crawl scope clustered from the sitemap with page counts as evidence, sibling version/locale trees proposed as exclusions, and a markdown preview of the extracted page with code-block fidelity numbers; `-json` reports which page was previewed in `preview.url`. The entry is appended to your config only after you confirm; the rest of the file is preserved byte-for-byte, comments included.
 
 | Flag | Type | Description | Default |
 |------|------|-------------|---------|
