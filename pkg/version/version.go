@@ -4,4 +4,4 @@
 // each release for go-install builds, which get no ldflags.
 package version
 
-var Version = "2.20.0"
+var Version = "2.21.0"
