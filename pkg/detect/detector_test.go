@@ -2,12 +2,14 @@ package detect
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/PuerkitoBio/goquery"
@@ -259,6 +261,23 @@ func TestDetect_LogsUnvalidatedOncePerDomain(t *testing.T) {
 
 	assert.Equal(t, 1, strings.Count(buf.String(), "domain never.example.com but no selector validated"))
 	assert.Equal(t, 1, strings.Count(buf.String(), "domain other.example.com but no selector validated"))
+}
+
+func TestDetect_ConcurrentUnvalidated(t *testing.T) {
+	d := newTestDetector()
+	landing := `<html>` + docusaurusHead + `<body><main><div class="hero">Build docs fast</div></main></body></html>`
+
+	var wg sync.WaitGroup
+	for i := range 8 {
+		doc := parseDoc(t, landing)
+		u := mustParse(t, fmt.Sprintf("https://race%d.example.com/", i%2))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.Detect(doc, u)
+		}()
+	}
+	wg.Wait()
 }
 
 func mustParse(t *testing.T, raw string) *url.URL {
