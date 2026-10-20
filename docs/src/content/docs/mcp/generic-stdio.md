@@ -38,8 +38,8 @@ printf '%s\n' \
 ```
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"doc-scraper","version":"2.19.0"},"instructions":"Call describe_server first: it lists the configured sites, when each was last crawled, and recent crawl jobs. search_docs, list_pages and read_page work offline on stored crawls; run crawl_site for a site that has not been crawled yet. get_page fetches a URL live."}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"doc-scraper","version":"2.20.0"},"instructions":"Call describe_server first: it lists the configured sites, when each was last crawled, and recent crawl jobs. search_docs, list_pages and read_page work offline on stored crawls; run crawl_site for a site that has not been crawled yet. get_page fetches a URL live."}}
 {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"sites\":[{\"key\":\"demo\",\"domain\":\"example.com\",\"path_prefix\":\"\",\"start_urls_count\":1,\"max_depth\":0}],\"config_path\":\"/tmp/mcpdemo/config.yaml\",\"total_sites\":1}"}],"structuredContent":{"sites":[{"key":"demo","domain":"example.com","path_prefix":"","start_urls_count":1,"max_depth":0}],"config_path":"/tmp/mcpdemo/config.yaml","total_sites":1}}}
 ```
 
-Output from doc-scraper 2.19.0, 2026-10-20. Each tool result carries the data twice: as structuredContent, which matches the tool's outputSchema, and as the same JSON value in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
+Output from doc-scraper 2.20.0, 2026-10-20. Each tool result carries the data twice: as structuredContent, which matches the tool's outputSchema, and as the same JSON value in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
