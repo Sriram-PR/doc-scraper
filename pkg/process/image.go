@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -449,6 +450,10 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 		return "", 0, fileExtErr
 	}
 	localFilePath := filepath.Join(localImageDir, localFilename)
+	if !utils.IsWithinDir(localImageDir, localFilePath) {
+		io.Copy(io.Discard, imgResp.Body)
+		return "", 0, fmt.Errorf("%w: image path '%s' escapes '%s'", utils.ErrFilesystem, localFilePath, localImageDir)
+	}
 
 	relativeFilePath, relErr := filepath.Rel(siteOutputDir, localFilePath)
 	if relErr != nil {
@@ -515,12 +520,19 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 	return relativeFilePath, copiedBytes, nil
 }
 
+// urlExtRe accepts only plain extensions; anything else in the URL (a percent-encoded
+// backslash, an NTFS stream colon) would otherwise reach the filename unsanitized.
+var urlExtRe = regexp.MustCompile(`^\.[A-Za-z0-9]{1,8}$`)
+
 // generateLocalFilename creates a unique, safe filename for a downloaded image.
 func generateLocalFilename(baseImgURL *url.URL, absImgURL string, contentType string, imgLogEntry *slog.Logger) (string, error) { //nolint:gocyclo // filename generation with many content-type and extension edge cases
 	originalExt := path.Ext(baseImgURL.Path)
 	imgBaseName := utils.SanitizeFilename(strings.TrimSuffix(path.Base(baseImgURL.Path), originalExt))
 
 	finalExt := originalExt
+	if !urlExtRe.MatchString(finalExt) {
+		finalExt = ""
+	}
 
 	if contentType != "" {
 		mimeType, _, mimeErr := mime.ParseMediaType(contentType)

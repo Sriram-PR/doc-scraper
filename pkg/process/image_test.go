@@ -91,6 +91,9 @@ func TestGenerateLocalFilename(t *testing.T) {
 		{"UnparsableContentTypeUsesURLExt", "https://e.com/img/pic.png", "not/a/valid/type", "pic_", ".png", false},
 		{"NoContentTypeNoExtension", "https://e.com/img/pic", "", "", "", true},
 		{"UnparsableContentTypeNoExt", "https://e.com/img/pic", "!!!", "", "", true},
+		{"BackslashURLExtensionRejected", "https://e.com/img/pic.png%5C..%5C..%5Cevil", "", "", "", true},
+		{"StreamURLExtensionRejected", "https://e.com/img/pic.png:evil", "!!!", "", "", true},
+		{"UnsafeURLExtensionReplacedByContentType", "https://e.com/img/pic.png:evil", "image/png", "pic_", ".png", false},
 	}
 
 	for _, tt := range tests {
