@@ -65,14 +65,14 @@ doc-scraper crawl -site vitepress_docs
 
 ## Caveats
 
-- **The drafted scope is the section you started in.** Starting from `/guide/` drafts `allowed_path_prefix: /guide/`, which covers 16 of the 272 sitemap URLs and leaves out `/reference/` (17 pages). To crawl both, set the prefix to `/` and exclude the seven translation directories (`/es/`, `/ja/`, `/zh/`, ...), which hold 238 of the sitemap URLs:
+- **The drafted scope is the section you started in.** Starting from `/guide/` drafts `allowed_path_prefix: /guide/`, which covers 16 of the 272 sitemap URLs and leaves out `/reference/` (17 pages). To crawl both, run `add` on the site root instead: it drafts `allowed_path_prefix: /` and one pattern for the seven translation directories (`/es/`, `/ja/`, `/zh/`, ...), which hold 238 of the sitemap URLs:
 
   ```yaml
   allowed_path_prefix: /
   disallowed_path_patterns:
-    - '^/[a-z]{2}(-[a-z]{2})?/'
+    - '^/(?:ar|bn|cs|da|de|el|en|es|fa|fi|fr|he|hi|hu|id|it|ja|ko|nl|no|pl|pt|ro|ru|sk|sv|th|tr|uk|vi|zh)(?:[-_][a-zA-Z]{2,4})?/'
   ```
 
-  That pattern is matched against each URL's path and leaves the 34 English pages.
+  The pattern covers every locale code `add` recognizes, so a translation added later is excluded too, and it leaves the 34 English pages.
 
-  Alternatively, run `add` on the site root, `https://vitepress.dev/`: it drafts `allowed_path_prefix: /` and excludes the seven translation directories itself, because their pages mirror the English ones. The root is the VitePress home layout, whose `.vp-doc` holds only a short intro, so `add` checks the selector on the first guide page the home page links to (`/guide/what-is-vitepress`) instead, drafts `.vp-doc, main.main, #VPContent` from there, and previews that page. A crawl from the root saves the home page with just that intro.
+  The root is the VitePress home layout, whose `.vp-doc` holds only a short intro, so `add` checks the selector on the first guide page the home page links to (`/guide/what-is-vitepress`) instead, drafts `.vp-doc, main.main, #VPContent` from there, and previews that page. A crawl from the root saves the home page with just that intro.

@@ -30,37 +30,23 @@ Drafted entry:
     allowed_path_prefix: /
     content_selector: main[data-pagefind-body] .sl-markdown-content, .sl-markdown-content, main[data-pagefind-body]
     disallowed_path_patterns:
-      - ^/da/
-      - ^/de/
-      - ^/es/
-      - ^/fa/
-      - ^/fr/
-      - ^/hi/
-      - ^/id/
-      - ^/it/
-      - ^/ja/
-      - ^/ko/
-      - ^/pt-br/
-      - ^/pt-pt/
-      - ^/ru/
-      - ^/tr/
-      - ^/uk/
-      - ^/zh-cn/
+      - ^/(?:ar|bn|cs|da|de|el|en|es|fa|fi|fr|he|hi|hu|id|it|ja|ko|nl|no|pl|pt|ro|ru|sk|sv|th|tr|uk|vi|zh)(?:[-_][a-zA-Z]{2,4})?/
     max_depth: 3
 
   # content_selector: starlight detected via generator (high confidence), validated on the fetched page
   # allowed_path_prefix: / covers 36 of 612 sitemap URLs, not counting 576 in excluded version/locale trees
   # max_depth: 3 from sitemap path depth under the prefix
   # disallowed_path_patterns: sibling version/locale trees observed in the sitemap
+  # disallowed_path_patterns: 16 locale trees under / generalized; the pattern matches none of the 36 kept sitemap URLs
 
 Preview of the fetched page:
-  4609 chars of markdown, 54% of page text, code blocks 9/9, 7 headings
+  4618 chars of markdown, 54% of page text, code blocks 9/9, 7 headings
   ...
 
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.12.0 against <https://starlight.astro.build/getting-started/>, 2026-10-14. Exit code 2.
+Output from doc-scraper 2.20.0 against <https://starlight.astro.build/getting-started/>, 2026-10-20. Exit code 2.
 
 ## Crawl it
 
@@ -73,22 +59,7 @@ sites:
     allowed_path_prefix: /
     content_selector: main[data-pagefind-body] .sl-markdown-content, .sl-markdown-content, main[data-pagefind-body]
     disallowed_path_patterns:
-      - ^/da/
-      - ^/de/
-      - ^/es/
-      - ^/fa/
-      - ^/fr/
-      - ^/hi/
-      - ^/id/
-      - ^/it/
-      - ^/ja/
-      - ^/ko/
-      - ^/pt-br/
-      - ^/pt-pt/
-      - ^/ru/
-      - ^/tr/
-      - ^/uk/
-      - ^/zh-cn/
+      - ^/(?:ar|bn|cs|da|de|el|en|es|fa|fi|fr|he|hi|hu|id|it|ja|ko|nl|no|pl|pt|ro|ru|sk|sv|th|tr|uk|vi|zh)(?:[-_][a-zA-Z]{2,4})?/
     max_depth: 3
 ```
 
@@ -98,4 +69,4 @@ doc-scraper crawl -site starlight_docs
 
 ## Caveats
 
-- **Translations sit inside the drafted prefix.** On starlight.astro.build, 576 of the 612 sitemap URLs are translations under 16 locale directories (`/de/`, `/pt-br/`, `/zh-cn/`, ...). `add` excludes each locale tree whose pages mirror the English pages, leaving 36. A language added later needs its own line, or use `'^/[a-z]{2}(-[a-z]{2})?/'` to exclude every two-letter locale directory at once.
+- **Translations sit inside the drafted prefix.** On starlight.astro.build, 576 of the 612 sitemap URLs are translations under 16 locale directories (`/de/`, `/pt-br/`, `/zh-cn/`, ...). `add` excludes the locale trees whose pages mirror the English pages, leaving 36. Because there are several, it drafts one pattern covering every locale code it recognizes rather than one line per tree, so a language added later is excluded too.
