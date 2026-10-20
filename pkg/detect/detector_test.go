@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
 	"net/url"
@@ -222,6 +223,49 @@ func TestDetect_CachesConfirmedOnly(t *testing.T) {
 		<body><article class="doc">`+filler+`</article></body></html>`)
 	rr := d.Detect(real, uShell)
 	assert.Equal(t, FrameworkAntora, rr.Framework, "shell result must not poison the domain cache")
+}
+
+const docusaurusHead = `<head><meta name="generator" content="Docusaurus v3.0.0"></head>`
+
+func TestDetect_UnvalidatedLandingPageIsNotCached(t *testing.T) {
+	d := newTestDetector()
+	host := "https://landing.example.com"
+
+	landing := parseDoc(t, `<html>`+docusaurusHead+`<body><main><div class="hero">Build docs fast</div></main></body></html>`)
+	r1 := d.Detect(landing, mustParse(t, host+"/"))
+	require.Equal(t, FrameworkDocusaurus, r1.Framework)
+	require.True(t, r1.Fallback, "landing page selector does not validate")
+
+	docs := parseDoc(t, `<html>`+docusaurusHead+`<body><main><article><div class="theme-doc-markdown">`+filler+`</div></article></main></body></html>`)
+	r2 := d.Detect(docs, mustParse(t, host+"/docs/intro"))
+	assert.False(t, r2.Fallback, "docs page is detected again, not served the landing page's fallback")
+	assert.Contains(t, r2.Selector, ".theme-doc-markdown")
+
+	unrelated := parseDoc(t, `<html><body><main>`+filler+`</main></body></html>`)
+	r3 := d.Detect(unrelated, mustParse(t, host+"/docs/other"))
+	assert.Equal(t, r2, r3, "first validated result is cached for the domain")
+}
+
+func TestDetect_LogsUnvalidatedOncePerDomain(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewContentDetector(slog.New(slog.NewTextHandler(&buf, nil)))
+	landing := `<html>` + docusaurusHead + `<body><main><div class="hero">Build docs fast</div></main></body></html>`
+
+	for _, p := range []string{"/", "/a", "/b"} {
+		r := d.Detect(parseDoc(t, landing), mustParse(t, "https://never.example.com"+p))
+		assert.True(t, r.Fallback)
+	}
+	d.Detect(parseDoc(t, landing), mustParse(t, "https://other.example.com/"))
+
+	assert.Equal(t, 1, strings.Count(buf.String(), "domain never.example.com but no selector validated"))
+	assert.Equal(t, 1, strings.Count(buf.String(), "domain other.example.com but no selector validated"))
+}
+
+func mustParse(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	require.NoError(t, err)
+	return u
 }
 
 func TestSelectorCache(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
@@ -105,20 +106,25 @@ const spaMountSelector = "#root, #app, #__next, #___gatsby, #__nuxt, #app-root, 
 type ContentDetector struct {
 	cache *SelectorCache
 	log   *slog.Logger
+
+	mu                sync.Mutex
+	unvalidatedLogged map[string]struct{}
 }
 
 // NewContentDetector creates a new content detector with per-domain caching.
 func NewContentDetector(log *slog.Logger) *ContentDetector {
 	return &ContentDetector{
-		cache: NewSelectorCache(),
-		log:   log,
+		cache:             NewSelectorCache(),
+		log:               log,
+		unvalidatedLogged: make(map[string]struct{}),
 	}
 }
 
 // Detect returns the best content selector for the given document. Confirmed
 // framework detections are cached per domain; shell and unknown results are
 // re-evaluated per page since they are often page-specific (redirect stubs,
-// error pages).
+// error pages). A recognized framework whose selector fails on this page (a
+// landing layout) is not cached either, so later pages are checked again.
 func (d *ContentDetector) Detect(doc *goquery.Document, pageURL *url.URL) DetectionResult {
 	domain := pageURL.Hostname()
 
@@ -133,14 +139,25 @@ func (d *ContentDetector) Detect(doc *goquery.Document, pageURL *url.URL) Detect
 	case result.Framework == FrameworkUnknown:
 		d.log.Info(fmt.Sprintf("No framework detected for domain %s, will use readability extraction", domain))
 	case result.Fallback:
-		d.log.Info(fmt.Sprintf("Detected framework %s for domain %s but no selector validated; using readability", result.Framework, domain))
-		d.cache.Set(domain, result)
+		if d.firstUnvalidated(domain) {
+			d.log.Info(fmt.Sprintf("Detected framework %s for domain %s but no selector validated; using readability", result.Framework, domain))
+		}
 	default:
 		d.log.Info(fmt.Sprintf("Detected framework %s for domain %s (%s, %s), using selector: %s",
 			result.Framework, domain, result.Source, result.Confidence, result.Selector))
 		d.cache.Set(domain, result)
 	}
 	return result
+}
+
+func (d *ContentDetector) firstUnvalidated(domain string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, seen := d.unvalidatedLogged[domain]; seen {
+		return false
+	}
+	d.unvalidatedLogged[domain] = struct{}{}
+	return true
 }
 
 // DetectPage runs framework detection on a single parsed page with no caching.
