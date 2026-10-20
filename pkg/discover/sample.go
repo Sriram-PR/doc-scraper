@@ -16,26 +16,25 @@ import (
 
 var nonHTMLExt = map[string]struct{}{".pdf": {}, ".xml": {}, ".json": {}, ".txt": {}, ".zip": {}}
 
-// samplePage picks a docs page other than the seed to validate the content
-// selector on: the shallowest in-scope sitemap page, or, with no sitemap, the
-// first in-scope link in the seed page's body. It returns nil when none
-// qualifies.
-func samplePage(r *Report) *url.URL {
-	if len(r.Sitemap.URLs) > 0 {
-		var best *url.URL
-		bestDepth := 0
-		for _, raw := range r.Sitemap.URLs {
-			u, err := url.Parse(raw)
-			if err != nil || !sampleable(r, u) {
-				continue
-			}
-			depth := len(pathSegments(strings.TrimPrefix(u.Path, r.Scope.Prefix)))
-			if best == nil || depth < bestDepth || (depth == bestDepth && u.Path < best.Path) {
-				best, bestDepth = u, depth
-			}
+// sampleCandidates lists the docs pages other than the seed to validate the
+// content selector on, in order: the seed page's first in-scope link, which on
+// a landing page usually points at the docs, then the shallowest in-scope
+// sitemap page.
+func sampleCandidates(r *Report) []*url.URL {
+	var out []*url.URL
+	for _, u := range []*url.URL{firstSeedLink(r), shallowestSitemapPage(r)} {
+		if u == nil {
+			continue
 		}
-		return best
+		if len(out) > 0 && strings.TrimSuffix(out[0].Path, "/") == strings.TrimSuffix(u.Path, "/") {
+			continue
+		}
+		out = append(out, u)
 	}
+	return out
+}
+
+func firstSeedLink(r *Report) *url.URL {
 	if r.Doc == nil {
 		return nil
 	}
@@ -54,6 +53,22 @@ func samplePage(r *Report) *url.URL {
 		return true
 	})
 	return found
+}
+
+func shallowestSitemapPage(r *Report) *url.URL {
+	var best *url.URL
+	bestDepth := 0
+	for _, raw := range r.Sitemap.URLs {
+		u, err := url.Parse(raw)
+		if err != nil || !sampleable(r, u) {
+			continue
+		}
+		depth := len(pathSegments(strings.TrimPrefix(u.Path, r.Scope.Prefix)))
+		if best == nil || depth < bestDepth || (depth == bestDepth && u.Path < best.Path) {
+			best, bestDepth = u, depth
+		}
+	}
+	return best
 }
 
 func sampleable(r *Report, u *url.URL) bool {
@@ -106,44 +121,54 @@ type SamplePage struct {
 
 const littleContentWarning = "the page has very little content; a crawl of it may capture little or nothing"
 
-// confirmOnSample re-runs detection on one other docs page when the seed
+// confirmOnSample re-runs detection on other docs pages when the seed
 // recognized a framework but its selector failed validation there, as landing
-// layouts do. The sample's result is adopted only for the same framework with
-// a validated selector.
+// layouts do. The first candidate that validates the same framework's selector
+// is adopted.
 func (d *Discoverer) confirmOnSample(ctx context.Context, r *Report) {
 	det := r.Detection
 	if !det.Fallback || det.Confidence == detect.ConfidenceJSRendered ||
 		det.Framework == detect.FrameworkUnknown || det.Framework == detect.FrameworkJSShell {
 		return
 	}
-	u := samplePage(r)
-	if u == nil {
+	candidates := sampleCandidates(r)
+	if len(candidates) == 0 {
 		r.SampleNote = "no other page in scope to check the selector on"
 		return
 	}
+	var notes []string
+	for _, u := range candidates {
+		res, sample, note := d.checkSample(ctx, r, u)
+		if sample == nil {
+			notes = append(notes, fmt.Sprintf("checked %s: %s", u.Path, note))
+			continue
+		}
+		r.Detection = res
+		r.Sample = sample
+		r.Warnings = slices.DeleteFunc(r.Warnings, func(w string) bool { return w == littleContentWarning })
+		return
+	}
+	r.SampleNote = strings.Join(notes, "; ")
+}
+
+// checkSample fetches u and returns its detection and page when the seed's
+// framework selector validates there, or a note saying why not.
+func (d *Discoverer) checkSample(ctx context.Context, r *Report, u *url.URL) (detect.DetectionResult, *SamplePage, string) {
 	doc, finalURL, err := d.fetchPage(ctx, u)
-	if err != nil {
-		r.SampleNote = fmt.Sprintf("checked %s: %v", u.Path, err)
-		return
-	}
-	if !sameSite(finalURL.Hostname(), r.FinalURL.Hostname()) {
-		r.SampleNote = fmt.Sprintf("checked %s: redirected to %s", u.Path, finalURL.Hostname())
-		return
-	}
-	if !sampleable(r, finalURL) {
-		r.SampleNote = fmt.Sprintf("checked %s: redirected to %s", u.Path, finalURL.Path)
-		return
+	switch {
+	case err != nil:
+		return detect.DetectionResult{}, nil, err.Error()
+	case !sameSite(finalURL.Hostname(), r.FinalURL.Hostname()):
+		return detect.DetectionResult{}, nil, "redirected to " + finalURL.Hostname()
+	case !sampleable(r, finalURL):
+		return detect.DetectionResult{}, nil, "redirected to " + finalURL.Path
 	}
 	res := detect.DetectPage(doc)
 	switch {
-	case res.Framework != det.Framework:
-		r.SampleNote = fmt.Sprintf("checked %s: detected %s there", u.Path, res.Framework)
-		return
+	case res.Framework != r.Detection.Framework:
+		return res, nil, fmt.Sprintf("detected %s there", res.Framework)
 	case res.Fallback:
-		r.SampleNote = fmt.Sprintf("checked %s: the %s selector matched nothing there either", u.Path, det.Framework)
-		return
+		return res, nil, fmt.Sprintf("the %s selector matched nothing there either", r.Detection.Framework)
 	}
-	r.Detection = res
-	r.Sample = &SamplePage{URL: finalURL, Doc: doc}
-	r.Warnings = slices.DeleteFunc(r.Warnings, func(w string) bool { return w == littleContentWarning })
+	return res, &SamplePage{URL: finalURL, Doc: doc}, ""
 }

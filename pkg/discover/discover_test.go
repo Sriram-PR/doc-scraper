@@ -393,3 +393,31 @@ func TestDiscoverer_ValidatedSeedFetchesNoSample(t *testing.T) {
 	assert.Empty(t, r.SampleNote)
 	assert.Equal(t, 0, hits("/guide/other"))
 }
+
+var vpLandingLinks = strings.Replace(vpLanding, "<p>Fast docs.</p>",
+	`<p>Fast docs.</p><a href="/guide/deep/start">Get started</a><a href="/guide/other">Other</a>`, 1)
+
+func TestDiscoverer_LandingSeedTriesSitemapAfterSeedLink(t *testing.T) {
+	srv, hits := siteServer(t, map[string]string{"/": vpLandingLinks, "/intro": vpDoc, "/guide/other": vpDoc},
+		[]string{"/", "/guide/deep/start", "/intro"})
+	r, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/")
+	require.NoError(t, err)
+
+	require.NotNil(t, r.Sample)
+	assert.Equal(t, "/intro", r.Sample.URL.Path)
+	assert.Equal(t, ".vp-doc, main.main, #VPContent", r.Detection.Selector)
+	assert.Empty(t, r.SampleNote)
+	assert.Equal(t, 1, hits("/guide/deep/start"), "the seed's first link is tried first")
+	assert.Equal(t, 0, hits("/guide/other"), "only the first seed link is a candidate")
+}
+
+func TestDiscoverer_LandingSeedNotesEveryFailedCandidate(t *testing.T) {
+	srv, _ := siteServer(t, map[string]string{"/": vpLandingLinks, "/intro": vpLanding},
+		[]string{"/", "/guide/deep/start", "/intro"})
+	r, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/")
+	require.NoError(t, err)
+
+	assert.Nil(t, r.Sample)
+	assert.True(t, r.Detection.Fallback)
+	assert.Regexp(t, `^checked /guide/deep/start: .*HTTP 404; checked /intro: the vitepress selector matched nothing there either$`, r.SampleNote)
+}

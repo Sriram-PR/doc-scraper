@@ -23,7 +23,7 @@ func sampleReport(t *testing.T, sitemap, disallows []string) *Report {
 	}
 }
 
-func TestSamplePage_FromSitemap(t *testing.T) {
+func TestShallowestSitemapPage(t *testing.T) {
 	cases := []struct {
 		name      string
 		sitemap   []string
@@ -44,7 +44,7 @@ func TestSamplePage_FromSitemap(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := samplePage(sampleReport(t, tc.sitemap, tc.disallows))
+			got := shallowestSitemapPage(sampleReport(t, tc.sitemap, tc.disallows))
 			if tc.want == "" {
 				assert.Nil(t, got)
 				return
@@ -55,7 +55,7 @@ func TestSamplePage_FromSitemap(t *testing.T) {
 	}
 }
 
-func TestSamplePage_FromSeedLinksWithoutSitemap(t *testing.T) {
+func TestFirstSeedLink(t *testing.T) {
 	r := sampleReport(t, nil, nil)
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(`<html><head>
 <link href="/docs/head-link"></head><body>
@@ -70,15 +70,43 @@ func TestSamplePage_FromSeedLinksWithoutSitemap(t *testing.T) {
 	require.NoError(t, err)
 	r.Doc = doc
 
-	got := samplePage(r)
+	got := firstSeedLink(r)
 	require.NotNil(t, got)
 	assert.Equal(t, "https://d.io/docs/guide/start", got.String())
 }
 
-func TestSamplePage_NoSitemapNoLinks(t *testing.T) {
+func TestFirstSeedLink_NoneInScope(t *testing.T) {
 	r := sampleReport(t, nil, nil)
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(`<html><body><a href="/blog/x">blog</a></body></html>`))
 	require.NoError(t, err)
 	r.Doc = doc
-	assert.Nil(t, samplePage(r))
+	assert.Nil(t, firstSeedLink(r))
+}
+
+func TestSampleCandidates(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		sitemap []string
+		want    []string
+	}{
+		{"seed link first, then sitemap", `<a href="/docs/guide/start">start</a>`, []string{"https://d.io/docs/a/b", "https://d.io/docs/z"}, []string{"/docs/guide/start", "/docs/z"}},
+		{"same page listed once", `<a href="/docs/z/">z</a>`, []string{"https://d.io/docs/z"}, []string{"/docs/z/"}},
+		{"sitemap only", `<a href="/blog/x">blog</a>`, []string{"https://d.io/docs/z"}, []string{"/docs/z"}},
+		{"seed link only", `<a href="/docs/guide/start">start</a>`, nil, []string{"/docs/guide/start"}},
+		{"neither", `<a href="/blog/x">blog</a>`, nil, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := sampleReport(t, tc.sitemap, nil)
+			doc, err := goquery.NewDocumentFromReader(strings.NewReader("<html><body>" + tc.body + "</body></html>"))
+			require.NoError(t, err)
+			r.Doc = doc
+			var got []string
+			for _, u := range sampleCandidates(r) {
+				got = append(got, u.Path)
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
