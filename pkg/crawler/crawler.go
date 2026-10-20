@@ -929,9 +929,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			return
 		}
 		taskLog.Info("Page is marked noindex; not saved, following its links")
-		if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
-			taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
-		}
+		c.followLinks(originalDoc, finalURL, currentDepth, taskLog)
 		return
 	}
 
@@ -940,9 +938,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		// A landing page the selector misses is often the only route to the
 		// docs on a site without a sitemap.
 		cleanupResources()
-		if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
-			taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
-		}
+		c.followLinks(originalDoc, finalURL, currentDepth, taskLog)
 		return
 	}
 	pageTitle = extractedTitle
@@ -966,9 +962,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// they are extracted before the unchanged-content skip: a sidebar can gain
 	// a page while every content hash stays the same.
 	// Non-critical errors (e.g., DB error during link check) are logged within linkProcessor.
-	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
-		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
-	}
+	c.followLinks(originalDoc, finalURL, currentDepth, taskLog)
 
 	if c.appCfg.EnableIncremental {
 		existingHash, exists, hashErr := c.store.GetPageContentHash(normalizedURLString)
@@ -1074,6 +1068,12 @@ func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *slog.L
 	}
 	taskLog.Debug("Policy checks passed.")
 	return nil
+}
+
+func (c *Crawler) followLinks(doc *goquery.Document, pageURL *url.URL, depth int, taskLog *slog.Logger) {
+	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(doc, pageURL, depth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
+		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
+	}
 }
 
 // acquireResources attempts to acquire necessary semaphores (global, per-host) and applies rate limiting.
