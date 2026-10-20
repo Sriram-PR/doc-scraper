@@ -109,7 +109,7 @@ jobs:
   fuzz:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-go
@@ -118,7 +118,7 @@ jobs:
           failed=0
           while read -r file target; do
             echo "::group::$target ($(dirname "$file"))"
-            go test "./$(dirname "$file")" -run='^$' -fuzz="^${target}\$" -fuzztime=30s || failed=1
+            go test "./$(dirname "$file")" -run='^$' -fuzz="^${target}\$" -fuzztime=2m || failed=1
             echo "::endgroup::"
           done < <(grep -rEo --include='*_test.go' '^func Fuzz[A-Za-z0-9_]+' pkg cmd | sed -E 's/:func / /')
           exit $failed
