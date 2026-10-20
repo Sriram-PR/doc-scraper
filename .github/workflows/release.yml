@@ -46,10 +46,15 @@ jobs:
       - name: Build MCP bundle
         run: ./.github/scripts/build-mcpb.sh "${GITHUB_REF_NAME#v}"
 
-      - name: Attach MCP bundle to release
+      - name: Attach MCP bundle to draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" dist/mcpb/doc-scraper.mcpb
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
 
       - name: Publish to MCP registry
         run: ./.github/scripts/mcp-registry.sh publish "${GITHUB_REF_NAME#v}"

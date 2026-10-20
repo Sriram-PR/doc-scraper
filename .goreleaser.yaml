@@ -47,4 +47,7 @@ changelog:
   use: github
 
 release:
-  draft: false
+  # Published by release.yml after the mcpb is attached: immutable releases
+  # refuse new assets once published.
+  draft: true
+  replace_existing_draft: true
