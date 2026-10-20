@@ -303,7 +303,7 @@ func TestSearchChunksDedupeKeepsBestChunk(t *testing.T) {
 	results, err := searchStaged(context.Background(), "two words", "", 10, raw)
 	require.NoError(t, err)
 	require.Len(t, results, 3, "the duplicate page+anchor collapses to one result")
-	assert.Equal(t, -5.0, results[0].Rank, "the best-ranked chunk survives")
+	assert.InDelta(t, -5.0, results[0].Rank, 0, "the best-ranked chunk survives")
 	assert.Equal(t, "install", results[1].Anchor)
 	assert.Equal(t, "options", results[2].Anchor)
 }
