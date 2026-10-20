@@ -205,6 +205,18 @@ func TestDisallowPatterns_Generalize(t *testing.T) {
 			wantPatterns: []string{`^/en/v?\d+(?:\.\d+)*(?:\.x)?/`, `^/de/`, `^/fr/`},
 			wantEvidence: []string{"disallowed_path_patterns: 2 version trees under /en/ generalized; the pattern matches none of the 1 kept sitemap URLs"},
 		},
+		{
+			name:         "version and locale groups both generalize",
+			prefix:       "/docs/",
+			versions:     []string{"/docs/1.0/", "/docs/2.0/"},
+			locales:      []string{"/de/", "/fr/"},
+			sitemap:      []string{"/docs/intro"},
+			wantPatterns: []string{docsVersionPattern, rootLocalePattern},
+			wantEvidence: []string{
+				"disallowed_path_patterns: 2 version trees under /docs/ generalized; the pattern matches none of the 1 kept sitemap URLs",
+				"disallowed_path_patterns: 2 locale trees under / generalized; the pattern matches none of the 1 kept sitemap URLs",
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
