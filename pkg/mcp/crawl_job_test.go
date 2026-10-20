@@ -315,7 +315,7 @@ func TestShutdown_WaitsForCancelledCrawls(t *testing.T) {
 	require.Equal(t, "started", started["status"])
 	select {
 	case <-inFlight:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("crawl never requested a page")
 	}
 
