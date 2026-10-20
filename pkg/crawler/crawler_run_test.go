@@ -486,6 +486,24 @@ func TestCrawlerRun_NoindexPageNotSavedButFollowed(t *testing.T) {
 	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/only-from-print.html"))
 }
 
+func TestCrawlerRun_SelectorMissStillFollowsLinks(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Home</title></head><body>
+		<div class="hero">Landing</div><a href="/docs/guide.html">Guide</a></body></html>`)
+	ms.set("/docs/guide.html", `<html><head><title>Guide</title></head><body><div id="c">Guide body</div></body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	assert.NoFileExists(t, filepath.Join(outDir, "index.md"), "a page the selector misses is not saved")
+	assert.FileExists(t, filepath.Join(outDir, "guide.md"), "links on a page the selector misses are still followed")
+	assert.EqualValues(t, 1, p.PagesSaved)
+	assert.EqualValues(t, 1, p.PagesFailed, "the selector miss still counts as a failure")
+}
+
 func TestCrawlerRun_NoindexFromHeader(t *testing.T) {
 	pages := noindexPages("all")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

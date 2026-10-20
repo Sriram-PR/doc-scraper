@@ -117,7 +117,7 @@ Each entry under `sites:` accepts these keys.
 | `start_urls` | Array | Starting URLs for crawling | required |
 | `allowed_domain` | String | Restrict crawling to this domain | required |
 | `allowed_path_prefix` | String | Restrict crawling to URLs under this path prefix. Setting it is strongly recommended to bound scope | `/` (the whole domain) |
-| `content_selector` | String | CSS selector for main content extraction, or `"auto"` for automatic detection | required |
+| `content_selector` | String | CSS selector for main content extraction, or `"auto"` for automatic detection. A page the selector matches nothing on is not saved and counts as failed, but its links are still followed | required |
 | `link_extraction_selectors` | Array | CSS selectors for additional link extraction areas | |
 | `disallowed_path_patterns` | Array | Regex patterns for URLs to skip | |
 | `respect_nofollow` | Boolean | Whether to respect `rel="nofollow"` links and pages marked `nofollow` by `<meta name="robots">` or `X-Robots-Tag` | `false` |

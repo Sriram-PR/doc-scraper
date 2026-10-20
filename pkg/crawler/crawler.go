@@ -937,6 +937,12 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 
 	mainContent, extractedTitle, selectErr := c.contentProcessor.SelectMainContent(originalDoc, finalURL, c.siteCfg, taskLog)
 	if handleTaskError(selectErr) {
+		// A landing page the selector misses is often the only route to the
+		// docs on a site without a sitemap.
+		cleanupResources()
+		if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(originalDoc, finalURL, currentDepth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
+			taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
+		}
 		return
 	}
 	pageTitle = extractedTitle
