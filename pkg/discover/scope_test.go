@@ -2,6 +2,7 @@ package discover
 
 import (
 	"net/url"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -131,7 +132,106 @@ func TestClusterScope_ShapedDirsWithTheirOwnPagesAreKept(t *testing.T) {
 
 func TestDisallowPatterns_ExcludeNestedTrees(t *testing.T) {
 	r := &Report{Scope: ScopeInfo{Prefix: "/docs/", SiblingVersions: []string{"/docs/next/", "/docs/2.x/"}, SiblingLocales: []string{"/docs/"}}}
-	assert.Equal(t, []string{`^/docs/next/`, `^/docs/2\.x/`}, disallowPatterns(r), "never excludes the prefix itself")
+	got, evidence := disallowPatterns(r)
+	assert.Equal(t, []string{`^/docs/next/`, `^/docs/2\.x/`}, got, "never excludes the prefix itself")
+	assert.Empty(t, evidence)
+}
+
+const (
+	docsVersionPattern = `^/docs/v?\d+(?:\.\d+)*(?:\.x)?/`
+	rootLocalePattern  = `^/(?:ar|bn|cs|da|de|el|en|es|fa|fi|fr|he|hi|hu|id|it|ja|ko|nl|no|pl|pt|ro|ru|sk|sv|th|tr|uk|vi|zh)(?:[-_][a-zA-Z]{2,4})?/`
+)
+
+func TestDisallowPatterns_Generalize(t *testing.T) {
+	cases := []struct {
+		name         string
+		prefix       string
+		versions     []string
+		locales      []string
+		sitemap      []string
+		wantPatterns []string
+		wantEvidence []string
+	}{
+		{
+			name:         "version trees generalize, alias stays literal",
+			prefix:       "/docs/",
+			versions:     []string{"/docs/next/", "/docs/2.x/", "/docs/3.0.1/", "/docs/3.9.2/"},
+			sitemap:      []string{"/docs/intro", "/docs/2.x/intro", "/docs/3.0.1/intro"},
+			wantPatterns: []string{`^/docs/next/`, docsVersionPattern},
+			wantEvidence: []string{"disallowed_path_patterns: 3 version trees under /docs/ generalized; the pattern matches none of the 1 kept sitemap URLs"},
+		},
+		{
+			name:         "locale trees generalize",
+			prefix:       "/",
+			locales:      []string{"/es/", "/ja/", "/pt-br/"},
+			sitemap:      []string{"/guide/a", "/reference/b", "/es/guide/a"},
+			wantPatterns: []string{rootLocalePattern},
+			wantEvidence: []string{"disallowed_path_patterns: 3 locale trees under / generalized; the pattern matches none of the 2 kept sitemap URLs"},
+		},
+		{
+			name:         "a kept page the pattern matches keeps literals",
+			prefix:       "/docs/",
+			versions:     []string{"/docs/1.0/", "/docs/1.1/"},
+			sitemap:      []string{"/docs/intro", "/docs/0.11/a"},
+			wantPatterns: []string{`^/docs/1\.0/`, `^/docs/1\.1/`},
+		},
+		{
+			name:         "a prefix the pattern matches keeps literals",
+			prefix:       "/en/5.1/",
+			versions:     []string{"/en/4.2/", "/en/5.0/"},
+			wantPatterns: []string{`^/en/4\.2/`, `^/en/5\.0/`},
+		},
+		{
+			name:         "a single tree stays literal",
+			prefix:       "/docs/",
+			versions:     []string{"/docs/15/"},
+			sitemap:      []string{"/docs/intro"},
+			wantPatterns: []string{`^/docs/15/`},
+		},
+		{
+			name:         "trees the pattern does not match stay literal",
+			prefix:       "/docs/",
+			versions:     []string{"/docs/V1/", "/docs/V2/"},
+			sitemap:      []string{"/docs/intro"},
+			wantPatterns: []string{`^/docs/V1/`, `^/docs/V2/`},
+		},
+		{
+			name:     "each kind and parent is checked on its own",
+			prefix:   "/en/stable/",
+			versions: []string{"/en/1.0/", "/en/2.0/"},
+			locales:  []string{"/de/", "/fr/"},
+			sitemap:  []string{"/en/stable/a"},
+			// /en/stable/a is locale-shaped under /, so only the version group generalizes.
+			wantPatterns: []string{`^/en/v?\d+(?:\.\d+)*(?:\.x)?/`, `^/de/`, `^/fr/`},
+			wantEvidence: []string{"disallowed_path_patterns: 2 version trees under /en/ generalized; the pattern matches none of the 1 kept sitemap URLs"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &Report{
+				FinalURL: mustURL(t, "https://d.io"+tc.prefix),
+				Sitemap:  SitemapInfo{Found: len(tc.sitemap) > 0, URLs: withHost("d.io", tc.sitemap)},
+				Scope:    ScopeInfo{Prefix: tc.prefix, SiblingVersions: tc.versions, SiblingLocales: tc.locales},
+			}
+			patterns, evidence := disallowPatterns(r)
+			assert.Equal(t, tc.wantPatterns, patterns)
+			assert.Equal(t, tc.wantEvidence, evidence)
+		})
+	}
+}
+
+func TestBuildDraft_GeneralizedPatternEvidenceFollowsSiblingLine(t *testing.T) {
+	r := &Report{
+		FinalURL: mustURL(t, "https://d.io/"),
+		Sitemap:  SitemapInfo{Found: true, URLs: withHost("d.io", []string{"/guide/a", "/es/guide/a", "/ja/guide/a"})},
+		Scope:    ScopeInfo{Prefix: "/", SiblingLocales: []string{"/es/", "/ja/"}},
+	}
+	d := BuildDraft(r, "")
+	assert.Equal(t, []string{rootLocalePattern}, d.Site.DisallowedPathPatterns)
+	i := slices.Index(d.Evidence, "disallowed_path_patterns: sibling version/locale trees observed in the sitemap")
+	require.GreaterOrEqual(t, i, 0)
+	require.Greater(t, len(d.Evidence), i+1)
+	assert.Equal(t, "disallowed_path_patterns: 2 locale trees under / generalized; the pattern matches none of the 1 kept sitemap URLs", d.Evidence[i+1])
 }
 
 func TestSeedDir(t *testing.T) {

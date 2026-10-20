@@ -2,7 +2,9 @@ package discover
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
@@ -85,25 +87,122 @@ func BuildDraft(r *Report, selectorOverride string) *Draft {
 		d.Evidence = append(d.Evidence, fmt.Sprintf("llms.txt present with %d links, corroborating the docs scope", len(r.LlmsTxt.Links)))
 	}
 
-	d.Site.DisallowedPathPatterns = disallowPatterns(r)
-	if len(d.Site.DisallowedPathPatterns) > 0 {
+	patterns, generalized := disallowPatterns(r)
+	d.Site.DisallowedPathPatterns = patterns
+	if len(patterns) > 0 {
 		d.Evidence = append(d.Evidence, "disallowed_path_patterns: sibling version/locale trees observed in the sitemap")
+		d.Evidence = append(d.Evidence, generalized...)
 	}
 	return d
 }
 
+const versionTreeBody = `v?\d+(?:\.\d+)*(?:\.x)?/`
+
+// localeTreeBody matches the segments isLocaleSegment accepts. It is built on
+// call because iso639 is filled in init.
+func localeTreeBody() string {
+	return "(?:" + strings.Join(slices.Sorted(maps.Keys(iso639)), "|") + `)(?:[-_][a-zA-Z]{2,4})?/`
+}
+
 // disallowPatterns excludes sibling version and locale trees, including those
-// nested inside the path prefix, as anchored literal patterns built from
-// directories actually observed in the sitemap.
-func disallowPatterns(r *Report) []string {
-	var out []string
-	for _, sib := range append(append([]string{}, r.Scope.SiblingVersions...), r.Scope.SiblingLocales...) {
-		if strings.HasPrefix(r.Scope.Prefix, sib) {
-			continue
+// nested inside the path prefix. Two or more trees of one kind under one
+// parent become a single pattern when it matches all of them and no kept
+// sitemap path, so trees the site adds later are excluded too; evidence has a
+// line for each such pattern. Other trees get anchored literal patterns.
+func disallowPatterns(r *Report) (patterns, evidence []string) {
+	versions := excludedTrees(r.Scope.SiblingVersions, r.Scope.Prefix)
+	locales := excludedTrees(r.Scope.SiblingLocales, r.Scope.Prefix)
+	kept := keptPaths(r, append(append([]string{}, versions...), locales...))
+	for _, kind := range []struct {
+		name, body string
+		trees      []string
+	}{
+		{"version", versionTreeBody, versions},
+		{"locale", localeTreeBody(), locales},
+	} {
+		groups := generalizeTrees(kind.trees, kind.name == "version", kind.body, kept)
+		emitted := map[string]bool{}
+		for _, tree := range kind.trees {
+			parent, _ := splitTree(tree)
+			g, ok := groups[parent]
+			if !ok || !slices.Contains(g.members, tree) {
+				patterns = append(patterns, "^"+regexp.QuoteMeta(tree))
+				continue
+			}
+			if !emitted[parent] {
+				emitted[parent] = true
+				patterns = append(patterns, g.pattern)
+				evidence = append(evidence, fmt.Sprintf(
+					"disallowed_path_patterns: %d %s trees under %s generalized; the pattern matches none of the %d kept sitemap URLs",
+					len(g.members), kind.name, parent, len(kept)-1))
+			}
 		}
-		out = append(out, "^"+regexp.QuoteMeta(sib))
+	}
+	return patterns, evidence
+}
+
+func excludedTrees(trees []string, prefix string) []string {
+	var out []string
+	for _, tree := range trees {
+		if !strings.HasPrefix(prefix, tree) {
+			out = append(out, tree)
+		}
 	}
 	return out
+}
+
+// keptPaths is the prefix plus every same-host sitemap path outside the
+// excluded trees.
+func keptPaths(r *Report, excluded []string) []string {
+	kept := []string{r.Scope.Prefix}
+	if r.FinalURL == nil {
+		return kept
+	}
+	for _, p := range hostPaths(r.FinalURL, r.Sitemap.URLs) {
+		if !slices.ContainsFunc(excluded, func(tree string) bool { return strings.HasPrefix(p, tree) }) {
+			kept = append(kept, p)
+		}
+	}
+	return kept
+}
+
+type treeGroup struct {
+	pattern string
+	members []string
+}
+
+// generalizeTrees returns, by parent directory, the groups whose pattern
+// matches every member tree and no kept path.
+func generalizeTrees(trees []string, versions bool, body string, kept []string) map[string]treeGroup {
+	byParent := map[string][]string{}
+	for _, tree := range trees {
+		parent, seg := splitTree(tree)
+		if alias, _ := isVersionSegment(seg); versions && alias {
+			continue
+		}
+		byParent[parent] = append(byParent[parent], tree)
+	}
+	groups := map[string]treeGroup{}
+	for parent, members := range byParent {
+		if len(members) < 2 {
+			continue
+		}
+		re, err := regexp.Compile("^" + regexp.QuoteMeta(parent) + body)
+		if err != nil ||
+			slices.ContainsFunc(members, func(m string) bool { return !re.MatchString(m) }) ||
+			slices.ContainsFunc(kept, re.MatchString) {
+			continue
+		}
+		groups[parent] = treeGroup{pattern: re.String(), members: members}
+	}
+	return groups
+}
+
+// splitTree splits "/docs/3.9.2/" into "/docs/" and "3.9.2".
+func splitTree(tree string) (parent, seg string) {
+	t := strings.TrimSuffix(tree, "/")
+	i := strings.LastIndex(t, "/")
+	return t[:i+1], t[i+1:]
 }
 
 var siteKeyStrip = map[string]struct{}{"www": {}, "docs": {}, "doc": {}, "documentation": {}, "help": {}, "developer": {}, "developers": {}}
