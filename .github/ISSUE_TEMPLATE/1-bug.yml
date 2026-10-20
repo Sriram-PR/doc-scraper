@@ -10,8 +10,8 @@ body:
     id: version
     attributes:
       label: Version
-      description: Output of `doc-scraper version`.
-      placeholder: doc-scraper 2.10.0
+      description: Output of `doc-scraper version`. If you built from source, add the commit (`git rev-parse --short HEAD`).
+      placeholder: doc-scraper 2.20.0
     validations:
       required: true
   - type: dropdown
