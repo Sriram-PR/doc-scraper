@@ -71,9 +71,12 @@ func NewBadgerStoreAt(ctx context.Context, dbPath string, resume bool, logger *s
 	}
 
 	badgerLogger := pkglog.NewBadgerSlogAdapter(logger.With("component", "badgerdb"))
+	// Values stay under badger's ValueThreshold, so the value log holds almost nothing; the
+	// default 1 GB size preallocates a 2 GB file per open, which is slow on Windows.
 	opts := badger.DefaultOptions(dbPath).
 		WithLogger(badgerLogger).
-		WithNumVersionsToKeep(1)
+		WithNumVersionsToKeep(1).
+		WithValueLogFileSize(16 << 20)
 
 	var err error
 	store.db, err = badger.Open(opts)
