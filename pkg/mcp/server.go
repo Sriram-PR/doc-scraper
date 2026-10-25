@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -46,6 +47,7 @@ type Server struct {
 	log        *slog.Logger
 	jobManager *JobManager
 	idx        *index.Index
+	sitesMu    sync.RWMutex
 }
 
 func NewServer(cfg *ServerConfig) (*Server, error) {
@@ -63,6 +65,10 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		server.WithToolCapabilities(false),
 		server.WithInstructions(serverInstructions),
 	)
+
+	if cfg.AppConfig.Sites == nil {
+		cfg.AppConfig.Sites = map[string]*config.SiteConfig{}
+	}
 
 	logEntry := cfg.Logger.With("component", "mcp")
 	var jobsPath string
@@ -363,7 +369,8 @@ func (s *Server) backfillChunks(ctx context.Context) {
 	if s.idx == nil {
 		return
 	}
-	for key, siteCfg := range s.cfg.AppConfig.Sites {
+	for _, key := range s.siteKeys() {
+		siteCfg, _ := s.site(key)
 		if ctx.Err() != nil {
 			return
 		}

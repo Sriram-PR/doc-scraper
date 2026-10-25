@@ -34,11 +34,11 @@ import (
 )
 
 func (s *Server) handleListSites(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	keys := config.GetAllSiteKeys(s.cfg.AppConfig)
+	keys := s.siteKeys()
 	sites := make([]siteSummary, 0, len(keys))
 
 	for _, key := range keys {
-		siteCfg := s.cfg.AppConfig.Sites[key]
+		siteCfg, _ := s.site(key)
 		lastCrawled, status := s.siteActivity(key, siteCfg)
 		sites = append(sites, siteSummary{
 			Key:            key,
@@ -94,11 +94,11 @@ func (s *Server) handleCancelCrawl(ctx context.Context, request mcp.CallToolRequ
 // handleDescribeServer returns server identity, sites, and recent jobs in one
 // payload. Tool schemas are advertised by the MCP protocol and are not duplicated.
 func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	siteKeys := config.GetAllSiteKeys(s.cfg.AppConfig)
+	siteKeys := s.siteKeys()
 
 	sites := make([]serverSite, 0, len(siteKeys))
 	for _, key := range siteKeys {
-		siteCfg := s.cfg.AppConfig.Sites[key]
+		siteCfg, _ := s.site(key)
 		lastCrawled, status := s.siteActivity(key, siteCfg)
 		sites = append(sites, serverSite{Key: key, Domain: siteCfg.AllowedDomain, LastCrawled: lastCrawled, Status: status})
 	}
@@ -155,7 +155,7 @@ const jsonlNotIndexedHint = "enable_jsonl_output is false for site '%s', so its 
 	"search or crawl history. Remove the setting (it defaults to true) and re-run crawl_site."
 
 func (s *Server) jsonlDisabled(siteKey string) bool {
-	siteCfg, ok := s.cfg.AppConfig.Sites[siteKey]
+	siteCfg, ok := s.site(siteKey)
 	return ok && !config.GetEffectiveEnableJSONLOutput(siteCfg, s.cfg.AppConfig)
 }
 
@@ -163,7 +163,7 @@ func (s *Server) jsonlDisabled(siteKey string) bool {
 // chunks indexed before a site opted out are searched until its next crawl.
 func (s *Server) unindexedOptOuts(ctx context.Context) []string {
 	var off []string
-	for _, key := range config.GetAllSiteKeys(s.cfg.AppConfig) {
+	for _, key := range s.siteKeys() {
 		if !s.jsonlDisabled(key) {
 			continue
 		}
@@ -619,11 +619,11 @@ func (s *Server) getLastCrawledTime(siteKey string, siteCfg *config.SiteConfig) 
 // resolveSiteOrError validates site_key against the configured sites and
 // returns either the site config or a sorted-available-sites error result.
 func (s *Server) resolveSiteOrError(siteKey string) (*config.SiteConfig, *mcp.CallToolResult) {
-	siteCfg, exists := s.cfg.AppConfig.Sites[siteKey]
+	siteCfg, exists := s.site(siteKey)
 	if exists {
 		return siteCfg, nil
 	}
-	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", clipInput(siteKey), config.GetAllSiteKeys(s.cfg.AppConfig)))
+	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", clipInput(siteKey), s.siteKeys()))
 }
 
 // handleGetFreshness answers "is the local crawl recent enough to query, or
@@ -828,7 +828,7 @@ func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
 }
 
 func (s *Server) anySiteIndexed(ctx context.Context) bool {
-	for key := range s.cfg.AppConfig.Sites {
+	for _, key := range s.siteKeys() {
 		// On a lookup error, assume content so the caller keeps its generic hint.
 		if has, err := s.idx.SiteHasChunks(ctx, key); err != nil || has {
 			return true
@@ -840,11 +840,12 @@ func (s *Server) anySiteIndexed(ctx context.Context) bool {
 // siteWithPage returns another configured site whose stored crawl holds
 // pageURL, or "" if none does.
 func (s *Server) siteWithPage(exclude, pageURL string) string {
-	for _, key := range config.GetAllSiteKeys(s.cfg.AppConfig) {
+	for _, key := range s.siteKeys() {
 		if key == exclude {
 			continue
 		}
-		jsonlPath, enabled := s.siteJSONLPath(key, s.cfg.AppConfig.Sites[key])
+		siteCfg, _ := s.site(key)
+		jsonlPath, enabled := s.siteJSONLPath(key, siteCfg)
 		if !enabled {
 			continue
 		}
@@ -1044,7 +1045,7 @@ func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolReque
 		if siteKey == "" {
 			if !s.anySiteIndexed(ctx) {
 				hint = "No site has indexed content yet. Run crawl_site for one of: " +
-					strings.Join(config.GetAllSiteKeys(s.cfg.AppConfig), ", ") +
+					strings.Join(s.siteKeys(), ", ") +
 					" (existing crawls are indexed automatically shortly after server start)."
 			}
 			if off := s.unindexedOptOuts(ctx); len(off) > 0 {
