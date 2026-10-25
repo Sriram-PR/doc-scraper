@@ -642,3 +642,63 @@ func TestProcessAndSaveContent_RewritesInternalLinks(t *testing.T) {
 	assert.Contains(t, md, "[Mail](mailto:a@e.com)")
 	assert.Contains(t, md, "[Broken](http://%5B::1)", "unparseable links are kept, not dropped (the converter percent-encodes the bracket)")
 }
+
+func TestStripBreadcrumbs(t *testing.T) {
+	long := strings.Repeat("Section ", 30)
+	tests := []struct {
+		name    string
+		html    string
+		removed int
+		gone    []string
+		kept    []string
+	}{
+		{"spring container wrapping a nav",
+			`<div class="breadcrumbs-container"><nav class="breadcrumbs" aria-label="breadcrumbs"><ul><li><a href="/">Spring Framework</a></li></ul></nav></div><h1>Overview</h1><p>Body.</p>`,
+			1, []string{"Spring Framework"}, []string{"Overview", "Body."}},
+		{"docker nav id",
+			`<nav id="breadcrumbs"><a href="/">Home</a> / Get started</nav><h1>Get started</h1>`,
+			1, []string{"Home"}, []string{"Get started"}},
+		{"go.dev ordered list",
+			`<ol class="SiteBreadcrumb"><li><a href="/doc/">Documentation</a></li><li><a href="/doc/effective_go">Effective Go</a></li></ol><h1>The title</h1>`,
+			1, []string{"Documentation"}, []string{"The title"}},
+		{"primer aria label before the h1",
+			`<nav aria-label="Breadcrumbs"><a href="/">Product UI</a><a href="/c">Components</a></nav><h1>Breadcrumbs</h1><p>Use breadcrumbs to show hierarchy.</p>`,
+			1, []string{"Product UI"}, []string{"Use breadcrumbs to show hierarchy."}},
+		{"schema.org list",
+			`<ul itemscope itemtype="https://schema.org/BreadcrumbList"><li><a href="/">Docs</a></li></ul><h2>Install</h2>`,
+			1, []string{"Docs"}, []string{"Install"}},
+		{"nav inside an oversized marked wrapper",
+			`<div class="breadcrumb-area"><nav class="breadcrumb"><a href="/">Root</a></nav><p>` + long + `</p></div><h1>Title</h1>`,
+			1, []string{"Root"}, []string{"Section Section", "Title"}},
+		{"shadcn api headings",
+			`<h2>API Reference</h2><h3 id="breadcrumb-list">BreadcrumbList</h3><p>Props.</p>`,
+			0, nil, []string{"BreadcrumbList", "Props."}},
+		{"bootstrap demo after a heading",
+			`<h1>Breadcrumb</h1><p>Indicate the current page.</p><nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="#">Home</a></li><li class="breadcrumb-item active">Library</li></ol></nav>`,
+			0, nil, []string{"Home", "Library"}},
+		{"heading anchor and span are not containers",
+			`<a aria-label="Link to this section: Default breadcrumb" href="#default">#</a><span id="breadcrumb-demo">Demo span</span><h2 id="default">Default breadcrumb</h2>`,
+			0, nil, []string{"Demo span", "Default breadcrumb"}},
+		{"long marked block before any heading",
+			`<div class="breadcrumb-intro"><p>` + long + `</p></div><h1>Title</h1>`,
+			0, nil, []string{"Section Section"}},
+		{"no headings at all",
+			`<nav class="breadcrumbs"><a href="/">Home</a></nav><p>A page without headings.</p>`,
+			1, []string{"Home"}, []string{"A page without headings."}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := goquery.NewDocumentFromReader(strings.NewReader("<html><body><main>" + tt.html + "</main></body></html>"))
+			require.NoError(t, err)
+			scope := doc.Find("main")
+			assert.Equal(t, tt.removed, stripBreadcrumbs(scope))
+			text := scope.Text()
+			for _, g := range tt.gone {
+				assert.NotContains(t, text, g)
+			}
+			for _, k := range tt.kept {
+				assert.Contains(t, text, k)
+			}
+		})
+	}
+}

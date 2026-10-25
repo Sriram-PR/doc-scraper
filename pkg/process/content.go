@@ -360,6 +360,47 @@ func hasExtractableContent(s *goquery.Selection) bool {
 	return s.Find("img, picture, video, audio, svg, iframe, table, pre").Length() > 0
 }
 
+const (
+	breadcrumbMarkers    = "[class*='breadcrumb' i], [id*='breadcrumb' i], [aria-label*='breadcrumb' i], [itemtype*='BreadcrumbList']"
+	breadcrumbContainers = "nav, ol, ul, div"
+	maxBreadcrumbText    = 200
+)
+
+// stripBreadcrumbs removes marked breadcrumb containers that come before the
+// scope's first h1-h3. The position and size guards are what keep component
+// docs intact: their live breadcrumb demos and Breadcrumb* API headings come
+// after a heading or aren't containers.
+func stripBreadcrumbs(scope *goquery.Selection) int {
+	var picked []*goquery.Selection
+	scope.Find("*").EachWithBreak(func(_ int, s *goquery.Selection) bool {
+		if s.Is("h1, h2, h3") {
+			return false
+		}
+		if !s.Is(breadcrumbContainers) || !s.Is(breadcrumbMarkers) {
+			return true
+		}
+		for _, p := range picked {
+			if p.Contains(s.Get(0)) {
+				return true
+			}
+		}
+		if len(strings.Join(strings.Fields(s.Text()), " ")) <= maxBreadcrumbText {
+			picked = append(picked, s)
+		}
+		return true
+	})
+	for _, s := range picked {
+		s.Remove()
+	}
+	return len(picked)
+}
+
+func logStrippedBreadcrumbs(log *slog.Logger, n int) {
+	if n > 0 {
+		log.Debug(fmt.Sprintf("Removed %d breadcrumb element(s)", n))
+	}
+}
+
 // cleanupHTML removes framework-specific noise before markdown conversion
 // (Sphinx headerlinks, RTD edit links, generic permalink anchors).
 func (cp *ContentProcessor) cleanupHTML(content *goquery.Selection) {
