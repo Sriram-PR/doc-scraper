@@ -113,30 +113,26 @@ func doAdd(opts addOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	defer cancel()
 
 	fmt.Fprintf(stderr, "Probing %s ...\n", opts.rawURL)
-	report, err := d.Run(ctx, opts.rawURL)
+	var overrides map[string]any
+	if opts.depth > 0 {
+		overrides = map[string]any{"max_depth": float64(opts.depth)}
+	}
+	res, err := d.DraftSite(ctx, discover.DraftRequest{
+		URL:       opts.rawURL,
+		SiteKey:   opts.siteKey,
+		Overrides: overrides,
+		Selector:  opts.selector,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return addExitError
 	}
-
-	draft := discover.BuildDraft(report, opts.selector)
-	if opts.siteKey != "" {
-		draft.SiteKey = opts.siteKey
-	}
-	if opts.depth > 0 {
-		draft.Site.MaxDepth = opts.depth
-	}
+	draft, preview := res.Draft, res.Preview
 	if _, exists := cfg.Sites[draft.SiteKey]; exists {
 		fmt.Fprintf(stderr, "Error: site key %q already exists in %s; pick another with -site\n", draft.SiteKey, opts.configPath)
 		return addExitError
 	}
 
-	doc, pageURL := report.Doc, report.FinalURL
-	if report.Sample != nil {
-		doc, pageURL = report.Sample.Doc, report.Sample.URL
-	}
-	preview := discover.ExtractPreview(doc, pageURL, &draft.Site, log)
-	preview.Sampled = report.Sample != nil
 	entryYAML, err := config.RenderSiteEntry(draft.SiteKey, &draft.Site)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)

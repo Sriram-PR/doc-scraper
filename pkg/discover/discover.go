@@ -54,9 +54,9 @@ type Discoverer struct {
 // children, and up to two sample pages when the seed's selector fails
 // validation.
 func (d *Discoverer) Run(ctx context.Context, rawURL string) (*Report, error) {
-	seed, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || seed.Host == "" || (seed.Scheme != "http" && seed.Scheme != "https") {
-		return nil, fmt.Errorf("invalid URL %q: need an absolute http(s) URL", rawURL)
+	seed, err := parseHTTPURL(rawURL)
+	if err != nil {
+		return nil, err
 	}
 	r := &Report{SeedURL: seed.String()}
 
