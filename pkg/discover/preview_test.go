@@ -72,3 +72,16 @@ func TestHasNavResidue(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractPreview_ReadabilityPathHasNoBreadcrumb(t *testing.T) {
+	page := `<html><head><title>Effective Go</title></head><body><main><article class="Doc"><ol class="SiteBreadcrumb"><li><a href="/doc/">Documentation</a></li><li><a href="/doc/effective_go">Effective Go</a></li></ol>` +
+		`<h1>Effective Go</h1><p>` + strings.Repeat("Go is a new language that borrows ideas from existing languages but has unusual properties. ", 12) + `</p></article></main></body></html>`
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(page))
+	require.NoError(t, err)
+	u, _ := url.Parse("https://go.dev/doc/effective_go")
+
+	p := ExtractPreview(doc, u, &config.SiteConfig{ContentSelector: "auto"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.Empty(t, p.Err)
+	assert.NotContains(t, p.Markdown, "Documentation")
+	assert.Contains(t, p.Markdown, "unusual properties")
+}

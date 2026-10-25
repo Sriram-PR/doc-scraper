@@ -91,7 +91,7 @@ func (cp *ContentProcessor) SelectMainContent(
 
 		if result.Fallback {
 			taskLog.Debug("Using readability extraction for content")
-			extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
+			extractedContent, extractedTitle, extractErr := cp.extractReadable(doc, finalURL, taskLog)
 			if extractErr != nil {
 				err = fmt.Errorf("%w: readability failed for '%s': %v", utils.ErrContentSelector, finalURL.String(), extractErr) //nolint:errorlint // extractErr is supplemental
 				taskLog.Warn(err.Error())
@@ -117,7 +117,7 @@ func (cp *ContentProcessor) SelectMainContent(
 				taskLog.Warn(fmt.Sprintf(
 					"Detected selector '%s' yielded no content (%d element(s) matched), falling back to readability",
 					actualSelector, mainContentSelection.Length()))
-				extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
+				extractedContent, extractedTitle, extractErr := cp.extractReadable(doc, finalURL, taskLog)
 				if extractErr != nil {
 					err = fmt.Errorf(
 						"%w: selector '%s' yielded no content and readability failed for '%s': %v",
@@ -404,6 +404,15 @@ func logStrippedBreadcrumbs(log *slog.Logger, n int) {
 	if n > 0 {
 		log.Debug(fmt.Sprintf("Removed %d breadcrumb element(s)", n))
 	}
+}
+
+// extractReadable runs readability on a copy of doc with breadcrumb trails
+// removed first: readability's output keeps no class or aria attributes, so
+// they can't be recognized afterwards. doc stays intact for link following.
+func (cp *ContentProcessor) extractReadable(doc *goquery.Document, pageURL *url.URL, log *slog.Logger) (*goquery.Selection, string, error) {
+	clean := goquery.CloneDocument(doc)
+	logStrippedBreadcrumbs(log, stripBreadcrumbs(clean.Find("body")))
+	return cp.readabilityExtractor.Extract(clean, pageURL)
 }
 
 // cleanupHTML removes framework-specific noise before markdown conversion

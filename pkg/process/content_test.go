@@ -674,7 +674,8 @@ func TestStripBreadcrumbs(t *testing.T) {
 			`<h2>API Reference</h2><h3 id="breadcrumb-list">BreadcrumbList</h3><p>Props.</p>`,
 			0, nil, []string{"BreadcrumbList", "Props."}},
 		{"bootstrap demo after a heading",
-			`<h1>Breadcrumb</h1><p>Indicate the current page.</p><nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="#">Home</a></li><li class="breadcrumb-item active">Library</li></ol></nav>`,
+			`<h1>Breadcrumb</h1><p>Indicate the current page.</p><nav aria-label="breadcrumb"><ol class="breadcrumb">` +
+				`<li class="breadcrumb-item"><a href="#">Home</a></li><li class="breadcrumb-item active">Library</li></ol></nav>`,
 			0, nil, []string{"Home", "Library"}},
 		{"heading anchor and span are not containers",
 			`<a aria-label="Link to this section: Default breadcrumb" href="#default">#</a><span id="breadcrumb-demo">Demo span</span><h2 id="default">Default breadcrumb</h2>`,
@@ -732,4 +733,22 @@ func TestSelectMainContent_BreadcrumbOnlyRegionIsEmpty(t *testing.T) {
 	html := `<html><head><title>T</title></head><body><article class="doc"><nav aria-label="breadcrumbs"><a href="/">Home</a></nav></article></body></html>`
 	_, _, err := selectMainContentFixture(t, html, "article.doc")
 	require.ErrorContains(t, err, "yielded no content")
+}
+
+var goDevPage = `<html><head><title>Effective Go</title></head><body><header><nav><a href="/">Go</a> <a href="/doc/">Docs</a></nav></header>` +
+	`<main id="main-content"><article class="Doc Article"><ol class="SiteBreadcrumb"><li><a href="/doc/">Documentation</a></li><li><a href="/doc/effective_go">Effective Go</a></li></ol>` +
+	`<h1>Effective Go</h1><p>` + strings.Repeat("Go is a new language that borrows ideas from existing languages but has unusual properties. ", 12) + `</p>` +
+	`<h2 id="introduction">Introduction</h2><p>` + strings.Repeat("To write Go well, it is important to understand its properties and idioms. ", 10) + `</p></article></main></body></html>`
+
+func TestSelectMainContent_ReadabilityPathStripsBreadcrumbs(t *testing.T) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(goDevPage))
+	require.NoError(t, err)
+	u, _ := url.Parse("https://go.dev/doc/effective_go")
+	cp := NewContentProcessor(nil, &config.AppConfig{}, silentLog())
+
+	content, _, err := cp.SelectMainContent(doc, u, &config.SiteConfig{ContentSelector: "auto"}, silentLog())
+	require.NoError(t, err)
+	assert.NotContains(t, content.Text(), "Documentation")
+	assert.Contains(t, content.Text(), "unusual properties")
+	assert.Equal(t, 1, doc.Find("ol.SiteBreadcrumb").Length(), "the input page is not modified")
 }
