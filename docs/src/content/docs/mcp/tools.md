@@ -18,6 +18,7 @@ Its `initialize` response carries `instructions` that tell the agent to call `de
 | `crawl_site` | Start a background crawl for a site (returns job ID) |
 | `get_job_status` | Check the status of a background crawl job, optionally waiting up to 60 seconds for it to finish |
 | `cancel_crawl` | Cancel a running or pending crawl job by job ID |
+| `draft_site` | Draft a site entry for a new docs URL, or start from a configured site and change fields with `overrides`; previews one extracted page and never writes the config |
 | `list_pages` | Enumerate crawled pages for a site (paginated, metadata only) |
 | `read_page` | Return a crawled page's markdown from the stored output, without network access; pass a search result's `anchor` to read only that section |
 | `search_docs` | Full-text search across crawled docs (BM25, stemming, snippets), without network access |

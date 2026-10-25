@@ -371,8 +371,14 @@ func TestLoadConfigForAdd_NoSitesStillWorks(t *testing.T) {
 
 func TestDoMcpServer_NoSitesRefused(t *testing.T) {
 	var stderr bytes.Buffer
-	assert.Equal(t, 1, doMcpServer(writeTempConfig(t, "sites: {}\n"), "info", nil, &stderr))
+	assert.Equal(t, 1, doMcpServer(writeTempConfig(t, "sites: {}\n"), "info", false, nil, &stderr))
 	assert.Contains(t, stderr.String(), "no sites configured")
+}
+
+func TestDoMcpServer_NoSitesRefusalNamesTheFlag(t *testing.T) {
+	var stderr bytes.Buffer
+	assert.Equal(t, 1, doMcpServer(writeTempConfig(t, "sites: {}\n"), "info", false, nil, &stderr))
+	assert.Contains(t, stderr.String(), "-allow-config-writes")
 }
 
 func TestExtraArgsError(t *testing.T) {

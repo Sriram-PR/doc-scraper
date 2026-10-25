@@ -116,19 +116,26 @@ func (s *Server) handleDescribeServer(ctx context.Context, request mcp.CallToolR
 		jobs = append(jobs, summarizeJob(j))
 	}
 
+	next := "Use search_docs to find where something is documented, list_sites for " +
+		"full site config, list_pages to enumerate crawled pages, crawl_site to start a " +
+		"crawl, get_job_status to check a job, get_page to fetch a single URL, " +
+		"get_freshness to check how stale a site's crawl is, diff_crawl to see what " +
+		"the latest crawl changed, read_page to read a crawled page's stored " +
+		"markdown, draft_site to draft or re-preview a site's config entry, " +
+		"cancel_crawl to stop a running job."
+	if len(sites) == 0 {
+		next = "No sites are configured yet. Call draft_site with a docs URL, then save_site with its entry, then crawl_site."
+	}
+
 	return structuredResult(describeServerResult{
-		Server:     serverIdentity{Name: serverName, Version: serverVersion, ConfigPath: s.cfg.ConfigPath},
-		Sites:      sites,
-		RecentJobs: jobs,
-		TotalSites: len(sites),
-		TotalJobs:  len(jobs),
-		JobsCapped: capped,
-		NextActions: "Use search_docs to find where something is documented, list_sites for " +
-			"full site config, list_pages to enumerate crawled pages, crawl_site to start a " +
-			"crawl, get_job_status to check a job, get_page to fetch a single URL, " +
-			"get_freshness to check how stale a site's crawl is, diff_crawl to see what " +
-			"the latest crawl changed, read_page to read a crawled page's stored " +
-			"markdown, cancel_crawl to stop a running job.",
+		Server:       serverIdentity{Name: serverName, Version: serverVersion, ConfigPath: s.cfg.ConfigPath},
+		Sites:        sites,
+		RecentJobs:   jobs,
+		TotalSites:   len(sites),
+		TotalJobs:    len(jobs),
+		JobsCapped:   capped,
+		ConfigWrites: s.configWrites(),
+		NextActions:  next,
 	}), nil
 }
 

@@ -20,6 +20,7 @@ func runMcpServer(args []string) {
 	fs := flag.NewFlagSet("mcp-server", flag.ExitOnError)
 	configFile := fs.String("config", "config.yaml", "Path to config file")
 	logLevel := fs.String("loglevel", "info", "Log level (debug, info, warn, error)")
+	allowWrites := fs.Bool("allow-config-writes", false, "Let MCP clients save site entries to the config file (save_site)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: doc-scraper mcp-server [options]
@@ -41,6 +42,7 @@ Available MCP Tools:
   crawl_site      Start a background crawl for a site
   get_job_status  Check the status of a crawl job, optionally waiting for it to finish
   cancel_crawl    Cancel a running or pending crawl job
+  draft_site      Draft a site entry for a docs URL or a configured site and preview one page, no config write
   list_pages      Enumerate crawled pages for a site (paginated, metadata only)
   read_page       Return a crawled page's markdown from stored output, no network access
   search_docs     Ranked full-text search across crawled docs with snippets and section anchors, no network access
@@ -54,13 +56,13 @@ Available MCP Tools:
 	}
 	rejectExtraArgs(fs)
 
-	exitCode := doMcpServer(*configFile, *logLevel, os.Stdout, os.Stderr)
+	exitCode := doMcpServer(*configFile, *logLevel, *allowWrites, os.Stdout, os.Stderr)
 	os.Exit(exitCode)
 }
 
 // doMcpServer is the testable implementation of the MCP server. The MCP
 // protocol uses stdout, so logs always go to the supplied stderr writer.
-func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
+func doMcpServer(configPath, logLevel string, allowWrites bool, _, stderr io.Writer) int {
 	level, parseErr := pkglog.ParseLevel(logLevel)
 	log := pkglog.New(level, pkglog.FormatText, stderr)
 	if parseErr != nil {
@@ -72,8 +74,8 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Error loading config: %v\n", err)
 		return 1
 	}
-	if len(appCfg.Sites) == 0 {
-		fmt.Fprintf(stderr, "Error: %v in %s; run 'doc-scraper add <url>' to add one\n", errNoSites, configPath)
+	if len(appCfg.Sites) == 0 && !allowWrites {
+		fmt.Fprintf(stderr, "Error: %v in %s; run 'doc-scraper add <url>' to add one, or start with -allow-config-writes and add one with draft_site and save_site\n", errNoSites, configPath)
 		return 1
 	}
 	// Validate applies the same defaults (e.g. max_requests) the crawl/watch
@@ -89,9 +91,10 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 	}
 
 	serverCfg := &mcp.ServerConfig{
-		AppConfig:  appCfg,
-		ConfigPath: configPath,
-		Logger:     log,
+		AppConfig:         appCfg,
+		ConfigPath:        configPath,
+		Logger:            log,
+		AllowConfigWrites: allowWrites,
 	}
 
 	server, err := mcp.NewServer(serverCfg)

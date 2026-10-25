@@ -38,6 +38,8 @@ type ServerConfig struct {
 	AppConfig  *config.AppConfig
 	ConfigPath string
 	Logger     *slog.Logger
+	// AllowConfigWrites lets save_site write the config file (mcp-server -allow-config-writes).
+	AllowConfigWrites bool
 }
 
 // Server wraps the MCP server with doc-scraper specific functionality
@@ -192,6 +194,26 @@ func (s *Server) registerTools() {
 		outputSchemaFor[cancelCrawlResult](),
 	)
 	addTool(cancelCrawlTool, s.handleCancelCrawl)
+
+	draftSiteTool := mcp.NewTool("draft_site",
+		mcp.WithTitleAnnotation("Draft a site entry"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+		mcp.WithDescription("Draft a site entry and preview one page extracted with it. Never writes the config. "+
+			"With url, probes a new docs site the way `doc-scraper add` does (robots.txt, llms.txt, sitemap, framework detection). "+
+			"With only site_key, starts from that configured site's entry without probing. overrides sets entry fields by "+
+			"their config names (content_selector, allowed_path_prefix, disallowed_path_patterns, max_depth, ...); "+
+			"durations are strings such as \"1s\". Judge the preview (code blocks kept, nav_leak, chars), draft again with "+
+			"overrides until it looks right, then pass entry to save_site."),
+		mcp.WithString("url", mcp.Description("A docs URL to probe as a new site")),
+		mcp.WithString("site_key", mcp.Description("With url: the key for the new site. Without url: the configured site to start from")),
+		mcp.WithObject("overrides", mcp.Description("Entry fields to set, by config field name")),
+		mcp.WithString("preview_url", mcp.Description("The page to preview (default: the sampled docs page, else the seed or first start URL)")),
+		outputSchemaFor[draftSiteResult](),
+	)
+	addTool(draftSiteTool, s.handleDraftSite)
 
 	s.registerCorpusTools(addTool)
 	s.log.Info(fmt.Sprintf("Registered %d MCP tools", toolCount))
