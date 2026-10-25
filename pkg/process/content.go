@@ -108,7 +108,12 @@ func (cp *ContentProcessor) SelectMainContent(
 			taskLog.Debug(fmt.Sprintf("Auto-detected selector for %s: %s", result.Framework, actualSelector))
 
 			mainContentSelection := detect.SelectByPriority(doc, actualSelector)
-			if !hasExtractableContent(mainContentSelection) {
+			candidate := mainContentSelection.Clone()
+			if result.Exclude != "" {
+				candidate.Find(result.Exclude).Remove()
+			}
+			stripped := stripBreadcrumbs(candidate)
+			if !hasExtractableContent(candidate) {
 				taskLog.Warn(fmt.Sprintf(
 					"Detected selector '%s' yielded no content (%d element(s) matched), falling back to readability",
 					actualSelector, mainContentSelection.Length()))
@@ -126,21 +131,21 @@ func (cp *ContentProcessor) SelectMainContent(
 					pageTitle = extractedTitle
 				}
 			} else {
-				mainContent = mainContentSelection.Clone()
-				if result.Exclude != "" {
-					mainContent.Find(result.Exclude).Remove()
-				}
+				mainContent = candidate
+				logStrippedBreadcrumbs(taskLog, stripped)
 			}
 		}
 	} else {
 		mainContentSelection := detect.SelectByPriority(doc, siteCfg.ContentSelector)
-		if !hasExtractableContent(mainContentSelection) {
+		mainContent = mainContentSelection.Clone()
+		stripped := stripBreadcrumbs(mainContent)
+		if !hasExtractableContent(mainContent) {
 			err = fmt.Errorf("%w: selector '%s' yielded no content on page '%s' (%d element(s) matched)",
 				utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String(), mainContentSelection.Length())
 			taskLog.Warn(err.Error())
 			return nil, pageTitle, err
 		}
-		mainContent = mainContentSelection.Clone()
+		logStrippedBreadcrumbs(taskLog, stripped)
 		taskLog.Debug(fmt.Sprintf("Found main content using selector '%s'", siteCfg.ContentSelector))
 	}
 

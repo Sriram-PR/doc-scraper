@@ -702,3 +702,34 @@ func TestStripBreadcrumbs(t *testing.T) {
 		})
 	}
 }
+
+const springPage = `<html><head><title>Overview</title><meta name="generator" content="Antora 3.1.9"></head><body>
+	<article class="doc"><div class="breadcrumbs-container"><nav class="breadcrumbs" aria-label="breadcrumbs"><ul><li><a href="/">Spring Framework</a></li><li>Overview</li></ul></nav></div>
+	<h1>Overview</h1><p>` + "The Spring Framework provides a comprehensive programming and configuration model for modern Java applications. " + `</p>
+	<p>` + "It focuses on the plumbing of enterprise applications so that teams can focus on application-level business logic. " + `</p></article></body></html>`
+
+func TestSelectMainContent_ExplicitSelectorStripsBreadcrumbs(t *testing.T) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(springPage))
+	require.NoError(t, err)
+	u, _ := url.Parse("https://docs.spring.io/spring-framework/reference/")
+	cp := NewContentProcessor(nil, &config.AppConfig{}, silentLog())
+
+	content, _, err := cp.SelectMainContent(doc, u, &config.SiteConfig{ContentSelector: "article.doc"}, silentLog())
+	require.NoError(t, err)
+	assert.Zero(t, content.Find(".breadcrumbs-container").Length())
+	assert.Contains(t, content.Text(), "comprehensive programming")
+	assert.Equal(t, 1, doc.Find(".breadcrumbs-container").Length(), "the input page is not modified")
+}
+
+func TestSelectMainContent_AutoDetectedSelectorStripsBreadcrumbs(t *testing.T) {
+	content, _, err := selectMainContentFixture(t, springPage, "auto")
+	require.NoError(t, err)
+	assert.Zero(t, content.Find("nav.breadcrumbs").Length())
+	assert.Contains(t, content.Text(), "comprehensive programming")
+}
+
+func TestSelectMainContent_BreadcrumbOnlyRegionIsEmpty(t *testing.T) {
+	html := `<html><head><title>T</title></head><body><article class="doc"><nav aria-label="breadcrumbs"><a href="/">Home</a></nav></article></body></html>`
+	_, _, err := selectMainContentFixture(t, html, "article.doc")
+	require.ErrorContains(t, err, "yielded no content")
+}
