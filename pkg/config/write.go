@@ -26,11 +26,17 @@ func RenderSiteEntry(key string, site *SiteConfig) (string, error) {
 }
 
 // InsertSite adds a site entry to the YAML config at path, creating the file
-// if needed. The existing file is preserved byte-for-byte outside the inserted
-// lines: the sites mapping is located via the YAML AST, the rendered entry is
-// spliced in as text, and the result is re-parsed and re-validated before an
-// atomic write. Returns an error if the key already exists.
+// if needed. Returns an error if the key already exists.
 func InsertSite(path, key string, site *SiteConfig) error {
+	return UpsertSite(path, key, site, false)
+}
+
+// UpsertSite inserts key's entry, or with replace swaps the existing one. The
+// file is preserved byte-for-byte outside that entry: the sites mapping is
+// located via the YAML AST, the rendered entry is spliced in as text, and the
+// result is re-parsed and re-validated before an atomic write. Inserting an
+// existing key or replacing a missing one is an error.
+func UpsertSite(path, key string, site *SiteConfig, replace bool) error {
 	entry, err := RenderSiteEntry(key, site)
 	if err != nil {
 		return err
@@ -38,13 +44,20 @@ func InsertSite(path, key string, site *SiteConfig) error {
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
+		if replace {
+			return fmt.Errorf("site %q doesn't exist in config", key)
+		}
 		return writeValidated(path, []byte("sites:\n"+indentBlock(entry, 2)), key, 0o644)
 	}
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
 	}
 
-	updated, err := spliceSiteEntry(data, key, entry)
+	splice := spliceSiteEntry
+	if replace {
+		splice = replaceSiteEntry
+	}
+	updated, err := splice(data, key, entry)
 	if err != nil {
 		return err
 	}
@@ -53,6 +66,70 @@ func InsertSite(path, key string, site *SiteConfig) error {
 		perm = fi.Mode().Perm()
 	}
 	return writeValidated(path, updated, key, perm)
+}
+
+// replaceSiteEntry swaps key's lines for entry. The old entry runs from its
+// key line to the line before the next site key (or the next top-level key,
+// or EOF), minus trailing blank and comment lines, which belong to what
+// follows. Ending at the last parsed node instead would leave the
+// continuation lines of a multi-line value behind.
+func replaceSiteEntry(data []byte, key, entry string) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	missing := fmt.Errorf("site %q doesn't exist in config", key)
+	root := documentRoot(&doc)
+	if root == nil || root.Kind != yaml.MappingNode {
+		return nil, missing
+	}
+	sitesKey, sites := mappingValue(root, "sites")
+	if sites == nil || sites.Kind != yaml.MappingNode {
+		return nil, missing
+	}
+	if sites.Style&yaml.FlowStyle != 0 {
+		return nil, fmt.Errorf("the sites entry uses YAML flow style ({...}); convert it to block style before replacing a site")
+	}
+
+	lines := strings.Split(string(data), "\n")
+	end := len(lines)
+	for i := 0; i+2 < len(root.Content); i += 2 {
+		if root.Content[i] == sitesKey {
+			end = root.Content[i+2].Line - 1
+		}
+	}
+	var keyNode *yaml.Node
+	var prior []string
+	for i := 0; i+1 < len(sites.Content); i += 2 {
+		k := sites.Content[i]
+		prior = append(prior, k.Value)
+		if k.Value != key {
+			continue
+		}
+		keyNode = k
+		if i+2 < len(sites.Content) {
+			end = sites.Content[i+2].Line - 1
+		}
+	}
+	if keyNode == nil {
+		return nil, missing
+	}
+	for end > keyNode.Line && isBlankOrComment(lines[end-1]) {
+		end--
+	}
+
+	eol := detectEOL(data)
+	head := ""
+	if keyNode.Line > 1 {
+		head = strings.Join(lines[:keyNode.Line-1], "\n") + "\n"
+	}
+	out := head + withEOL(indentBlock(entry, keyNode.Column-1), eol) + strings.Join(lines[end:], "\n")
+	return []byte(out), verifySplice([]byte(out), key, prior)
+}
+
+func isBlankOrComment(line string) bool {
+	t := strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+	return t == "" || strings.HasPrefix(t, "#")
 }
 
 func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
