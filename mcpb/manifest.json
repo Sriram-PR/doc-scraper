@@ -51,6 +51,7 @@
     { "name": "get_job_status", "description": "Check the status of a crawl job, optionally waiting for it to finish" },
     { "name": "cancel_crawl", "description": "Cancel a running or pending crawl job" },
     { "name": "draft_site", "description": "Draft a site entry for a docs URL or a configured site and preview one page, no config write" },
+    { "name": "save_site", "description": "Save a site entry to the config file and load it (needs -allow-config-writes)" },
     { "name": "list_pages", "description": "Enumerate crawled pages for a site (paginated, metadata only)" },
     { "name": "read_page", "description": "Return a crawled page's markdown from stored output, no network access" },
     { "name": "search_docs", "description": "Ranked full-text search across crawled docs with snippets and section anchors, no network access" },

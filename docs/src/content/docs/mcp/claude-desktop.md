@@ -19,6 +19,8 @@ Every release ships `doc-scraper.mcpb`, an MCP Bundle that Claude Desktop instal
 
 The bundle runs `doc-scraper mcp-server -config <your config file>`.
 
+The bundle doesn't pass `-allow-config-writes`, so `save_site` is refused. To let the agent add and fix sites with `save_site`, register the server in `claude_desktop_config.json` instead and add `-allow-config-writes` after the config path: `"args": ["mcp-server", "-config", "/path/to/config.yaml", "-allow-config-writes"]`.
+
 ## Verify
 
 Start a new chat and ask Claude to call `describe_server` from doc-scraper. It should list the sites from your config. Then ask it to crawl one with `crawl_site` and search it with `search_docs`.

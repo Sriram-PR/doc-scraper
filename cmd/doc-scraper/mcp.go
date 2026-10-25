@@ -43,6 +43,7 @@ Available MCP Tools:
   get_job_status  Check the status of a crawl job, optionally waiting for it to finish
   cancel_crawl    Cancel a running or pending crawl job
   draft_site      Draft a site entry for a docs URL or a configured site and preview one page, no config write
+  save_site       Save a site entry to the config file and load it (needs -allow-config-writes)
   list_pages      Enumerate crawled pages for a site (paginated, metadata only)
   read_page       Return a crawled page's markdown from stored output, no network access
   search_docs     Ranked full-text search across crawled docs with snippets and section anchors, no network access

@@ -23,6 +23,8 @@ Most clients take the command in this shape:
 }
 ```
 
+To let the agent add and fix sites with `save_site`, add `-allow-config-writes` after the config path.
+
 Use absolute paths, both here and for `output_base_dir` and `state_dir` inside the config: the client decides the server's working directory.
 
 ## A raw session

@@ -19,11 +19,18 @@ Its `initialize` response carries `instructions` that tell the agent to call `de
 | `get_job_status` | Check the status of a background crawl job, optionally waiting up to 60 seconds for it to finish |
 | `cancel_crawl` | Cancel a running or pending crawl job by job ID |
 | `draft_site` | Draft a site entry for a new docs URL, or start from a configured site and change fields with `overrides`; previews one extracted page and never writes the config |
+| `save_site` | Save a drafted entry to the config file and load it into the running server; needs `mcp-server -allow-config-writes` |
 | `list_pages` | Enumerate crawled pages for a site (paginated, metadata only) |
 | `read_page` | Return a crawled page's markdown from the stored output, without network access; pass a search result's `anchor` to read only that section |
 | `search_docs` | Full-text search across crawled docs (BM25, stemming, snippets), without network access |
 | `get_freshness` | Report how stale a site's latest crawl is, from the crawl-history index |
 | `diff_crawl` | Report pages added, removed, or changed since the previous crawl, or since a given timestamp |
+
+## Adding and fixing sites
+
+`draft_site` and `save_site` let an agent bring in a docs site that isn't configured, or fix one that extracts badly, without leaving the session. `draft_site` takes a `url` (it probes the site the way `doc-scraper add` does) or the `site_key` of a configured site, plus `overrides` for any entry field by its config name, and previews one page extracted with the result. It never writes. `save_site` writes the entry to the config file, changing only that entry's lines, and loads it into the running server; overwriting a configured site needs `replace: true`, and a save is refused while that site is crawling.
+
+`save_site` works only when the server starts with `-allow-config-writes`; `describe_server` reports `config_writes: enabled` or `disabled`. With the flag, the server also starts from a config with no sites. Entries can set every per-site field except `enable_jsonl_output` and `jsonl_output_filename`, which would turn off the stored output `read_page` and `search_docs` read.
 
 ## Results
 

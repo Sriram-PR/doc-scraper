@@ -215,6 +215,24 @@ func (s *Server) registerTools() {
 	)
 	addTool(draftSiteTool, s.handleDraftSite)
 
+	saveSiteTool := mcp.NewTool("save_site",
+		mcp.WithTitleAnnotation("Save a site entry"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithDescription("Write a site entry to the config file and load it into the running server, so crawl_site, "+
+			"search_docs and read_page can use it at once. entry is a full entry by config field name, normally "+
+			"draft_site's entry with changes; fields left out are unset. Overwriting a configured site needs replace: true. "+
+			"Only the entry's lines change in the file. Refused while the site is crawling, and on servers started "+
+			"without -allow-config-writes."),
+		mcp.WithString("site_key", mcp.Required(), mcp.Description("The key to save the entry under")),
+		mcp.WithObject("entry", mcp.Required(), mcp.Description("The full site entry, by config field name")),
+		mcp.WithBoolean("replace", mcp.Description("Overwrite an existing site (default: false; must be false for a new site)")),
+		outputSchemaFor[saveSiteResult](),
+	)
+	addTool(saveSiteTool, s.handleSaveSite)
+
 	s.registerCorpusTools(addTool)
 	s.log.Info(fmt.Sprintf("Registered %d MCP tools", toolCount))
 }

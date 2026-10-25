@@ -444,6 +444,11 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 		}), nil
 	}
 
+	// StartJob can wait out a save of this site; crawl the entry it saved.
+	if latest, ok := s.site(siteKey); ok {
+		siteCfg = latest
+	}
+
 	go s.runCrawlJob(job, siteCfg, siteKey)
 
 	return structuredResult(crawlSiteResult{

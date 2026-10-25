@@ -218,7 +218,9 @@ func TestUpsertSite_ReplaceLastEntry(t *testing.T) {
 }
 
 func TestUpsertSite_ReplaceRemovesMultiLineValues(t *testing.T) {
-	original := "sites:\n  alpha:\n    start_urls: [\"https://alpha.example.com/\"]\n    allowed_domain: alpha.example.com\n    content_selector: >-\n      main\n      article\n  beta:\n    start_urls: [\"https://beta.example.com/\"]\n    allowed_domain: beta.example.com\n    content_selector: article\n"
+	original := "sites:\n  alpha:\n    start_urls: [\"https://alpha.example.com/\"]\n    allowed_domain: alpha.example.com\n" +
+		"    content_selector: >-\n      main\n      article\n" +
+		"  beta:\n    start_urls: [\"https://beta.example.com/\"]\n    allowed_domain: beta.example.com\n    content_selector: article\n"
 	path := writeTempConfig(t, original)
 	require.NoError(t, UpsertSite(path, "alpha", testSite(), true))
 
