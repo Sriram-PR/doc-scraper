@@ -33,7 +33,21 @@ func (s *Server) handleSaveSite(ctx context.Context, request mcp.CallToolRequest
 	}
 	replace := request.GetBool("replace", false)
 
-	site, err := config.MergeSiteFields(config.SiteConfig{}, fields)
+	prev, exists := s.site(siteKey)
+	switch {
+	case exists && !replace:
+		return mcp.NewToolResultError(fmt.Sprintf("site '%s' exists; pass replace: true to overwrite it", clipInput(siteKey))), nil
+	case !exists && replace:
+		return mcp.NewToolResultError(fmt.Sprintf("site '%s' doesn't exist; omit replace to add it", clipInput(siteKey))), nil
+	}
+
+	// The JSONL fields can't be set here, so a replace keeps the entry's own.
+	var base config.SiteConfig
+	if exists {
+		base.EnableJSONLOutput = prev.EnableJSONLOutput
+		base.JSONLOutputFilename = prev.JSONLOutputFilename
+	}
+	site, err := config.MergeSiteFields(base, fields)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -43,19 +57,14 @@ func (s *Server) handleSaveSite(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError(fmt.Sprintf("invalid site entry: %v", err)), nil
 	}
 
-	prev, exists := s.site(siteKey)
-	switch {
-	case exists && !replace:
-		return mcp.NewToolResultError(fmt.Sprintf("site '%s' exists; pass replace: true to overwrite it", clipInput(siteKey))), nil
-	case !exists && replace:
-		return mcp.NewToolResultError(fmt.Sprintf("site '%s' doesn't exist; omit replace to add it", clipInput(siteKey))), nil
-	}
-
 	release, err := s.jobManager.ReserveSite(siteKey)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	defer release()
+	// The reservation is per site; saves of different sites still share the file.
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 
 	if err := config.UpsertSite(s.cfg.ConfigPath, siteKey, &site, replace); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("config not written: %v", err)), nil

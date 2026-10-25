@@ -228,3 +228,48 @@ func TestSaveSite_ConcurrentWithReads(t *testing.T) {
 	assert.Empty(t, saveErrs)
 	assert.Len(t, f.s.siteKeys(), 6)
 }
+
+func TestSaveSite_ConcurrentSavesKeepEveryEntry(t *testing.T) {
+	f := newSaveFixture(t, true)
+	const n = 8
+	var wg sync.WaitGroup
+	results := make([]*mcpgo.CallToolResult, n)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			req := mcpgo.CallToolRequest{}
+			req.Params.Arguments = map[string]any{"site_key": fmt.Sprintf("s%d", i), "entry": f.entry("/docs/new.html")}
+			results[i], _ = f.s.handleSaveSite(context.Background(), req)
+		}()
+	}
+	wg.Wait()
+	for i, res := range results {
+		require.NotNil(t, res)
+		require.False(t, res.IsError, "save %d: %v", i, res.Content)
+	}
+	loaded, _, err := config.Load(f.cfgPath)
+	require.NoError(t, err)
+	for i := range n {
+		assert.Contains(t, loaded.Sites, fmt.Sprintf("s%d", i))
+	}
+}
+
+func TestSaveSite_DraftOfSiteWithJSONLSettingsRoundTrips(t *testing.T) {
+	f := newSaveFixture(t, true)
+	docs, _ := f.s.site("docs")
+	custom := *docs
+	custom.JSONLOutputFilename = "custom.jsonl"
+	require.NoError(t, config.UpsertSite(f.cfgPath, "docs", &custom, true))
+	f.s.putSite("docs", &custom)
+
+	_, draft := callJSON(t, f.s.handleDraftSite, map[string]any{"site_key": "docs", "overrides": map[string]any{"max_depth": float64(3)}})
+	require.NotNil(t, draft)
+	_, saved := callJSON(t, f.s.handleSaveSite, map[string]any{"site_key": "docs", "entry": draft["entry"], "replace": true})
+	require.NotNil(t, saved, "a draft of the site saves back unchanged")
+
+	loaded, _, err := config.Load(f.cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "custom.jsonl", loaded.Sites["docs"].JSONLOutputFilename, "the JSONL setting is kept on replace")
+	assert.Equal(t, 3, loaded.Sites["docs"].MaxDepth)
+}

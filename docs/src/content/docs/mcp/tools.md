@@ -30,7 +30,7 @@ Its `initialize` response carries `instructions` that tell the agent to call `de
 
 `draft_site` and `save_site` let an agent bring in a docs site that isn't configured, or fix one that extracts badly, without leaving the session. `draft_site` takes a `url` (it probes the site the way `doc-scraper add` does) or the `site_key` of a configured site, plus `overrides` for any entry field by its config name, and previews one page extracted with the result. It never writes. `save_site` writes the entry to the config file, changing only that entry's lines, and loads it into the running server; overwriting a configured site needs `replace: true`, and a save is refused while that site is crawling.
 
-`save_site` works only when the server starts with `-allow-config-writes`; `describe_server` reports `config_writes: enabled` or `disabled`. With the flag, the server also starts from a config with no sites. Entries can set every per-site field except `enable_jsonl_output` and `jsonl_output_filename`, which would turn off the stored output `read_page` and `search_docs` read.
+`save_site` works only when the server starts with `-allow-config-writes`; `describe_server` reports `config_writes: enabled` or `disabled`. With the flag, the server also starts from a config with no sites. Entries can set every per-site field except `enable_jsonl_output` and `jsonl_output_filename`, which would turn off the stored output `read_page` and `search_docs` read; a replace keeps the entry's existing values for those two.
 
 ## Results
 

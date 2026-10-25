@@ -109,3 +109,15 @@ func TestChangedSiteFields(t *testing.T) {
 	assert.Equal(t, []string{"allowed_domain", "content_selector", "max_depth", "start_urls"}, ChangedSiteFields(SiteConfig{}, a))
 	assert.Empty(t, ChangedSiteFields(a, mergeBase()))
 }
+
+func TestSiteFieldMap_OmitsRefusedFields(t *testing.T) {
+	on := true
+	site := mergeBase()
+	site.EnableJSONLOutput = &on
+	site.JSONLOutputFilename = "custom.jsonl"
+	m, err := SiteFieldMap(&site)
+	require.NoError(t, err)
+	assert.NotContains(t, m, "enable_jsonl_output")
+	assert.NotContains(t, m, "jsonl_output_filename")
+	assert.Equal(t, "main", m["content_selector"])
+}

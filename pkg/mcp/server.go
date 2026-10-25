@@ -50,6 +50,7 @@ type Server struct {
 	jobManager *JobManager
 	idx        *index.Index
 	sitesMu    sync.RWMutex
+	saveMu     sync.Mutex
 }
 
 func NewServer(cfg *ServerConfig) (*Server, error) {

@@ -110,7 +110,8 @@ func clonePtr[T any](p *T) *T {
 }
 
 // SiteFieldMap renders site keyed by YAML field name, the shape
-// MergeSiteFields takes, omitting the fields RenderSiteEntry omits.
+// MergeSiteFields takes, omitting the fields RenderSiteEntry omits and the
+// refused ones, so the map can be passed back unchanged.
 func SiteFieldMap(site *SiteConfig) (map[string]any, error) {
 	raw, err := yaml.Marshal(site)
 	if err != nil {
@@ -119,6 +120,9 @@ func SiteFieldMap(site *SiteConfig) (map[string]any, error) {
 	m := map[string]any{}
 	if err := yaml.Unmarshal(raw, &m); err != nil {
 		return nil, fmt.Errorf("render site entry: %w", err)
+	}
+	for name := range refusedSiteFields {
+		delete(m, name)
 	}
 	return m, nil
 }
