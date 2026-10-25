@@ -108,10 +108,36 @@ func TestInsertSite_DuplicateKey(t *testing.T) {
 }
 
 func TestInsertSite_FlowStyleRefused(t *testing.T) {
-	path := writeTempConfig(t, "sites: {}\n")
+	path := writeTempConfig(t, "sites: {other: {start_urls: [\"https://o.example.com/\"], allowed_domain: o.example.com, content_selector: main}}\n")
 	err := InsertSite(path, "example_docs", testSite())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "flow style")
+}
+
+func TestInsertSite_EmptyFlowSites(t *testing.T) {
+	cases := map[string]string{
+		"bare":         "output_base_dir: ./out\nsites: {}\nnum_workers: 2\n",
+		"spaced":       "output_base_dir: ./out\nsites: { }\nnum_workers: 2\n",
+		"with comment": "output_base_dir: ./out\nsites: {}  # add sites here\nnum_workers: 2\n",
+		"crlf":         "output_base_dir: ./out\r\nsites: {}\r\nnum_workers: 2\r\n",
+	}
+	for name, original := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := writeTempConfig(t, original)
+			require.NoError(t, InsertSite(path, "example_docs", testSite()))
+			content, cfg := readBack(t, path)
+			assert.NotContains(t, content, "{")
+			assert.Equal(t, "article.main", cfg.Sites["example_docs"].ContentSelector)
+			assert.Equal(t, 2, cfg.NumWorkers)
+			assert.Equal(t, "./out", cfg.OutputBaseDir)
+			if strings.Contains(original, "#") {
+				assert.Contains(t, content, "sites:  # add sites here")
+			}
+			if strings.Contains(original, "\r\n") {
+				assert.Equal(t, strings.Count(content, "\n"), strings.Count(content, "\r\n"))
+			}
+		})
+	}
 }
 
 func TestInsertSite_DisallowedPatternsRendered(t *testing.T) {

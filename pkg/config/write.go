@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -164,6 +165,11 @@ func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
 		return out, verifySplice(out, key, nil)
 	}
 	if valNode.Kind == yaml.MappingNode && valNode.Style&yaml.FlowStyle != 0 {
+		if len(valNode.Content) == 0 {
+			if blocked, ok := dropEmptyFlowMapping(lines, valNode); ok {
+				return spliceSiteEntry(blocked, key, entry)
+			}
+		}
 		return nil, fmt.Errorf("the sites entry uses YAML flow style ({...}); convert it to block style before using add")
 	}
 
@@ -196,6 +202,24 @@ func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
 		}
 	}
 	return []byte(out), verifySplice([]byte(out), key, prior)
+}
+
+// dropEmptyFlowMapping turns `sites: {}` into `sites:`, keeping any trailing
+// comment, so the entry can be inserted as a block. ok is false when the {}
+// isn't on one line.
+func dropEmptyFlowMapping(lines []string, val *yaml.Node) ([]byte, bool) {
+	line := lines[val.Line-1]
+	col := val.Column - 1
+	if col >= len(line) || line[col] != '{' {
+		return nil, false
+	}
+	end := strings.IndexByte(line[col:], '}')
+	if end < 0 || strings.TrimSpace(line[col+1:col+end]) != "" {
+		return nil, false
+	}
+	out := slices.Clone(lines)
+	out[val.Line-1] = strings.TrimRight(line[:col], " ") + line[col+end+1:]
+	return []byte(strings.Join(out, "\n")), true
 }
 
 // verifySplice re-parses the spliced text and confirms the new site and every
