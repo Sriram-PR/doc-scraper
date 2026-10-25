@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	pkglog "github.com/Sriram-PR/doc-scraper/v2/pkg/log"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/mcp"
 )
@@ -66,7 +67,7 @@ func doMcpServer(configPath, logLevel string, _, stderr io.Writer) int {
 		log.Warn(fmt.Sprintf("Invalid log level '%s', using default 'info'. Error: %v", logLevel, parseErr))
 	}
 
-	appCfg, unknownKeys, err := loadConfigChecked(configPath)
+	appCfg, unknownKeys, err := config.Load(configPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error loading config: %v\n", err)
 		return 1
