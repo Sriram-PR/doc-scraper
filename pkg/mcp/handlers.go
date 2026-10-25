@@ -417,6 +417,9 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 	}
 
 	job, created, err := s.jobManager.StartJob(ctx, siteKey, incremental, crawlRestartWait)
+	if errors.Is(err, ErrSiteReserved) {
+		return mcp.NewToolResultError(fmt.Sprintf("site '%s' config is being saved; try again shortly", clipInput(siteKey))), nil
+	}
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create job: %v", err)), nil
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -71,6 +72,8 @@ type JobProgress struct {
 	Unchanged int64
 }
 
+// siteWorker holds a site's crawl slot. job is nil while a config save
+// holds the slot through ReserveSite.
 type siteWorker struct {
 	job  *Job
 	done chan struct{}
@@ -368,6 +371,9 @@ func (m *JobManager) StartJob(ctx context.Context, siteKey string, incremental b
 		select {
 		case <-w.done:
 		case <-timer.C:
+			if w.job == nil {
+				return nil, false, ErrSiteReserved
+			}
 			m.mu.RLock()
 			view := viewLocked(w.job)
 			m.mu.RUnlock()
@@ -378,13 +384,42 @@ func (m *JobManager) StartJob(ctx context.Context, siteKey string, incremental b
 	}
 }
 
+// ErrSiteReserved is returned by StartJob when its wait ends while a config
+// save still holds the site.
+var ErrSiteReserved = errors.New("site config is being saved")
+
+// ReserveSite holds siteKey's slot so no crawl can start until release is
+// called. It fails while a crawl or another save holds the slot. release is
+// idempotent.
+func (m *JobManager) ReserveSite(siteKey string) (release func(), err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if w := m.workers[siteKey]; w != nil {
+		if w.job == nil {
+			return nil, fmt.Errorf("site %s's config is being saved", siteKey)
+		}
+		return nil, fmt.Errorf("crawl running for %s; cancel_crawl or wait for it", siteKey)
+	}
+	w := &siteWorker{done: make(chan struct{})}
+	m.workers[siteKey] = w
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			delete(m.workers, siteKey)
+			m.mu.Unlock()
+			close(w.done)
+		})
+	}, nil
+}
+
 // FinishJob releases the site reservation StartJob took for jobID. Call it once
 // the crawl has closed everything it opened.
 func (m *JobManager) FinishJob(jobID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for site, w := range m.workers {
-		if w.job.ID == jobID {
+		if w.job != nil && w.job.ID == jobID {
 			close(w.done)
 			delete(m.workers, site)
 			return
