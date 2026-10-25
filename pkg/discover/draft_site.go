@@ -91,6 +91,9 @@ func (d *Discoverer) DraftSite(ctx context.Context, req DraftRequest) (*DraftRes
 func parseHTTPURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		if len(raw) > 200 {
+			raw = strings.ToValidUTF8(raw[:200], "") + "..."
+		}
 		return nil, fmt.Errorf("invalid URL %q: need an absolute http(s) URL", raw)
 	}
 	return u, nil

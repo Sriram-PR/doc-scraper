@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,4 +121,11 @@ func TestSiteFieldMap_OmitsRefusedFields(t *testing.T) {
 	assert.NotContains(t, m, "enable_jsonl_output")
 	assert.NotContains(t, m, "jsonl_output_filename")
 	assert.Equal(t, "main", m["content_selector"])
+}
+
+func TestMergeSiteFields_ClipsEchoedFieldNames(t *testing.T) {
+	long := strings.Repeat("x", 10_000)
+	_, err := MergeSiteFields(mergeBase(), map[string]any{long: 1.0})
+	require.Error(t, err)
+	assert.Less(t, len(err.Error()), 1000)
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -855,4 +856,15 @@ func TestFinishJob_SkipsReservations(t *testing.T) {
 	m.FinishJob(job.ID)
 	_, err = m.ReserveSite("a")
 	require.ErrorContains(t, err, "being saved", "the reservation on a survives b finishing")
+}
+
+func TestReserveSite_ClipsEchoedKey(t *testing.T) {
+	m := NewJobManager("", nil)
+	key := strings.Repeat("k", 10_000)
+	release, err := m.ReserveSite(key)
+	require.NoError(t, err)
+	defer release()
+	_, err = m.ReserveSite(key)
+	require.ErrorContains(t, err, "being saved")
+	assert.Less(t, len(err.Error()), 1000)
 }

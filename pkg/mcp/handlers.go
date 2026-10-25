@@ -506,7 +506,7 @@ const (
 
 // crawlRestartWait bounds how long crawl_site waits for a cancelled crawl of
 // the same site to close its store.
-const crawlRestartWait = 30 * time.Second
+var crawlRestartWait = 30 * time.Second
 
 func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string) {
 	// Deferred first so it runs last, after the store is closed.

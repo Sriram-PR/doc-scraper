@@ -396,9 +396,9 @@ func (m *JobManager) ReserveSite(siteKey string) (release func(), err error) {
 	defer m.mu.Unlock()
 	if w := m.workers[siteKey]; w != nil {
 		if w.job == nil {
-			return nil, fmt.Errorf("site %s's config is being saved", siteKey)
+			return nil, fmt.Errorf("site %s's config is being saved", clipInput(siteKey))
 		}
-		return nil, fmt.Errorf("crawl running for %s; cancel_crawl or wait for it", siteKey)
+		return nil, fmt.Errorf("crawl running for %s; cancel_crawl or wait for it", clipInput(siteKey))
 	}
 	w := &siteWorker{done: make(chan struct{})}
 	m.workers[siteKey] = w

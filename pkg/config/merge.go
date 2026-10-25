@@ -30,7 +30,7 @@ func MergeSiteFields(base SiteConfig, fields map[string]any) (SiteConfig, error)
 		}
 		t, ok := known[name]
 		if !ok {
-			return SiteConfig{}, fmt.Errorf("unknown field %q; allowed fields: %s", name, strings.Join(allowedSiteFields(known), ", "))
+			return SiteConfig{}, fmt.Errorf("unknown field %q; allowed fields: %s", clipName(name), strings.Join(allowedSiteFields(known), ", "))
 		}
 		if err := checkFieldValue(name, t, fields[name]); err != nil {
 			return SiteConfig{}, err
@@ -72,6 +72,15 @@ func checkFieldValue(name string, t reflect.Type, v any) error {
 		}
 	}
 	return nil
+}
+
+// clipName bounds an agent-supplied field name echoed in an error.
+func clipName(name string) string {
+	const maxLen = 64
+	if len(name) <= maxLen {
+		return name
+	}
+	return strings.ToValidUTF8(name[:maxLen], "") + "..."
 }
 
 func allowedSiteFields(known map[string]reflect.Type) []string {

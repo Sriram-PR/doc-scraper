@@ -2,6 +2,7 @@ package discover
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -81,4 +82,11 @@ func TestDraftSite_Errors(t *testing.T) {
 
 	_, err = d.DraftSite(context.Background(), DraftRequest{URL: srv.URL + "/guide/intro", PreviewURL: "ftp://x/"})
 	require.ErrorContains(t, err, "need an absolute http(s) URL")
+}
+
+func TestDraftSite_ClipsEchoedURL(t *testing.T) {
+	srv, _ := siteServer(t, map[string]string{"/guide/intro": vpDoc}, nil)
+	_, err := testDiscoverer(srv).DraftSite(context.Background(), DraftRequest{URL: "ftp://" + strings.Repeat("x", 10_000)})
+	require.ErrorContains(t, err, "need an absolute http(s) URL")
+	assert.Less(t, len(err.Error()), 1000)
 }

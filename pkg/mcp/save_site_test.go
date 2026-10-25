@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -272,4 +273,32 @@ func TestSaveSite_DraftOfSiteWithJSONLSettingsRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "custom.jsonl", loaded.Sites["docs"].JSONLOutputFilename, "the JSONL setting is kept on replace")
 	assert.Equal(t, 3, loaded.Sites["docs"].MaxDepth)
+}
+
+func TestCrawlSite_ReportsBusyWhileASaveHoldsTheSite(t *testing.T) {
+	f := newSaveFixture(t, true)
+	orig := crawlRestartWait
+	crawlRestartWait = 50 * time.Millisecond
+	t.Cleanup(func() { crawlRestartWait = orig })
+	release, err := f.s.jobManager.ReserveSite("docs")
+	require.NoError(t, err)
+	defer release()
+
+	res, _ := callJSON(t, f.s.handleCrawlSite, map[string]any{"site_key": "docs"})
+	assert.Contains(t, errText(t, res), "config is being saved; try again shortly")
+}
+
+func TestSaveSite_LogsChangedFields(t *testing.T) {
+	f := newSaveFixture(t, true)
+	var logs strings.Builder
+	f.s.log = slog.New(slog.NewTextHandler(&logs, nil))
+	changed := f.entry("/docs/new.html")
+	changed["content_selector"] = "main"
+	_, got := callJSON(t, f.s.handleSaveSite, map[string]any{"site_key": "docs", "entry": changed, "replace": true})
+	require.NotNil(t, got)
+	line := logs.String()
+	assert.Contains(t, line, "level=INFO")
+	assert.Contains(t, line, "site_key=docs")
+	assert.Contains(t, line, "replaced=true")
+	assert.Contains(t, line, "changed_fields=\"[content_selector start_urls]\"")
 }

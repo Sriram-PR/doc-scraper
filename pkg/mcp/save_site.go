@@ -34,13 +34,6 @@ func (s *Server) handleSaveSite(ctx context.Context, request mcp.CallToolRequest
 	replace := request.GetBool("replace", false)
 
 	prev, exists := s.site(siteKey)
-	switch {
-	case exists && !replace:
-		return mcp.NewToolResultError(fmt.Sprintf("site '%s' exists; pass replace: true to overwrite it", clipInput(siteKey))), nil
-	case !exists && replace:
-		return mcp.NewToolResultError(fmt.Sprintf("site '%s' doesn't exist; omit replace to add it", clipInput(siteKey))), nil
-	}
-
 	// The JSONL fields can't be set here, so a replace keeps the entry's own.
 	var base config.SiteConfig
 	if exists {
@@ -55,6 +48,12 @@ func (s *Server) handleSaveSite(ctx context.Context, request mcp.CallToolRequest
 	check := site
 	if _, err := check.Validate(); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid site entry: %v", err)), nil
+	}
+	switch {
+	case exists && !replace:
+		return mcp.NewToolResultError(fmt.Sprintf("site '%s' exists; pass replace: true to overwrite it", clipInput(siteKey))), nil
+	case !exists && replace:
+		return mcp.NewToolResultError(fmt.Sprintf("site '%s' doesn't exist; omit replace to add it", clipInput(siteKey))), nil
 	}
 
 	release, err := s.jobManager.ReserveSite(siteKey)

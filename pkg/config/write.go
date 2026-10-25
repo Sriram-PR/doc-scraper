@@ -12,7 +12,7 @@ import (
 )
 
 // RenderSiteEntry renders one site entry as YAML (2-space indent, no leading
-// indentation), exactly as InsertSite will add it to the config file.
+// indentation), exactly as UpsertSite writes it to the config file.
 func RenderSiteEntry(key string, site *SiteConfig) (string, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -150,7 +150,7 @@ func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
 		return nil, fmt.Errorf("config root is not a YAML mapping")
 	}
 	if root.Style&yaml.FlowStyle != 0 {
-		return nil, fmt.Errorf("the config root uses YAML flow style ({...}); convert it to block style before using add")
+		return nil, fmt.Errorf("the config root uses YAML flow style ({...}); convert it to block style before adding a site")
 	}
 
 	rootIndent := 0
@@ -170,7 +170,7 @@ func spliceSiteEntry(data []byte, key, entry string) ([]byte, error) {
 				return spliceSiteEntry(blocked, key, entry)
 			}
 		}
-		return nil, fmt.Errorf("the sites entry uses YAML flow style ({...}); convert it to block style before using add")
+		return nil, fmt.Errorf("the sites entry uses YAML flow style ({...}); convert it to block style before adding a site")
 	}
 
 	indent := keyNode.Column - 1 + 2
