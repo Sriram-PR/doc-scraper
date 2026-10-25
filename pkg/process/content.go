@@ -70,8 +70,9 @@ func buildPageFrontmatter(title, pageURL, body string, depth int) string {
 
 // SelectMainContent resolves the page title and extracts the main content selection
 // using the configured selector, framework auto-detection, or the readability
-// fallback. It performs no image processing, conversion, or writing, so callers can
-// hash the returned selection before deciding whether to process the page.
+// fallback, with breadcrumb trails removed. It performs no image processing,
+// conversion, or writing, so callers can hash the returned selection before
+// deciding whether to process the page.
 func (cp *ContentProcessor) SelectMainContent(
 	doc *goquery.Document,
 	finalURL *url.URL,
@@ -369,22 +370,26 @@ const (
 	breadcrumbMarkers    = "[class*='breadcrumb' i], [id*='breadcrumb' i], [aria-label*='breadcrumb' i], [itemtype*='BreadcrumbList']"
 	breadcrumbContainers = "nav, ol, ul, div"
 	maxBreadcrumbText    = 200
-	// header is left out: themes put the page's own h1 in an article header.
+	// Headings under these aren't page headings; readability's scope is the whole
+	// body. header is left out: themes put the page's own h1 in an article header.
 	headingChrome = "nav, aside, footer, template"
 )
 
-// stripBreadcrumbs removes marked breadcrumb containers that come before the
-// scope's first h1-h3. The position and size guards are what keep component
-// docs intact: their live breadcrumb demos and Breadcrumb* API headings come
-// after a heading or aren't containers. Headings in sidebars and widget
-// templates don't count, since readability's scope is the whole body.
+// stripBreadcrumbs removes short marked containers that come before the first
+// page heading; component docs put their breadcrumb demos after one.
 func stripBreadcrumbs(scope *goquery.Selection) int {
+	isPageHeading := func(h *goquery.Selection) bool {
+		return h.ParentsUntilSelection(scope).Filter(headingChrome).Length() == 0
+	}
 	var picked []*goquery.Selection
 	scope.Find("*").EachWithBreak(func(_ int, s *goquery.Selection) bool {
-		if s.Is("h1, h2, h3") && s.ParentsUntilSelection(scope).Filter(headingChrome).Length() == 0 {
+		if s.Is("h1, h2, h3") && isPageHeading(s) {
 			return false
 		}
 		if !s.Is(breadcrumbContainers) || !s.Is(breadcrumbMarkers) {
+			return true
+		}
+		if s.Find("h1, h2, h3").FilterFunction(func(_ int, h *goquery.Selection) bool { return isPageHeading(h) }).Length() > 0 {
 			return true
 		}
 		for _, p := range picked {
@@ -409,9 +414,8 @@ func logStrippedBreadcrumbs(log *slog.Logger, n int) {
 	}
 }
 
-// extractReadable runs readability on a copy of doc with breadcrumb trails
-// removed first: readability's output keeps no class or aria attributes, so
-// they can't be recognized afterwards. doc stays intact for link following.
+// extractReadable strips breadcrumbs from a copy of doc first, since readability's
+// output drops the class and aria markers; doc stays intact for link following.
 func (cp *ContentProcessor) extractReadable(doc *goquery.Document, pageURL *url.URL, log *slog.Logger) (*goquery.Selection, string, error) {
 	clean := goquery.CloneDocument(doc)
 	logStrippedBreadcrumbs(log, stripBreadcrumbs(clean.Find("body")))
