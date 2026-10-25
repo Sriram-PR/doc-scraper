@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -64,6 +66,9 @@ func (d *Discoverer) DraftSite(ctx context.Context, req DraftRequest) (*DraftRes
 			return nil, err
 		}
 		draft.Site = site
+		if req.URL != "" {
+			noteOverrides(draft, req.Overrides)
+		}
 	}
 
 	target := req.PreviewURL
@@ -86,6 +91,30 @@ func (d *Discoverer) DraftSite(ctx context.Context, req DraftRequest) (*DraftRes
 	preview := ExtractPreview(doc, pageURL, &draft.Site, d.Log)
 	preview.Sampled = sampled
 	return &DraftResult{Draft: draft, Preview: preview}, nil
+}
+
+// noteOverrides replaces discovery's evidence for each overridden field, whose
+// lines start with the field name, and keeps the readability warning in step
+// with the final content_selector.
+func noteOverrides(d *Draft, fields map[string]any) {
+	evidence := make([]string, 0, len(d.Evidence)+len(fields))
+	for _, line := range d.Evidence {
+		name, _, _ := strings.Cut(line, ":")
+		if _, ok := fields[name]; !ok {
+			evidence = append(evidence, line)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		evidence = append(evidence, name+": set by override")
+	}
+	d.Evidence = evidence
+	if _, ok := fields["content_selector"]; ok {
+		warnings := slices.DeleteFunc(slices.Clone(d.Warnings), func(w string) bool { return w == readabilityWarning })
+		if d.Site.ContentSelector == "auto" {
+			warnings = append(warnings, readabilityWarning)
+		}
+		d.Warnings = warnings
+	}
 }
 
 func parseHTTPURL(raw string) (*url.URL, error) {
