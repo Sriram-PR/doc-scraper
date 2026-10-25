@@ -369,16 +369,19 @@ const (
 	breadcrumbMarkers    = "[class*='breadcrumb' i], [id*='breadcrumb' i], [aria-label*='breadcrumb' i], [itemtype*='BreadcrumbList']"
 	breadcrumbContainers = "nav, ol, ul, div"
 	maxBreadcrumbText    = 200
+	// header is left out: themes put the page's own h1 in an article header.
+	headingChrome = "nav, aside, footer, template"
 )
 
 // stripBreadcrumbs removes marked breadcrumb containers that come before the
 // scope's first h1-h3. The position and size guards are what keep component
 // docs intact: their live breadcrumb demos and Breadcrumb* API headings come
-// after a heading or aren't containers.
+// after a heading or aren't containers. Headings in sidebars and widget
+// templates don't count, since readability's scope is the whole body.
 func stripBreadcrumbs(scope *goquery.Selection) int {
 	var picked []*goquery.Selection
 	scope.Find("*").EachWithBreak(func(_ int, s *goquery.Selection) bool {
-		if s.Is("h1, h2, h3") {
+		if s.Is("h1, h2, h3") && s.ParentsUntilSelection(scope).Filter(headingChrome).Length() == 0 {
 			return false
 		}
 		if !s.Is(breadcrumbContainers) || !s.Is(breadcrumbMarkers) {

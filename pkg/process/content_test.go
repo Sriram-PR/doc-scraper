@@ -683,6 +683,13 @@ func TestStripBreadcrumbs(t *testing.T) {
 		{"long marked block before any heading",
 			`<div class="breadcrumb-intro"><p>` + long + `</p></div><h1>Title</h1>`,
 			0, nil, []string{"Section Section"}},
+		{"headings in a sidebar or template don't end the scan",
+			`<aside><h2>Product UI navigation</h2></aside><template><h3>What can I help you with?</h3></template>` +
+				`<nav aria-label="Breadcrumbs"><a href="/c">Components</a></nav><h1>Breadcrumbs</h1>`,
+			1, []string{"Components"}, []string{"Product UI navigation", "Breadcrumbs"}},
+		{"an h1 inside the article header still ends the scan",
+			`<article><header><h1>Breadcrumb</h1></header><nav aria-label="breadcrumb"><a href="#">Home</a></nav></article>`,
+			0, nil, []string{"Home"}},
 		{"no headings at all",
 			`<nav class="breadcrumbs"><a href="/">Home</a></nav><p>A page without headings.</p>`,
 			1, []string{"Home"}, []string{"A page without headings."}},
@@ -751,4 +758,13 @@ func TestSelectMainContent_ReadabilityPathStripsBreadcrumbs(t *testing.T) {
 	assert.NotContains(t, content.Text(), "Documentation")
 	assert.Contains(t, content.Text(), "unusual properties")
 	assert.Equal(t, 1, doc.Find("ol.SiteBreadcrumb").Length(), "the input page is not modified")
+}
+
+func TestStripBreadcrumbs_ChromeScopeKeepsItsHeadings(t *testing.T) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(
+		`<html><body><aside class="content"><h1>Breadcrumb</h1><nav aria-label="breadcrumb"><a href="#">Home</a></nav></aside></body></html>`))
+	require.NoError(t, err)
+	scope := doc.Find("aside").Clone()
+	assert.Zero(t, stripBreadcrumbs(scope))
+	assert.Contains(t, scope.Text(), "Home")
 }
