@@ -108,10 +108,36 @@ func TestInsertSite_DuplicateKey(t *testing.T) {
 }
 
 func TestInsertSite_FlowStyleRefused(t *testing.T) {
-	path := writeTempConfig(t, "sites: {}\n")
+	path := writeTempConfig(t, "sites: {other: {start_urls: [\"https://o.example.com/\"], allowed_domain: o.example.com, content_selector: main}}\n")
 	err := InsertSite(path, "example_docs", testSite())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "flow style")
+}
+
+func TestInsertSite_EmptyFlowSites(t *testing.T) {
+	cases := map[string]string{
+		"bare":         "output_base_dir: ./out\nsites: {}\nnum_workers: 2\n",
+		"spaced":       "output_base_dir: ./out\nsites: { }\nnum_workers: 2\n",
+		"with comment": "output_base_dir: ./out\nsites: {}  # add sites here\nnum_workers: 2\n",
+		"crlf":         "output_base_dir: ./out\r\nsites: {}\r\nnum_workers: 2\r\n",
+	}
+	for name, original := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := writeTempConfig(t, original)
+			require.NoError(t, InsertSite(path, "example_docs", testSite()))
+			content, cfg := readBack(t, path)
+			assert.NotContains(t, content, "{")
+			assert.Equal(t, "article.main", cfg.Sites["example_docs"].ContentSelector)
+			assert.Equal(t, 2, cfg.NumWorkers)
+			assert.Equal(t, "./out", cfg.OutputBaseDir)
+			if strings.Contains(original, "#") {
+				assert.Contains(t, content, "sites:  # add sites here")
+			}
+			if strings.Contains(original, "\r\n") {
+				assert.Equal(t, strings.Count(content, "\n"), strings.Count(content, "\r\n"))
+			}
+		})
+	}
 }
 
 func TestInsertSite_DisallowedPatternsRendered(t *testing.T) {
@@ -170,4 +196,104 @@ func TestInsertSite_LFConfigUnchangedStyle(t *testing.T) {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "\r")
+}
+
+const upsertFixture = `# my config
+output_base_dir: ./out   # keep me
+sites:
+  alpha:
+    start_urls: ["https://alpha.example.com/"]
+    allowed_domain: alpha.example.com
+    content_selector: main   # alpha selector
+
+  # beta is the second site
+  beta:
+    start_urls: ["https://beta.example.com/docs/"]
+    allowed_domain: beta.example.com
+    content_selector: article
+# trailing comment
+num_workers: 2
+`
+
+func TestUpsertSite_ReplaceMiddleEntry(t *testing.T) {
+	path := writeTempConfig(t, upsertFixture)
+	require.NoError(t, UpsertSite(path, "alpha", testSite(), true))
+
+	content, cfg := readBack(t, path)
+	before, _, _ := strings.Cut(upsertFixture, "  alpha:\n")
+	_, after, _ := strings.Cut(upsertFixture, "    content_selector: main   # alpha selector\n")
+	assert.True(t, strings.HasPrefix(content, before), "text before the entry is untouched:\n%s", content)
+	assert.True(t, strings.HasSuffix(content, after), "text after the entry is untouched:\n%s", content)
+	assert.NotContains(t, content, "alpha.example.com")
+	assert.Equal(t, "article.main", cfg.Sites["alpha"].ContentSelector)
+	assert.Equal(t, "docs.example.com", cfg.Sites["alpha"].AllowedDomain)
+	assert.Equal(t, "article", cfg.Sites["beta"].ContentSelector)
+	assert.Equal(t, 2, cfg.NumWorkers)
+}
+
+func TestUpsertSite_ReplaceLastEntry(t *testing.T) {
+	path := writeTempConfig(t, upsertFixture)
+	require.NoError(t, UpsertSite(path, "beta", testSite(), true))
+
+	content, cfg := readBack(t, path)
+	before, _, _ := strings.Cut(upsertFixture, "  beta:\n")
+	assert.True(t, strings.HasPrefix(content, before), "text before the entry, including beta's head comment, is untouched:\n%s", content)
+	assert.True(t, strings.HasSuffix(content, "# trailing comment\nnum_workers: 2\n"), "keys after sites are untouched:\n%s", content)
+	assert.Equal(t, "article.main", cfg.Sites["beta"].ContentSelector)
+	assert.Equal(t, "main", cfg.Sites["alpha"].ContentSelector)
+}
+
+func TestUpsertSite_ReplaceRemovesMultiLineValues(t *testing.T) {
+	original := "sites:\n  alpha:\n    start_urls: [\"https://alpha.example.com/\"]\n    allowed_domain: alpha.example.com\n" +
+		"    content_selector: >-\n      main\n      article\n" +
+		"  beta:\n    start_urls: [\"https://beta.example.com/\"]\n    allowed_domain: beta.example.com\n    content_selector: article\n"
+	path := writeTempConfig(t, original)
+	require.NoError(t, UpsertSite(path, "alpha", testSite(), true))
+
+	content, cfg := readBack(t, path)
+	assert.NotContains(t, content, "      main\n", "continuation lines of the old value are gone")
+	assert.Equal(t, "article.main", cfg.Sites["alpha"].ContentSelector)
+	assert.Equal(t, 4, cfg.Sites["alpha"].MaxDepth)
+	assert.Equal(t, "article", cfg.Sites["beta"].ContentSelector)
+}
+
+func TestUpsertSite_KeyMismatchLeavesFileUntouched(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		replace bool
+		want    string
+	}{
+		{"replace a missing key", "gamma", true, `site "gamma" doesn't exist`},
+		{"insert an existing key", "alpha", false, `site key "alpha" already exists`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTempConfig(t, upsertFixture)
+			err := UpsertSite(path, tc.key, testSite(), tc.replace)
+			require.ErrorContains(t, err, tc.want)
+			content, _ := readBack(t, path)
+			assert.Equal(t, upsertFixture, content)
+		})
+	}
+}
+
+func TestUpsertSite_ReplaceMissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.ErrorContains(t, UpsertSite(path, "alpha", testSite(), true), `site "alpha" doesn't exist`)
+	_, err := os.Stat(path)
+	assert.True(t, os.IsNotExist(err), "no file is created")
+}
+
+func TestUpsertSite_ReplaceKeepsCRLF(t *testing.T) {
+	path := writeTempConfig(t, strings.ReplaceAll(upsertFixture, "\n", "\r\n"))
+	require.NoError(t, UpsertSite(path, "alpha", testSite(), true))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	got := string(data)
+	assert.Equal(t, strings.Count(got, "\n"), strings.Count(got, "\r\n"), "every line ending must be CRLF:\n%q", got)
+	_, cfg := readBack(t, path)
+	assert.Equal(t, "article.main", cfg.Sites["alpha"].ContentSelector)
+	assert.Equal(t, "article", cfg.Sites["beta"].ContentSelector)
 }

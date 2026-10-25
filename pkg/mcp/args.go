@@ -14,6 +14,7 @@ const (
 	argString argKind = iota
 	argBool
 	argInteger
+	argObject
 )
 
 func (k argKind) String() string {
@@ -22,6 +23,8 @@ func (k argKind) String() string {
 		return "boolean"
 	case argInteger:
 		return "integer"
+	case argObject:
+		return "object"
 	default:
 		return "string"
 	}
@@ -57,6 +60,8 @@ func checkArgTypes(req mcp.CallToolRequest, spec map[string]argKind) *mcp.CallTo
 			case int:
 				valid = true
 			}
+		case argObject:
+			_, valid = v.(map[string]any)
 		}
 		if !valid {
 			return mcp.NewToolResultError(fmt.Sprintf("argument %q must be %s", name, kind))

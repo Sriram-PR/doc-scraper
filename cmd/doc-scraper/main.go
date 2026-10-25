@@ -18,8 +18,6 @@ import (
 
 	"log/slog"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
@@ -130,24 +128,8 @@ Run 'doc-scraper <command> -h' for command-specific help.`)
 }
 
 func loadConfig(path string) (*config.AppConfig, error) {
-	cfg, _, err := loadConfigChecked(path)
+	cfg, _, err := config.Load(path)
 	return cfg, err
-}
-
-// loadConfigChecked also returns a warning per YAML key that maps to no
-// config field; loading itself stays lenient so existing configs keep working.
-func loadConfigChecked(path string) (*config.AppConfig, []string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read config: %w", err)
-	}
-
-	var cfg config.AppConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, nil, fmt.Errorf("parse config: %w", err)
-	}
-
-	return &cfg, config.UnknownKeys(data), nil
 }
 
 var errNoSites = errors.New("no sites configured")
@@ -313,7 +295,7 @@ func runConfig(args []string) {
 // doValidate returns exit code 0 on success, 1 on error. jsonOut writes a
 // single JSON object to stdout and leaves stderr empty on the success path.
 func doValidate(configPath, siteKey string, jsonOut bool, stdout, stderr io.Writer) int {
-	appCfg, unknownKeys, err := loadConfigChecked(configPath)
+	appCfg, unknownKeys, err := config.Load(configPath)
 	if err != nil {
 		if jsonOut {
 			emitValidateJSON(stdout, configPath, false, nil, []string{err.Error()}, nil)
@@ -704,7 +686,7 @@ func doListSites(configPath string, jsonOut bool, stdout, stderr io.Writer) int 
 // loadAndValidateConfig loads the config file, validates it, and logs warnings.
 func loadAndValidateConfig(configFile string, log *slog.Logger) *config.AppConfig {
 	log.Info(fmt.Sprintf("Loading configuration from %s", configFile))
-	appCfg, unknownKeys, err := loadConfigChecked(configFile)
+	appCfg, unknownKeys, err := config.Load(configFile)
 	if err != nil {
 		fatal(log, "Config error: %v", err)
 	}

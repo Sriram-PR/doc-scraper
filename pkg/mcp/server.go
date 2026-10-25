@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -22,7 +23,8 @@ const serverName = "doc-scraper"
 
 const serverInstructions = "Call describe_server first: it lists the configured sites, when each was last crawled, and recent crawl jobs. " +
 	"search_docs, list_pages and read_page work offline on stored crawls; run crawl_site for a site that has not been crawled yet. " +
-	"get_page fetches a URL live."
+	"get_page fetches a URL live. For a docs site that is not configured, or one that extracts badly, " +
+	"draft_site previews an entry and save_site adds it."
 
 // The tool set is fixed at startup.
 const toolsListCacheTTL = time.Hour
@@ -37,6 +39,8 @@ type ServerConfig struct {
 	AppConfig  *config.AppConfig
 	ConfigPath string
 	Logger     *slog.Logger
+	// AllowConfigWrites lets save_site write the config file (mcp-server -allow-config-writes).
+	AllowConfigWrites bool
 }
 
 // Server wraps the MCP server with doc-scraper specific functionality
@@ -46,6 +50,8 @@ type Server struct {
 	log        *slog.Logger
 	jobManager *JobManager
 	idx        *index.Index
+	sitesMu    sync.RWMutex
+	saveMu     sync.Mutex
 }
 
 func NewServer(cfg *ServerConfig) (*Server, error) {
@@ -63,6 +69,10 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		server.WithToolCapabilities(false),
 		server.WithInstructions(serverInstructions),
 	)
+
+	if cfg.AppConfig.Sites == nil {
+		cfg.AppConfig.Sites = map[string]*config.SiteConfig{}
+	}
 
 	logEntry := cfg.Logger.With("component", "mcp")
 	var jobsPath string
@@ -186,6 +196,44 @@ func (s *Server) registerTools() {
 		outputSchemaFor[cancelCrawlResult](),
 	)
 	addTool(cancelCrawlTool, s.handleCancelCrawl)
+
+	draftSiteTool := mcp.NewTool("draft_site",
+		mcp.WithTitleAnnotation("Draft a site entry"),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+		mcp.WithDescription("Draft a site entry and preview one page extracted with it. Never writes the config. "+
+			"With url, probes a new docs site the way `doc-scraper add` does (robots.txt, llms.txt, sitemap, framework detection). "+
+			"With only site_key, starts from that configured site's entry without probing. overrides sets entry fields by "+
+			"their config names (content_selector, allowed_path_prefix, disallowed_path_patterns, max_depth, ...); "+
+			"durations are strings such as \"1s\". Judge the preview (code blocks kept, nav_leak, chars), draft again with "+
+			"overrides until it looks right, then pass entry to save_site."),
+		mcp.WithString("url", mcp.Description("A docs URL to probe as a new site")),
+		mcp.WithString("site_key", mcp.Description("With url: the key for the new site. Without url: the configured site to start from")),
+		mcp.WithObject("overrides", mcp.Description("Entry fields to set, by config field name")),
+		mcp.WithString("preview_url", mcp.Description("The page to preview (default: the sampled docs page, else the seed or first start URL)")),
+		outputSchemaFor[draftSiteResult](),
+	)
+	addTool(draftSiteTool, s.handleDraftSite)
+
+	saveSiteTool := mcp.NewTool("save_site",
+		mcp.WithTitleAnnotation("Save a site entry"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
+		mcp.WithDescription("Write a site entry to the config file and load it into the running server, so crawl_site, "+
+			"search_docs and read_page can use it at once. entry is a full entry by config field name, normally "+
+			"draft_site's entry with changes; fields left out are unset. Overwriting a configured site needs replace: true. "+
+			"Only the entry's lines change in the file. Refused while the site is crawling, and on servers started "+
+			"without -allow-config-writes."),
+		mcp.WithString("site_key", mcp.Required(), mcp.Description("The key to save the entry under")),
+		mcp.WithObject("entry", mcp.Required(), mcp.Description("The full site entry, by config field name")),
+		mcp.WithBoolean("replace", mcp.Description("Overwrite an existing site (default: false; must be false for a new site)")),
+		outputSchemaFor[saveSiteResult](),
+	)
+	addTool(saveSiteTool, s.handleSaveSite)
 
 	s.registerCorpusTools(addTool)
 	s.log.Info(fmt.Sprintf("Registered %d MCP tools", toolCount))
@@ -363,7 +411,8 @@ func (s *Server) backfillChunks(ctx context.Context) {
 	if s.idx == nil {
 		return
 	}
-	for key, siteCfg := range s.cfg.AppConfig.Sites {
+	for _, key := range s.siteKeys() {
+		siteCfg, _ := s.site(key)
 		if ctx.Err() != nil {
 			return
 		}

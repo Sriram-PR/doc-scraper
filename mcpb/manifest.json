@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "doc-scraper",
   "display_name": "doc-scraper",
-  "version": "2.21.0",
+  "version": "2.23.0",
   "description": "Crawl documentation sites into local Markdown/JSONL corpora and serve them to agents offline: full-text search, read, diff, and freshness with zero network access at read time.",
   "long_description": "doc-scraper is a self-hosted documentation crawler and MCP server. It crawls documentation sites politely (robots.txt, per-host rate limits), converts pages to clean Markdown plus a JSONL corpus, and keeps crawl history in SQLite. Agents then work fully offline against the stored corpus: `search_docs` runs BM25 full-text search with stemming and section anchors, `read_page` returns a page's markdown without network access, and `diff_crawl`/`get_freshness` report what changed and how stale a corpus is. Crawls are configured in a YAML file listing the sites you want indexed; see https://sriram-pr.github.io/doc-scraper/reference/configuration/ for the config format.",
   "author": {
@@ -50,6 +50,8 @@
     { "name": "crawl_site", "description": "Start a background crawl for a site" },
     { "name": "get_job_status", "description": "Check the status of a crawl job, optionally waiting for it to finish" },
     { "name": "cancel_crawl", "description": "Cancel a running or pending crawl job" },
+    { "name": "draft_site", "description": "Draft a site entry for a docs URL or a configured site and preview one page, no config write" },
+    { "name": "save_site", "description": "Save a site entry to the config file and load it (needs -allow-config-writes)" },
     { "name": "list_pages", "description": "Enumerate crawled pages for a site (paginated, metadata only)" },
     { "name": "read_page", "description": "Return a crawled page's markdown from stored output, no network access" },
     { "name": "search_docs", "description": "Ranked full-text search across crawled docs with snippets and section anchors, no network access" },

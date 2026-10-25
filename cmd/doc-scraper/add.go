@@ -16,12 +16,9 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/PuerkitoBio/goquery"
-
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/discover"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
-	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
 )
 
 const (
@@ -116,25 +113,26 @@ func doAdd(opts addOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	defer cancel()
 
 	fmt.Fprintf(stderr, "Probing %s ...\n", opts.rawURL)
-	report, err := d.Run(ctx, opts.rawURL)
+	var overrides map[string]any
+	if opts.depth > 0 {
+		overrides = map[string]any{"max_depth": float64(opts.depth)}
+	}
+	res, err := d.DraftSite(ctx, discover.DraftRequest{
+		URL:       opts.rawURL,
+		SiteKey:   opts.siteKey,
+		Overrides: overrides,
+		Selector:  opts.selector,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return addExitError
 	}
-
-	draft := discover.BuildDraft(report, opts.selector)
-	if opts.siteKey != "" {
-		draft.SiteKey = opts.siteKey
-	}
-	if opts.depth > 0 {
-		draft.Site.MaxDepth = opts.depth
-	}
+	draft, preview := res.Draft, res.Preview
 	if _, exists := cfg.Sites[draft.SiteKey]; exists {
 		fmt.Fprintf(stderr, "Error: site key %q already exists in %s; pick another with -site\n", draft.SiteKey, opts.configPath)
 		return addExitError
 	}
 
-	preview := buildAddPreview(report, &draft.Site, log)
 	entryYAML, err := config.RenderSiteEntry(draft.SiteKey, &draft.Site)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
@@ -163,78 +161,7 @@ func loadConfigForAdd(path string) (*config.AppConfig, error) {
 	return cfg, nil
 }
 
-type addPreview struct {
-	URL            string  `json:"url"`
-	Sampled        bool    `json:"-"`
-	Markdown       string  `json:"markdown"`
-	Chars          int     `json:"chars"`
-	PageTextRatio  float64 `json:"page_text_ratio"`
-	CodeBlocksKept int     `json:"code_blocks_kept"`
-	CodeBlocksSeen int     `json:"code_blocks_total"`
-	Headings       int     `json:"headings"`
-	NavLeak        bool    `json:"nav_leak"`
-	Err            string  `json:"error,omitempty"`
-}
-
-// buildAddPreview extracts the previewed page (the sampled docs page when the
-// seed failed validation, otherwise the seed) exactly as a crawl would (same
-// SelectMainContent path, readability fallback included) and converts it to
-// markdown, reporting the fidelity numbers the user needs to judge the draft.
-func buildAddPreview(report *discover.Report, site *config.SiteConfig, log *slog.Logger) addPreview {
-	doc, pageURL := report.Doc, report.FinalURL
-	if report.Sample != nil {
-		doc, pageURL = report.Sample.Doc, report.Sample.URL
-	}
-	p := addPreview{URL: pageURL.String(), Sampled: report.Sample != nil}
-	cp := process.NewContentProcessor(nil, &config.AppConfig{}, log)
-	selection, _, err := cp.SelectMainContent(doc, pageURL, site, log)
-	if err != nil {
-		p.Err = err.Error()
-		return p
-	}
-	p.CodeBlocksSeen = doc.Find("pre").Length()
-	p.CodeBlocksKept = selection.Find("pre").Length()
-	if selection.Is("pre") {
-		p.CodeBlocksKept++
-	}
-	p.Headings = selection.Find("h1, h2, h3, h4").Length()
-	p.NavLeak = hasNavResidue(selection)
-
-	pageText := textLen(doc.Find("body"))
-	markdown, err := process.ToMarkdown(selection)
-	if err != nil {
-		p.Err = err.Error()
-		return p
-	}
-	p.Markdown = markdown
-	p.Chars = len(markdown)
-	if pageText > 0 {
-		p.PageTextRatio = float64(textLen(selection)) / float64(pageText)
-	}
-	return p
-}
-
-// hasNavResidue reports navigation left in the extracted content. nav and
-// role=navigation always count; asides and sidebar-classed blocks count only
-// when mostly link text, since docs themes render callouts as <aside>.
-func hasNavResidue(sel *goquery.Selection) bool {
-	if sel.Find("nav, [role='navigation']").Length() > 0 {
-		return true
-	}
-	found := false
-	sel.Find("aside, [class*='sidebar']").EachWithBreak(func(_ int, s *goquery.Selection) bool {
-		total := textLen(s)
-		found = total > 0 && 2*textLen(s.Find("a")) >= total
-		return !found
-	})
-	return found
-}
-
-func textLen(s interface{ Text() string }) int {
-	return len(strings.Join(strings.Fields(s.Text()), " "))
-}
-
-func printAddDraft(stdout io.Writer, draft *discover.Draft, preview addPreview, entryYAML string) {
+func printAddDraft(stdout io.Writer, draft *discover.Draft, preview discover.Preview, entryYAML string) {
 	version := ""
 	if draft.Version != "" {
 		version = " (" + draft.Version + ")"
@@ -262,7 +189,7 @@ func printAddDraft(stdout io.Writer, draft *discover.Draft, preview addPreview, 
 			fmt.Fprintln(stdout, "  note: extracted content still contains nav/sidebar elements")
 		}
 		fmt.Fprintln(stdout)
-		fmt.Fprint(stdout, indentLines(firstLines(preview.Markdown, 25), "  | "))
+		fmt.Fprint(stdout, indentLines(discover.FirstLines(preview.Markdown, 25), "  | "))
 	}
 	if len(draft.Warnings) > 0 {
 		fmt.Fprintln(stdout)
@@ -300,17 +227,17 @@ func finishAdd(opts addOptions, draft *discover.Draft, stdin io.Reader, stdout, 
 }
 
 type addJSONResult struct {
-	SiteKey    string      `json:"site_key"`
-	Framework  string      `json:"framework"`
-	Confidence string      `json:"confidence"`
-	Source     string      `json:"signal_source"`
-	Generator  string      `json:"generator,omitempty"`
-	PageCount  int         `json:"sitemap_page_count,omitempty"`
-	Config     addJSONSite `json:"config"`
-	Preview    addPreview  `json:"preview"`
-	Evidence   []string    `json:"evidence"`
-	Warnings   []string    `json:"warnings"`
-	Written    bool        `json:"written"`
+	SiteKey    string           `json:"site_key"`
+	Framework  string           `json:"framework"`
+	Confidence string           `json:"confidence"`
+	Source     string           `json:"signal_source"`
+	Generator  string           `json:"generator,omitempty"`
+	PageCount  int              `json:"sitemap_page_count,omitempty"`
+	Config     addJSONSite      `json:"config"`
+	Preview    discover.Preview `json:"preview"`
+	Evidence   []string         `json:"evidence"`
+	Warnings   []string         `json:"warnings"`
+	Written    bool             `json:"written"`
 }
 
 type addJSONSite struct {
@@ -329,7 +256,7 @@ func nonNil(s []string) []string {
 	return s
 }
 
-func finishAddJSON(opts addOptions, draft *discover.Draft, preview addPreview, stdin io.Reader, stdout, stderr io.Writer) int {
+func finishAddJSON(opts addOptions, draft *discover.Draft, preview discover.Preview, stdin io.Reader, stdout, stderr io.Writer) int {
 	result := addJSONResult{
 		SiteKey:    draft.SiteKey,
 		Framework:  string(draft.Framework),
@@ -349,7 +276,7 @@ func finishAddJSON(opts addOptions, draft *discover.Draft, preview addPreview, s
 		Evidence: nonNil(draft.Evidence),
 		Warnings: nonNil(draft.Warnings),
 	}
-	result.Preview.Markdown = firstLines(result.Preview.Markdown, 40)
+	result.Preview.Markdown = discover.FirstLines(result.Preview.Markdown, 40)
 
 	exit := addExitDrafted
 	switch {
@@ -395,12 +322,4 @@ func indentLines(s, pad string) string {
 		b.WriteString(pad + line + "\n")
 	}
 	return b.String()
-}
-
-func firstLines(s string, n int) string {
-	lines := strings.Split(s, "\n")
-	if len(lines) <= n {
-		return s
-	}
-	return strings.Join(lines[:n], "\n") + "\n... (" + fmt.Sprint(len(lines)-n) + " more lines)\n"
 }

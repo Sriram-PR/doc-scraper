@@ -13,6 +13,12 @@ Register the server with `claude mcp add` (everything after `--` is the server c
 claude mcp add --transport stdio doc-scraper -- /path/to/doc-scraper mcp-server -config /path/to/config.yaml
 ```
 
+To let the agent add and fix sites with `save_site`, add `-allow-config-writes` after the config path:
+
+```bash
+claude mcp add --transport stdio doc-scraper -- /path/to/doc-scraper mcp-server -config /path/to/config.yaml -allow-config-writes
+```
+
 This uses the default `local` scope: the server is available to you in the current project only. Add `--scope user` to make it available in all your projects.
 
 ## Share it with your team

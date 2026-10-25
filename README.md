@@ -56,7 +56,7 @@ See [Claude Code setup](https://sriram-pr.github.io/doc-scraper/mcp/claude-code/
 ## Docs
 
 - [Getting started](https://sriram-pr.github.io/doc-scraper/getting-started/install/): install, quick start, adding a site
-- [Use with agents (MCP)](https://sriram-pr.github.io/doc-scraper/mcp/overview/): Claude Code, Claude Desktop, any stdio client, and the 11 tools
+- [Use with agents (MCP)](https://sriram-pr.github.io/doc-scraper/mcp/overview/): Claude Code, Claude Desktop, any stdio client, and the 13 tools
 - [Docs frameworks](https://sriram-pr.github.io/doc-scraper/frameworks/overview/): how detection works, with guides for Docusaurus, Starlight, Sphinx, VitePress, Material for MkDocs, and mdBook
 - [Configuration](https://sriram-pr.github.io/doc-scraper/reference/configuration/) and [CLI](https://sriram-pr.github.io/doc-scraper/reference/cli/) reference
 - [Detection benchmark](https://sriram-pr.github.io/doc-scraper/benchmark/)

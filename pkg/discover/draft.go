@@ -25,6 +25,8 @@ type Draft struct {
 	Warnings   []string
 }
 
+const readabilityWarning = "extraction falls back to readability; review the preview carefully, code blocks are at risk"
+
 // BuildDraft assembles the draft config from a discovery report.
 // selectorOverride, when non-empty, replaces the detected content selector.
 func BuildDraft(r *Report, selectorOverride string) *Draft {
@@ -67,7 +69,7 @@ func BuildDraft(r *Report, selectorOverride string) *Draft {
 			line += "; " + r.SampleNote
 		}
 		d.Evidence = append(d.Evidence, line)
-		d.Warnings = append(d.Warnings, "extraction falls back to readability; review the preview carefully, code blocks are at risk")
+		d.Warnings = append(d.Warnings, readabilityWarning)
 	}
 
 	if r.CrossHost {

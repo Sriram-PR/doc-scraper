@@ -99,6 +99,7 @@ Start the MCP server over the stdio transport. See [MCP tools](/doc-scraper/mcp/
 |------|------|-------------|---------|
 | `-config` | string | Path to config file | `config.yaml` |
 | `-loglevel` | string | Log level (`debug`, `info`, `warn`, `error`) | `info` |
+| `-allow-config-writes` | bool | Let MCP clients save site entries to the config file with `save_site`; also lets the server start with no sites | `false` |
 
 ## `config validate`
 

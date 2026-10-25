@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -80,6 +82,47 @@ func TestNewBadgerStore(t *testing.T) {
 		count, err := store2.GetVisitedCount()
 		require.NoError(t, err)
 		assert.Equal(t, 0, count)
+	})
+
+	// badger's default preallocates a 2 GB value log, which took tens of seconds on Windows CI.
+	t.Run("fresh store keeps value log files small", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "db")
+		store, err := NewBadgerStoreAt(context.Background(), dbPath, false, testLogger())
+		require.NoError(t, err)
+		t.Cleanup(func() { store.Close() })
+
+		vlogs, err := filepath.Glob(filepath.Join(dbPath, "*.vlog"))
+		require.NoError(t, err)
+		require.NotEmpty(t, vlogs)
+		for _, p := range vlogs {
+			fi, err := os.Stat(p)
+			require.NoError(t, err)
+			assert.LessOrEqual(t, fi.Size(), int64(64<<20), p)
+		}
+	})
+
+	t.Run("resume opens a store created with badger defaults", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "db")
+		old, err := badger.Open(badger.DefaultOptions(dbPath).WithLogger(nil))
+		require.NoError(t, err)
+		require.NoError(t, old.Update(func(txn *badger.Txn) error {
+			return txn.Set([]byte("page:https://example.com/old"), []byte("x"))
+		}))
+		require.NoError(t, old.Close())
+
+		ctx := context.Background()
+		store, err := NewBadgerStoreAt(ctx, dbPath, true, testLogger())
+		require.NoError(t, err)
+		_, err = store.MarkPageVisited("https://example.com/new", 0)
+		require.NoError(t, err)
+		require.NoError(t, store.Close())
+
+		store, err = NewBadgerStoreAt(ctx, dbPath, true, testLogger())
+		require.NoError(t, err)
+		t.Cleanup(func() { store.Close() })
+		count, err := store.GetVisitedCount()
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
 	})
 }
 

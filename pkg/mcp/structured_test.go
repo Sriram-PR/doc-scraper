@@ -441,7 +441,7 @@ func TestToolsList_EveryToolDeclaresAnOpenOutputSchema(t *testing.T) {
 	res := handleRaw(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{`+
 		`"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`)
 	tools := res["tools"].([]any)
-	require.Len(t, tools, 11)
+	require.Len(t, tools, 13)
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
 		name := tool["name"]

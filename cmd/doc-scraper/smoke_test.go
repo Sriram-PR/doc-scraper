@@ -163,3 +163,44 @@ func TestSmoke_ManifestToolsMatchHelp(t *testing.T) {
 	}
 	assert.Equal(t, helpTools(t, bin), got)
 }
+
+func TestSmoke_MCPEmptyConfigWithWrites(t *testing.T) {
+	bin := smokeBinary(t)
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(cfg, []byte(`output_base_dir: '`+filepath.ToSlash(filepath.Join(dir, "out"))+`'
+state_dir: '`+filepath.ToSlash(filepath.Join(dir, "state"))+`'
+sites: {}
+`), 0644))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "mcp-server", "-config", cfg, "-allow-config-writes")
+	cmd.Stdin = strings.NewReader(strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"describe_server","arguments":{}}}`,
+	}, "\n") + "\n")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	require.NoError(t, cmd.Run(), "stderr:\n%s", stderr.String())
+
+	var described map[string]any
+	sc := bufio.NewScanner(&stdout)
+	sc.Buffer(make([]byte, 0, 1<<20), 1<<24)
+	for sc.Scan() {
+		var msg struct {
+			ID     int `json:"id"`
+			Result struct {
+				StructuredContent map[string]any `json:"structuredContent"`
+			} `json:"result"`
+		}
+		require.NoError(t, json.Unmarshal(sc.Bytes(), &msg), "non-JSON line on stdout: %q", sc.Text())
+		if msg.ID == 2 {
+			described = msg.Result.StructuredContent
+		}
+	}
+	require.NotNil(t, described, "no describe_server response; stderr:\n%s", stderr.String())
+	assert.Equal(t, "enabled", described["config_writes"])
+	assert.EqualValues(t, 0, described["total_sites"])
+}

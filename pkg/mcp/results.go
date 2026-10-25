@@ -214,13 +214,14 @@ type serverSite struct {
 }
 
 type describeServerResult struct {
-	Server      serverIdentity `json:"server"`
-	Sites       []serverSite   `json:"sites"`
-	RecentJobs  []jobSummary   `json:"recent_jobs" jsonschema_description:"Newest first, at most 20"`
-	TotalSites  int            `json:"total_sites"`
-	TotalJobs   int            `json:"total_jobs"`
-	JobsCapped  bool           `json:"jobs_capped"`
-	NextActions string         `json:"next_actions"`
+	Server       serverIdentity `json:"server"`
+	Sites        []serverSite   `json:"sites"`
+	RecentJobs   []jobSummary   `json:"recent_jobs" jsonschema_description:"Newest first, at most 20"`
+	TotalSites   int            `json:"total_sites"`
+	TotalJobs    int            `json:"total_jobs"`
+	JobsCapped   bool           `json:"jobs_capped"`
+	ConfigWrites string         `json:"config_writes" jsonschema_description:"enabled or disabled; save_site needs enabled (mcp-server -allow-config-writes)"`
+	NextActions  string         `json:"next_actions"`
 }
 
 type crawlSummary struct {

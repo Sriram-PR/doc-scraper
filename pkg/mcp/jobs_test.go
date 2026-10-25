@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -799,4 +800,71 @@ func TestWaitIdle_GivesUpWhenContextEnds(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	assert.ErrorIs(t, jm.WaitIdle(ctx), context.DeadlineExceeded)
+}
+
+func TestReserveSite_StartJobWaitsForRelease(t *testing.T) {
+	m := NewJobManager("", nil)
+	release, err := m.ReserveSite("docs")
+	require.NoError(t, err)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		release()
+	}()
+	start := time.Now()
+	job, created, err := m.StartJob(context.Background(), "docs", false, 5*time.Second)
+	require.NoError(t, err)
+	assert.True(t, created)
+	assert.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond)
+	m.FinishJob(job.ID)
+}
+
+func TestReserveSite_StartJobTimesOut(t *testing.T) {
+	m := NewJobManager("", nil)
+	release, err := m.ReserveSite("docs")
+	require.NoError(t, err)
+	defer release()
+	job, created, err := m.StartJob(context.Background(), "docs", false, 50*time.Millisecond)
+	require.ErrorIs(t, err, ErrSiteReserved)
+	assert.False(t, created)
+	assert.Nil(t, job)
+}
+
+func TestReserveSite_RefusedWhileHeld(t *testing.T) {
+	m := NewJobManager("", nil)
+	job, created, err := m.StartJob(context.Background(), "docs", false, time.Second)
+	require.NoError(t, err)
+	require.True(t, created)
+	_, err = m.ReserveSite("docs")
+	require.ErrorContains(t, err, "crawl running for docs")
+
+	m.FinishJob(job.ID)
+	release, err := m.ReserveSite("docs")
+	require.NoError(t, err)
+	_, err = m.ReserveSite("docs")
+	require.ErrorContains(t, err, "being saved")
+	release()
+	release()
+}
+
+func TestFinishJob_SkipsReservations(t *testing.T) {
+	m := NewJobManager("", nil)
+	release, err := m.ReserveSite("a")
+	require.NoError(t, err)
+	defer release()
+	job, _, err := m.StartJob(context.Background(), "b", false, time.Second)
+	require.NoError(t, err)
+	m.FinishJob(job.ID)
+	_, err = m.ReserveSite("a")
+	require.ErrorContains(t, err, "being saved", "the reservation on a survives b finishing")
+}
+
+func TestReserveSite_ClipsEchoedKey(t *testing.T) {
+	m := NewJobManager("", nil)
+	key := strings.Repeat("k", 10_000)
+	release, err := m.ReserveSite(key)
+	require.NoError(t, err)
+	defer release()
+	_, err = m.ReserveSite(key)
+	require.ErrorContains(t, err, "being saved")
+	assert.Less(t, len(err.Error()), 1000)
 }
