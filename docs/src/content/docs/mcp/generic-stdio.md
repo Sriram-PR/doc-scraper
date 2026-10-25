@@ -40,7 +40,7 @@ printf '%s\n' \
 ```
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"doc-scraper","version":"2.22.0"},"instructions":"Call describe_server first: it lists the configured sites, when each was last crawled, and recent crawl jobs. search_docs, list_pages and read_page work offline on stored crawls; run crawl_site for a site that has not been crawled yet. get_page fetches a URL live."}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"doc-scraper","version":"2.22.0"},"instructions":"Call describe_server first: it lists the configured sites, when each was last crawled, and recent crawl jobs. search_docs, list_pages and read_page work offline on stored crawls; run crawl_site for a site that has not been crawled yet. get_page fetches a URL live. For a docs site that is not configured, or one that extracts badly, draft_site previews an entry and save_site adds it."}}
 {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"sites\":[{\"key\":\"demo\",\"domain\":\"example.com\",\"path_prefix\":\"\",\"start_urls_count\":1,\"max_depth\":0}],\"config_path\":\"/tmp/mcpdemo/config.yaml\",\"total_sites\":1}"}],"structuredContent":{"sites":[{"key":"demo","domain":"example.com","path_prefix":"","start_urls_count":1,"max_depth":0}],"config_path":"/tmp/mcpdemo/config.yaml","total_sites":1}}}
 ```
 

@@ -23,7 +23,8 @@ const serverName = "doc-scraper"
 
 const serverInstructions = "Call describe_server first: it lists the configured sites, when each was last crawled, and recent crawl jobs. " +
 	"search_docs, list_pages and read_page work offline on stored crawls; run crawl_site for a site that has not been crawled yet. " +
-	"get_page fetches a URL live."
+	"get_page fetches a URL live. For a docs site that is not configured, or one that extracts badly, " +
+	"draft_site previews an entry and save_site adds it."
 
 // The tool set is fixed at startup.
 const toolsListCacheTTL = time.Hour
