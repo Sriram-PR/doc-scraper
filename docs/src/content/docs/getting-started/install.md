@@ -27,7 +27,7 @@ Extract the archive and put `doc-scraper` on your `PATH`. The archive also ships
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD":/data ghcr.io/sriram-pr/doc-scraper:latest crawl -site rust_cli_book
 ```
 
-The image (linux/amd64 and linux/arm64) uses `/data` as its working directory and `doc-scraper` as its entrypoint, so the arguments after the image name are the subcommand. Mount a directory containing `config.yaml` at `/data` and point `output_base_dir` and `state_dir` at relative paths so crawl output lands in the mounted directory. The image runs as a non-root user, so `--user` makes the bind mount writable. Versioned tags (for example `2.9.2`) are published alongside `latest`.
+The image (linux/amd64 and linux/arm64) uses `/data` as its working directory and `doc-scraper` as its entrypoint, so the arguments after the image name are the subcommand. Mount a directory containing `config.yaml` at `/data` and point `output_base_dir` and `state_dir` at relative paths so crawl output lands in the mounted directory. The image runs as a non-root user, so `--user` makes the bind mount writable. Versioned tags (`X.Y.Z`, no leading `v`) are published alongside `latest`.
 
 ## Claude Desktop Extension
 
