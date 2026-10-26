@@ -641,7 +641,7 @@ func doListSites(configPath string, jsonOut bool, stdout, stderr io.Writer) int 
 	if jsonOut {
 		sites := make([]map[string]any, 0, len(keys))
 		for _, key := range keys {
-			site := appCfg.Sites[key]
+			site := siteOrEmpty(appCfg.Sites[key])
 			entry := map[string]any{
 				"key":              key,
 				"domain":           site.AllowedDomain,
@@ -671,7 +671,7 @@ func doListSites(configPath string, jsonOut bool, stdout, stderr io.Writer) int 
 		fmt.Fprintln(stdout, "  (no sites configured)")
 	}
 	for _, key := range keys {
-		site := appCfg.Sites[key]
+		site := siteOrEmpty(appCfg.Sites[key])
 		fmt.Fprintf(stdout, "  %s\n", key)
 		fmt.Fprintf(stdout, "    Domain: %s\n", site.AllowedDomain)
 		fmt.Fprintf(stdout, "    Start URLs: %d\n", len(site.StartURLs))
@@ -681,6 +681,15 @@ func doListSites(configPath string, jsonOut bool, stdout, stderr io.Writer) int 
 		fmt.Fprintln(stdout)
 	}
 	return 0
+}
+
+// siteOrEmpty returns site, or an empty SiteConfig for a site key with nothing under it in the
+// YAML, which parses to nil. `config validate` and `crawl` report that case as a validation error.
+func siteOrEmpty(site *config.SiteConfig) *config.SiteConfig {
+	if site == nil {
+		return &config.SiteConfig{}
+	}
+	return site
 }
 
 // loadAndValidateConfig loads the config file, validates it, and logs warnings.
