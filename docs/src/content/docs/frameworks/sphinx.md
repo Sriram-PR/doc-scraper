@@ -42,13 +42,13 @@ Drafted entry:
   # max_depth: 3 from sitemap path depth under the prefix
 
 Preview of the fetched page:
-  13072 chars of markdown, 93% of page text, code blocks 10/10, 10 headings
+  13025 chars of markdown, 93% of page text, code blocks 10/10, 10 headings
   ...
 
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.12.0 against <https://www.sphinx-doc.org/en/master/usage/quickstart.html>, 2026-10-14. Exit code 2.
+Output from doc-scraper 2.24.0 against <https://www.sphinx-doc.org/en/master/usage/quickstart.html>, 2026-10-26. Exit code 2.
 
 ## Crawl it
 

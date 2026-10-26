@@ -51,7 +51,7 @@ WARN: other doc versions share this scope (/docs/2.x/, /docs/3.0.1/, /docs/3.1.1
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.20.0 against <https://docusaurus.io/docs>, 2026-10-20. Exit code 2.
+Output from doc-scraper 2.24.0 against <https://docusaurus.io/docs>, 2026-10-26. Exit code 2.
 
 ## Crawl it
 
