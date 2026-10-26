@@ -417,6 +417,9 @@ func logStrippedBreadcrumbs(log *slog.Logger, n int) {
 // extractReadable strips breadcrumbs from a copy of doc first, since readability's
 // output drops the class and aria markers; doc stays intact for link following.
 func (cp *ContentProcessor) extractReadable(doc *goquery.Document, pageURL *url.URL, log *slog.Logger) (*goquery.Selection, string, error) {
+	if doc.Find("body").Find(breadcrumbMarkers).Length() == 0 {
+		return cp.readabilityExtractor.Extract(doc, pageURL)
+	}
 	clean := goquery.CloneDocument(doc)
 	logStrippedBreadcrumbs(log, stripBreadcrumbs(clean.Find("body")))
 	return cp.readabilityExtractor.Extract(clean, pageURL)
