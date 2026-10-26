@@ -34,9 +34,9 @@ Drafted entry:
   # allowed_path_prefix: /mdBook/ from the URL path (no sitemap to verify against)
 
 Preview of the fetched page:
-  1905 chars of markdown, 44% of page text, code blocks 0/0, 3 headings
+  1902 chars of markdown, 44% of page text, code blocks 0/0, 3 headings
 
-  | # [Introduction](\#introduction)
+  | # [Introduction](#introduction)
   | 
   | Version: 0.5.4
   ...
@@ -46,7 +46,7 @@ WARN: no sitemap found; crawl scope and size are estimated from the URL alone
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.12.0 against <https://rust-lang.github.io/mdBook/>, 2026-10-14. Exit code 2.
+Output from doc-scraper 2.24.0 against <https://rust-lang.github.io/mdBook/>, 2026-10-26. Exit code 2.
 
 ## Crawl it
 
