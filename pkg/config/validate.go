@@ -104,6 +104,11 @@ func (c *AppConfig) validateHTTPClientSettings() {
 // every fatal problem joined into one error.
 // Modifies receiver in place (e.g., path prefix normalization).
 func (c *SiteConfig) Validate() (warnings []string, err error) {
+	// A site key with nothing under it in the YAML (`b:` or `b: null`) parses to a nil pointer.
+	if c == nil {
+		return nil, fmt.Errorf("%w: site has no settings", utils.ErrConfigValidation)
+	}
+
 	var errs []error
 	if len(c.StartURLs) == 0 {
 		errs = append(errs, fmt.Errorf("%w: site has no start_urls", utils.ErrConfigValidation))

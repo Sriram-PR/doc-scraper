@@ -399,3 +399,13 @@ func TestSiteConfig_Validate_SingleProblemMessageUnchanged(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, utils.ErrConfigValidation.Error()+": site needs content_selector", err.Error())
 }
+
+func TestSiteConfig_Validate_NilSite(t *testing.T) {
+	var cfg *SiteConfig // what a site key with nothing under it parses to
+	warnings, err := cfg.Validate()
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, utils.ErrConfigValidation)
+	assert.Contains(t, err.Error(), "no settings")
+	assert.Empty(t, warnings)
+}
