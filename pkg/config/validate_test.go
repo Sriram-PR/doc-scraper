@@ -381,8 +381,7 @@ func TestSiteConfig_Validate_NilSite(t *testing.T) {
 	var cfg *SiteConfig // what a site key with nothing under it parses to
 	warnings, err := cfg.Validate()
 
-	require.Error(t, err)
-	assert.ErrorIs(t, err, utils.ErrConfigValidation)
+	require.ErrorIs(t, err, utils.ErrConfigValidation)
 	assert.Contains(t, err.Error(), "no settings")
 	assert.Empty(t, warnings)
 }
