@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/version"
 )
@@ -497,4 +499,49 @@ func TestSiteEntries_ReportLastCrawledAndRunning(t *testing.T) {
 		assert.Equal(t, "2026-05-23T10:00:00Z", site["last_crawled"], tool)
 		assert.Equal(t, "running", site["status"], tool)
 	}
+}
+
+func densePage() []byte {
+	return []byte("<html><body>" + strings.Repeat("<p>a</p>", pagebudget.MaxPageUnits/2+1) + "</body></html>")
+}
+
+func TestHandleGetPage_TooComplexPage(t *testing.T) {
+	body := densePage()
+	for _, gz := range []bool{false, true} {
+		t.Run(fmt.Sprintf("gzip=%v", gz), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				if !gz {
+					_, _ = w.Write(body)
+					return
+				}
+				w.Header().Set("Content-Encoding", "gzip")
+				zw := gzip.NewWriter(w)
+				_, _ = zw.Write(body)
+				_ = zw.Close()
+			}))
+			t.Cleanup(srv.Close)
+			s, _ := newTestServer(t, "docs", "docs.example.com")
+			s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
+
+			result, _ := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
+			require.True(t, result.IsError)
+			assert.Contains(t, errText(t, result), "too complex")
+		})
+	}
+}
+
+func TestHandleGetPage_HonorsMaxPageSize(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<html><body><p>"+strings.Repeat("a", 2000)+"</p></body></html>")
+	}))
+	t.Cleanup(srv.Close)
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
+	s.cfg.AppConfig.MaxPageSizeBytes = 1000
+
+	result, _ := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
+	require.True(t, result.IsError)
+	assert.Contains(t, errText(t, result), "exceeds max_page_size_bytes")
 }

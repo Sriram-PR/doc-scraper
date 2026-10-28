@@ -62,7 +62,7 @@ type HTTPClientConfig struct {
 	Timeout             time.Duration `yaml:"timeout,omitempty"`                 // Overall request timeout (default 45s)
 	MaxIdleConnsPerHost int           `yaml:"max_idle_conns_per_host,omitempty"` // Max idle connections per host (default 2)
 	// AllowPrivateNetworks disables the SSRF guard that blocks outbound
-	// connections to private/loopback/link-local/CGNAT/multicast addresses.
+	// connections to addresses that are not globally reachable.
 	// Default false. Set to true only if you intentionally crawl internal
 	// documentation servers reachable via private IPs.
 	AllowPrivateNetworks bool `yaml:"allow_private_networks,omitempty"`

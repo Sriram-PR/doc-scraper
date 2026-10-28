@@ -26,6 +26,19 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 )
 
+const (
+	// maxSitemapIndexDepth stops at an index this many levels below the first
+	// sitemap, so the deepest chain followed is root index, index, urlset.
+	maxSitemapIndexDepth = 2
+	maxSitemapsPerSite   = 1000
+)
+
+// sitemapTask is one pending sitemap and how many index levels sit above it.
+type sitemapTask struct {
+	url   string
+	depth int
+}
+
 // SitemapProcessor handles fetching, parsing, and processing sitemaps.
 type SitemapProcessor struct {
 	sitemapQueue               chan string
@@ -42,6 +55,7 @@ type SitemapProcessor struct {
 	wg                         *sync.WaitGroup // main crawler WaitGroup
 	sitemapsProcessed          map[string]bool
 	sitemapsProcessedMu        sync.Mutex
+	sitemapLimitLogged         bool
 	backlog                    *sitemapBacklog
 }
 
@@ -83,15 +97,23 @@ func (sp *SitemapProcessor) Start(ctx context.Context) {
 	go sp.run(ctx)
 }
 
-// MarkSitemapProcessed marks a sitemap URL as queued. Returns true if newly marked.
+// MarkSitemapProcessed marks a sitemap URL as queued. It returns true if newly
+// marked, and false once maxSitemapsPerSite have been marked.
 func (sp *SitemapProcessor) MarkSitemapProcessed(sitemapURL string) bool {
 	sp.sitemapsProcessedMu.Lock()
 	defer sp.sitemapsProcessedMu.Unlock()
-	if !sp.sitemapsProcessed[sitemapURL] {
-		sp.sitemapsProcessed[sitemapURL] = true
-		return true
+	if sp.sitemapsProcessed[sitemapURL] {
+		return false
 	}
-	return false
+	if len(sp.sitemapsProcessed) >= maxSitemapsPerSite {
+		if !sp.sitemapLimitLogged {
+			sp.sitemapLimitLogged = true
+			sp.log.Warn(fmt.Sprintf("Sitemap limit reached; not fetching %s or any later sitemap", sitemapURL), "limit", maxSitemapsPerSite)
+		}
+		return false
+	}
+	sp.sitemapsProcessed[sitemapURL] = true
+	return true
 }
 
 // sitemapBacklog is an unbounded FIFO of pending sitemap URLs. It decouples
@@ -104,7 +126,7 @@ func (sp *SitemapProcessor) MarkSitemapProcessed(sitemapURL string) bool {
 type sitemapBacklog struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
-	items  []string
+	items  []sitemapTask
 	head   int
 	closed bool
 }
@@ -115,32 +137,32 @@ func newSitemapBacklog() *sitemapBacklog {
 	return b
 }
 
-func (b *sitemapBacklog) push(url string) {
+func (b *sitemapBacklog) push(t sitemapTask) {
 	b.mu.Lock()
-	b.items = append(b.items, url)
+	b.items = append(b.items, t)
 	b.mu.Unlock()
 	b.cond.Signal()
 }
 
 // pop blocks until an item is available, returning ok=false only once the
 // backlog is both closed and fully drained.
-func (b *sitemapBacklog) pop() (string, bool) {
+func (b *sitemapBacklog) pop() (sitemapTask, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for b.head == len(b.items) && !b.closed {
 		b.cond.Wait()
 	}
 	if b.head == len(b.items) {
-		return "", false
+		return sitemapTask{}, false
 	}
-	url := b.items[b.head]
-	b.items[b.head] = ""
+	task := b.items[b.head]
+	b.items[b.head] = sitemapTask{}
 	b.head++
 	if b.head > 1024 && b.head*2 >= len(b.items) {
 		b.items = append(b.items[:0], b.items[b.head:]...)
 		b.head = 0
 	}
-	return url, true
+	return task, true
 }
 
 func (b *sitemapBacklog) close() {
@@ -177,7 +199,7 @@ func (sp *SitemapProcessor) run(ctx context.Context) {
 					backlog.close()
 					return
 				}
-				backlog.push(sitemapURL)
+				backlog.push(sitemapTask{url: sitemapURL})
 			}
 		}
 	}()
@@ -188,11 +210,11 @@ func (sp *SitemapProcessor) run(ctx context.Context) {
 		go func() {
 			defer workers.Done()
 			for {
-				smURL, ok := backlog.pop()
+				task, ok := backlog.pop()
 				if !ok {
 					return
 				}
-				sp.processOne(ctx, smURL, backlog)
+				sp.processOne(ctx, task, backlog)
 			}
 		}()
 	}
@@ -204,10 +226,10 @@ func (sp *SitemapProcessor) run(ctx context.Context) {
 // processOne runs one sitemap task, always balancing the WaitGroup token added
 // when the sitemap was enqueued and recovering from panics so a single bad
 // sitemap cannot take down a worker.
-func (sp *SitemapProcessor) processOne(ctx context.Context, smURL string, backlog *sitemapBacklog) {
+func (sp *SitemapProcessor) processOne(ctx context.Context, task sitemapTask, backlog *sitemapBacklog) {
 	defer sp.wg.Done()
-	defer sp.recoverPanic(smURL)
-	sp.processSitemap(ctx, smURL, backlog)
+	defer sp.recoverPanic(task.url)
+	sp.processSitemap(ctx, task, backlog)
 }
 
 func (sp *SitemapProcessor) recoverPanic(smURL string) {
@@ -222,13 +244,14 @@ func (sp *SitemapProcessor) recoverPanic(smURL string) {
 
 // processSitemap fetches one sitemap and dispatches on whether it is a
 // sitemap index or a URL set.
-func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string, backlog *sitemapBacklog) {
+func (sp *SitemapProcessor) processSitemap(ctx context.Context, task sitemapTask, backlog *sitemapBacklog) {
+	smURL := task.url
 	sitemapLog := sp.log.With("sitemap_url", smURL)
 	sitemapLog.Info("Processing sitemap")
 
 	sitemapBytes, err := sp.fetchSitemap(ctx, smURL, sitemapLog)
 	if err != nil {
-		if !errors.Is(err, errNoSlot) {
+		if !errors.Is(err, errNoSlot) && !errors.Is(err, errOffHost) {
 			sitemapLog.Error(fmt.Sprintf("Fetch failed: %v", err))
 		}
 		return
@@ -237,7 +260,7 @@ func (sp *SitemapProcessor) processSitemap(ctx context.Context, smURL string, ba
 	var index parse.XMLSitemapIndex
 	errIndex := xml.Unmarshal(sitemapBytes, &index)
 	if errIndex == nil && len(index.Sitemaps) > 0 {
-		sp.handleSitemapIndex(index, backlog, sitemapLog)
+		sp.handleSitemapIndex(index, task.depth, backlog, sitemapLog)
 		return
 	}
 	var urlSet parse.XMLURLSet
@@ -274,7 +297,7 @@ func (sp *SitemapProcessor) Probe(ctx context.Context, candidates []string) (str
 		var index parse.XMLSitemapIndex
 		if xml.Unmarshal(sitemapBytes, &index) == nil && len(index.Sitemaps) > 0 {
 			probeLog.Info("Found sitemap by probing")
-			sp.handleSitemapIndex(index, sp.backlog, probeLog)
+			sp.handleSitemapIndex(index, 0, sp.backlog, probeLog)
 			return smURL, true
 		}
 		var urlSet parse.XMLURLSet
@@ -327,14 +350,23 @@ func logSlotFailure(ctx context.Context, sitemapLog *slog.Logger, which string, 
 // logged.
 var errNoSlot = errors.New("no request slot")
 
+// errOffHost means the sitemap is not on the crawled site; the cause is
+// already logged.
+var errOffHost = errors.New("sitemap is not on the crawled site")
+
 // fetchSitemap acquires the per-host and global request slots and reads the
-// sitemap body, capped at 10 MB.
+// sitemap body, capped at 10 MB. Sitemaps off the allowed domain, before or
+// after redirects, are refused.
 func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, sitemapLog *slog.Logger) ([]byte, error) {
 	parsedSitemapURL, err := url.Parse(smURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse URL: %w", err)
 	}
 	sitemapHost := parsedSitemapURL.Hostname()
+	if sitemapHost != sp.siteCfg.AllowedDomain {
+		sitemapLog.Warn(fmt.Sprintf("Skipping sitemap on %s: only sitemaps on %s are fetched", sitemapHost, sp.siteCfg.AllowedDomain))
+		return nil, errOffHost
+	}
 
 	// Host slot first, then global, matching the page, image, and robots.txt
 	// fetch paths. Without it the sitemap pool issues up to max_requests
@@ -368,6 +400,10 @@ func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, site
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.Hostname() != sp.siteCfg.AllowedDomain {
+		sitemapLog.Warn(fmt.Sprintf("Skipping sitemap redirected to %s: only sitemaps on %s are fetched", resp.Request.URL.Hostname(), sp.siteCfg.AllowedDomain))
+		return nil, errOffHost
+	}
 
 	return readSitemapBody(resp.Body)
 }
@@ -398,10 +434,14 @@ func readSitemapBody(body io.Reader) ([]byte, error) {
 	return sitemapBytes, nil
 }
 
-// handleSitemapIndex queues each valid, not-yet-seen nested sitemap onto the
-// backlog for the worker pool to process.
-func (sp *SitemapProcessor) handleSitemapIndex(index parse.XMLSitemapIndex, backlog *sitemapBacklog, sitemapLog *slog.Logger) {
+// handleSitemapIndex queues each valid, not-yet-seen nested sitemap of an
+// index found at depth onto the backlog for the worker pool to process.
+func (sp *SitemapProcessor) handleSitemapIndex(index parse.XMLSitemapIndex, depth int, backlog *sitemapBacklog, sitemapLog *slog.Logger) {
 	sitemapLog.Info(fmt.Sprintf("Parsed as Sitemap Index, found %d references.", len(index.Sitemaps)))
+	if depth >= maxSitemapIndexDepth {
+		sitemapLog.Warn(fmt.Sprintf("Sitemap index nested too deep; skipping its %d sitemaps", len(index.Sitemaps)), "limit", maxSitemapIndexDepth)
+		return
+	}
 	queuedCount := 0
 	for _, sitemapEntry := range index.Sitemaps {
 		nestedSmURL := sitemapEntry.Loc
@@ -415,7 +455,7 @@ func (sp *SitemapProcessor) handleSitemapIndex(index parse.XMLSitemapIndex, back
 			continue
 		}
 		sp.wg.Add(1)
-		backlog.push(nestedSmURL)
+		backlog.push(sitemapTask{url: nestedSmURL, depth: depth + 1})
 		nestedSmLog.Debug("Queued nested sitemap.")
 		queuedCount++
 	}
