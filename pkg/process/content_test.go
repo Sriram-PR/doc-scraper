@@ -642,3 +642,135 @@ func TestProcessAndSaveContent_RewritesInternalLinks(t *testing.T) {
 	assert.Contains(t, md, "[Mail](mailto:a@e.com)")
 	assert.Contains(t, md, "[Broken](http://%5B::1)", "unparseable links are kept, not dropped (the converter percent-encodes the bracket)")
 }
+
+func TestStripBreadcrumbs(t *testing.T) {
+	long := strings.Repeat("Section ", 30)
+	tests := []struct {
+		name    string
+		html    string
+		removed int
+		gone    []string
+		kept    []string
+	}{
+		{"spring container wrapping a nav",
+			`<div class="breadcrumbs-container"><nav class="breadcrumbs" aria-label="breadcrumbs"><ul><li><a href="/">Spring Framework</a></li></ul></nav></div><h1>Overview</h1><p>Body.</p>`,
+			1, []string{"Spring Framework"}, []string{"Overview", "Body."}},
+		{"docker nav id",
+			`<nav id="breadcrumbs"><a href="/">Home</a> / Get started</nav><h1>Get started</h1>`,
+			1, []string{"Home"}, []string{"Get started"}},
+		{"go.dev ordered list",
+			`<ol class="SiteBreadcrumb"><li><a href="/doc/">Documentation</a></li><li><a href="/doc/effective_go">Effective Go</a></li></ol><h1>The title</h1>`,
+			1, []string{"Documentation"}, []string{"The title"}},
+		{"primer aria label before the h1",
+			`<nav aria-label="Breadcrumbs"><a href="/">Product UI</a><a href="/c">Components</a></nav><h1>Breadcrumbs</h1><p>Use breadcrumbs to show hierarchy.</p>`,
+			1, []string{"Product UI"}, []string{"Use breadcrumbs to show hierarchy."}},
+		{"schema.org list",
+			`<ul itemscope itemtype="https://schema.org/BreadcrumbList"><li><a href="/">Docs</a></li></ul><h2>Install</h2>`,
+			1, []string{"Docs"}, []string{"Install"}},
+		{"nav inside an oversized marked wrapper",
+			`<div class="breadcrumb-area"><nav class="breadcrumb"><a href="/">Root</a></nav><p>` + long + `</p></div><h1>Title</h1>`,
+			1, []string{"Root"}, []string{"Section Section", "Title"}},
+		{"shadcn api headings",
+			`<h2>API Reference</h2><h3 id="breadcrumb-list">BreadcrumbList</h3><p>Props.</p>`,
+			0, nil, []string{"BreadcrumbList", "Props."}},
+		{"bootstrap demo after a heading",
+			`<h1>Breadcrumb</h1><p>Indicate the current page.</p><nav aria-label="breadcrumb"><ol class="breadcrumb">` +
+				`<li class="breadcrumb-item"><a href="#">Home</a></li><li class="breadcrumb-item active">Library</li></ol></nav>`,
+			0, nil, []string{"Home", "Library"}},
+		{"heading anchor and span are not containers",
+			`<a aria-label="Link to this section: Default breadcrumb" href="#default">#</a><span id="breadcrumb-demo">Demo span</span><h2 id="default">Default breadcrumb</h2>`,
+			0, nil, []string{"Demo span", "Default breadcrumb"}},
+		{"long marked block before any heading",
+			`<div class="breadcrumb-intro"><p>` + long + `</p></div><h1>Title</h1>`,
+			0, nil, []string{"Section Section"}},
+		{"headings in a sidebar or template don't end the scan",
+			`<aside><h2>Product UI navigation</h2></aside><template><h3>What can I help you with?</h3></template>` +
+				`<nav aria-label="Breadcrumbs"><a href="/c">Components</a></nav><h1>Breadcrumbs</h1>`,
+			1, []string{"Components"}, []string{"Product UI navigation", "Breadcrumbs"}},
+		{"an h1 inside the article header still ends the scan",
+			`<article><header><h1>Breadcrumb</h1></header><nav aria-label="breadcrumb"><a href="#">Home</a></nav></article>`,
+			0, nil, []string{"Home"}},
+		{"marked wrapper holding the page heading",
+			`<div class="page-header has-breadcrumbs"><nav class="breadcrumbs"><a href="/">Home</a></nav><h1>Title</h1><p>Short intro.</p></div>`,
+			1, []string{"Home"}, []string{"Title", "Short intro."}},
+		{"trail with a hidden heading of its own",
+			`<nav class="breadcrumbs"><h2 class="sr-only">You are here</h2><a href="/">Home</a></nav><h1>Title</h1>`,
+			1, []string{"Home", "You are here"}, []string{"Title"}},
+		{"no headings at all",
+			`<nav class="breadcrumbs"><a href="/">Home</a></nav><p>A page without headings.</p>`,
+			1, []string{"Home"}, []string{"A page without headings."}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := goquery.NewDocumentFromReader(strings.NewReader("<html><body><main>" + tt.html + "</main></body></html>"))
+			require.NoError(t, err)
+			scope := doc.Find("main")
+			assert.Equal(t, tt.removed, stripBreadcrumbs(scope))
+			text := scope.Text()
+			for _, g := range tt.gone {
+				assert.NotContains(t, text, g)
+			}
+			for _, k := range tt.kept {
+				assert.Contains(t, text, k)
+			}
+		})
+	}
+}
+
+const springPage = `<html><head><title>Overview</title><meta name="generator" content="Antora 3.1.9"></head><body>
+	<article class="doc"><div class="breadcrumbs-container"><nav class="breadcrumbs" aria-label="breadcrumbs"><ul><li><a href="/">Spring Framework</a></li><li>Overview</li></ul></nav></div>
+	<h1>Overview</h1><p>` + "The Spring Framework provides a comprehensive programming and configuration model for modern Java applications. " + `</p>
+	<p>` + "It focuses on the plumbing of enterprise applications so that teams can focus on application-level business logic. " + `</p></article></body></html>`
+
+func TestSelectMainContent_ExplicitSelectorStripsBreadcrumbs(t *testing.T) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(springPage))
+	require.NoError(t, err)
+	u, _ := url.Parse("https://docs.spring.io/spring-framework/reference/")
+	cp := NewContentProcessor(nil, &config.AppConfig{}, silentLog())
+
+	content, _, err := cp.SelectMainContent(doc, u, &config.SiteConfig{ContentSelector: "article.doc"}, silentLog())
+	require.NoError(t, err)
+	assert.Zero(t, content.Find(".breadcrumbs-container").Length())
+	assert.Contains(t, content.Text(), "comprehensive programming")
+	assert.Equal(t, 1, doc.Find(".breadcrumbs-container").Length(), "the input page is not modified")
+}
+
+func TestSelectMainContent_AutoDetectedSelectorStripsBreadcrumbs(t *testing.T) {
+	content, _, err := selectMainContentFixture(t, springPage, "auto")
+	require.NoError(t, err)
+	assert.Zero(t, content.Find("nav.breadcrumbs").Length())
+	assert.Contains(t, content.Text(), "comprehensive programming")
+}
+
+func TestSelectMainContent_BreadcrumbOnlyRegionIsEmpty(t *testing.T) {
+	html := `<html><head><title>T</title></head><body><article class="doc"><nav aria-label="breadcrumbs"><a href="/">Home</a></nav></article></body></html>`
+	_, _, err := selectMainContentFixture(t, html, "article.doc")
+	require.ErrorContains(t, err, "yielded no content")
+}
+
+var goDevPage = `<html><head><title>Effective Go</title></head><body><header><nav><a href="/">Go</a> <a href="/doc/">Docs</a></nav></header>` +
+	`<main id="main-content"><article class="Doc Article"><ol class="SiteBreadcrumb"><li><a href="/doc/">Documentation</a></li><li><a href="/doc/effective_go">Effective Go</a></li></ol>` +
+	`<h1>Effective Go</h1><p>` + strings.Repeat("Go is a new language that borrows ideas from existing languages but has unusual properties. ", 12) + `</p>` +
+	`<h2 id="introduction">Introduction</h2><p>` + strings.Repeat("To write Go well, it is important to understand its properties and idioms. ", 10) + `</p></article></main></body></html>`
+
+func TestSelectMainContent_ReadabilityPathStripsBreadcrumbs(t *testing.T) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(goDevPage))
+	require.NoError(t, err)
+	u, _ := url.Parse("https://go.dev/doc/effective_go")
+	cp := NewContentProcessor(nil, &config.AppConfig{}, silentLog())
+
+	content, _, err := cp.SelectMainContent(doc, u, &config.SiteConfig{ContentSelector: "auto"}, silentLog())
+	require.NoError(t, err)
+	assert.NotContains(t, content.Text(), "Documentation")
+	assert.Contains(t, content.Text(), "unusual properties")
+	assert.Equal(t, 1, doc.Find("ol.SiteBreadcrumb").Length(), "the input page is not modified")
+}
+
+func TestStripBreadcrumbs_ChromeScopeKeepsItsHeadings(t *testing.T) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(
+		`<html><body><aside class="content"><h1>Breadcrumb</h1><nav aria-label="breadcrumb"><a href="#">Home</a></nav></aside></body></html>`))
+	require.NoError(t, err)
+	scope := doc.Find("aside").Clone()
+	assert.Zero(t, stripBreadcrumbs(scope))
+	assert.Contains(t, scope.Text(), "Home")
+}

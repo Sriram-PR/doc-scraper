@@ -70,8 +70,9 @@ func buildPageFrontmatter(title, pageURL, body string, depth int) string {
 
 // SelectMainContent resolves the page title and extracts the main content selection
 // using the configured selector, framework auto-detection, or the readability
-// fallback. It performs no image processing, conversion, or writing, so callers can
-// hash the returned selection before deciding whether to process the page.
+// fallback, with breadcrumb trails removed. It performs no image processing,
+// conversion, or writing, so callers can hash the returned selection before
+// deciding whether to process the page.
 func (cp *ContentProcessor) SelectMainContent(
 	doc *goquery.Document,
 	finalURL *url.URL,
@@ -91,7 +92,7 @@ func (cp *ContentProcessor) SelectMainContent(
 
 		if result.Fallback {
 			taskLog.Debug("Using readability extraction for content")
-			extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
+			extractedContent, extractedTitle, extractErr := cp.extractReadable(doc, finalURL, taskLog)
 			if extractErr != nil {
 				err = fmt.Errorf("%w: readability failed for '%s': %v", utils.ErrContentSelector, finalURL.String(), extractErr) //nolint:errorlint // extractErr is supplemental
 				taskLog.Warn(err.Error())
@@ -108,11 +109,16 @@ func (cp *ContentProcessor) SelectMainContent(
 			taskLog.Debug(fmt.Sprintf("Auto-detected selector for %s: %s", result.Framework, actualSelector))
 
 			mainContentSelection := detect.SelectByPriority(doc, actualSelector)
-			if !hasExtractableContent(mainContentSelection) {
+			candidate := mainContentSelection.Clone()
+			if result.Exclude != "" {
+				candidate.Find(result.Exclude).Remove()
+			}
+			stripped := stripBreadcrumbs(candidate)
+			if !hasExtractableContent(candidate) {
 				taskLog.Warn(fmt.Sprintf(
 					"Detected selector '%s' yielded no content (%d element(s) matched), falling back to readability",
 					actualSelector, mainContentSelection.Length()))
-				extractedContent, extractedTitle, extractErr := cp.readabilityExtractor.Extract(doc, finalURL)
+				extractedContent, extractedTitle, extractErr := cp.extractReadable(doc, finalURL, taskLog)
 				if extractErr != nil {
 					err = fmt.Errorf(
 						"%w: selector '%s' yielded no content and readability failed for '%s': %v",
@@ -126,21 +132,21 @@ func (cp *ContentProcessor) SelectMainContent(
 					pageTitle = extractedTitle
 				}
 			} else {
-				mainContent = mainContentSelection.Clone()
-				if result.Exclude != "" {
-					mainContent.Find(result.Exclude).Remove()
-				}
+				mainContent = candidate
+				logStrippedBreadcrumbs(taskLog, stripped)
 			}
 		}
 	} else {
 		mainContentSelection := detect.SelectByPriority(doc, siteCfg.ContentSelector)
-		if !hasExtractableContent(mainContentSelection) {
+		mainContent = mainContentSelection.Clone()
+		stripped := stripBreadcrumbs(mainContent)
+		if !hasExtractableContent(mainContent) {
 			err = fmt.Errorf("%w: selector '%s' yielded no content on page '%s' (%d element(s) matched)",
 				utils.ErrContentSelector, siteCfg.ContentSelector, finalURL.String(), mainContentSelection.Length())
 			taskLog.Warn(err.Error())
 			return nil, pageTitle, err
 		}
-		mainContent = mainContentSelection.Clone()
+		logStrippedBreadcrumbs(taskLog, stripped)
 		taskLog.Debug(fmt.Sprintf("Found main content using selector '%s'", siteCfg.ContentSelector))
 	}
 
@@ -358,6 +364,65 @@ func hasExtractableContent(s *goquery.Selection) bool {
 		return true
 	}
 	return s.Find("img, picture, video, audio, svg, iframe, table, pre").Length() > 0
+}
+
+const (
+	breadcrumbMarkers    = "[class*='breadcrumb' i], [id*='breadcrumb' i], [aria-label*='breadcrumb' i], [itemtype*='BreadcrumbList']"
+	breadcrumbContainers = "nav, ol, ul, div"
+	maxBreadcrumbText    = 200
+	// Headings under these aren't page headings; readability's scope is the whole
+	// body. header is left out: themes put the page's own h1 in an article header.
+	headingChrome = "nav, aside, footer, template"
+)
+
+// stripBreadcrumbs removes short marked containers that come before the first
+// page heading; component docs put their breadcrumb demos after one.
+func stripBreadcrumbs(scope *goquery.Selection) int {
+	isPageHeading := func(h *goquery.Selection) bool {
+		return h.ParentsUntilSelection(scope).Filter(headingChrome).Length() == 0
+	}
+	var picked []*goquery.Selection
+	scope.Find("*").EachWithBreak(func(_ int, s *goquery.Selection) bool {
+		if s.Is("h1, h2, h3") && isPageHeading(s) {
+			return false
+		}
+		if !s.Is(breadcrumbContainers) || !s.Is(breadcrumbMarkers) {
+			return true
+		}
+		if s.Find("h1, h2, h3").FilterFunction(func(_ int, h *goquery.Selection) bool { return isPageHeading(h) }).Length() > 0 {
+			return true
+		}
+		for _, p := range picked {
+			if p.Contains(s.Get(0)) {
+				return true
+			}
+		}
+		if len(strings.Join(strings.Fields(s.Text()), " ")) <= maxBreadcrumbText {
+			picked = append(picked, s)
+		}
+		return true
+	})
+	for _, s := range picked {
+		s.Remove()
+	}
+	return len(picked)
+}
+
+func logStrippedBreadcrumbs(log *slog.Logger, n int) {
+	if n > 0 {
+		log.Debug(fmt.Sprintf("Removed %d breadcrumb element(s)", n))
+	}
+}
+
+// extractReadable strips breadcrumbs from a copy of doc first, since readability's
+// output drops the class and aria markers; doc stays intact for link following.
+func (cp *ContentProcessor) extractReadable(doc *goquery.Document, pageURL *url.URL, log *slog.Logger) (*goquery.Selection, string, error) {
+	if doc.Find("body").Find(breadcrumbMarkers).Length() == 0 {
+		return cp.readabilityExtractor.Extract(doc, pageURL)
+	}
+	clean := goquery.CloneDocument(doc)
+	logStrippedBreadcrumbs(log, stripBreadcrumbs(clean.Find("body")))
+	return cp.readabilityExtractor.Extract(clean, pageURL)
 }
 
 // cleanupHTML removes framework-specific noise before markdown conversion

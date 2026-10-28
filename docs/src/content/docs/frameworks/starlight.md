@@ -18,7 +18,7 @@ This documentation site is built with Starlight, and CI checks on every change t
 ```text
 $ doc-scraper add -config config.yaml -dry-run https://starlight.astro.build/getting-started/
 Probing https://starlight.astro.build/getting-started/ ...
-Detected: starlight (starlight v0.42.6) via generator, confidence high
+Detected: starlight (starlight v0.42.7) via generator, confidence high
 Corpus:   ~36 pages (sitemap)
 
 Drafted entry:
@@ -46,7 +46,7 @@ Preview of the fetched page:
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.20.0 against <https://starlight.astro.build/getting-started/>, 2026-10-20. Exit code 2.
+Output from doc-scraper 2.24.0 against <https://starlight.astro.build/getting-started/>, 2026-10-26. Exit code 2.
 
 ## Crawl it
 

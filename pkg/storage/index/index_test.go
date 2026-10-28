@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -36,6 +37,35 @@ func TestOpenIsIdempotent(t *testing.T) {
 	idx2, err := Open(path, 5, log)
 	require.NoError(t, err, "second Open (existing schema)")
 	require.NoError(t, idx2.Close(), "second Close")
+}
+
+func TestOpenAtPreservesURICharactersInStateDir(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	tests := []struct {
+		name string
+		char string
+	}{
+		{name: "hash", char: "#"},
+		{name: "question mark", char: "?"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.char == "?" && runtime.GOOS == "windows" {
+				t.Skip("question marks are not valid in Windows file names")
+			}
+
+			root := t.TempDir()
+			stateDir := filepath.Join(root, "state"+tt.char+"dir")
+			expected := filepath.Join(stateDir, "index.db")
+			idx, err := OpenAt(stateDir, 1, log)
+			require.NoError(t, err, "OpenAt")
+			require.NoError(t, idx.Close(), "Close")
+
+			assert.FileExists(t, expected)
+			assert.NoFileExists(t, filepath.Join(root, "state"))
+		})
+	}
 }
 
 func TestGetLatestCrawlNoRows(t *testing.T) {

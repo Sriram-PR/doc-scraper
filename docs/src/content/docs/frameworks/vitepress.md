@@ -16,7 +16,7 @@ Content selector: `.vp-doc, main.main, #VPContent`.
 ```text
 $ doc-scraper add -config config.yaml -dry-run https://vitepress.dev/guide/what-is-vitepress
 Probing https://vitepress.dev/guide/what-is-vitepress ...
-Detected: vitepress (vitepress v2.0.0-alpha.20) via generator, confidence high
+Detected: vitepress (vitepress v2.0.0-alpha.21) via generator, confidence high
 Corpus:   ~16 pages (sitemap)
 
 Drafted entry:
@@ -34,9 +34,9 @@ Drafted entry:
   # max_depth: 3 from sitemap path depth under the prefix
 
 Preview of the fetched page:
-  5497 chars of markdown, 87% of page text, code blocks 0/0, 5 headings
+  5555 chars of markdown, 87% of page text, code blocks 0/0, 5 headings
 
-  | # What is VitePress? [​](\#what-is-vitepress)
+  | # What is VitePress? [​](#what-is-vitepress)
   | 
   | VitePress is a [Static Site Generator](https://en.wikipedia.org/wiki/Static_site_generator) (SSG) designed for building fast, content-centric websites. In a nutshell, VitePress takes your source content written in [Markdown](https://en.wikipedia.org/wiki/Markdown), applies a theme to it, and generates static HTML pages that can be easily deployed anywhere.
   ...
@@ -44,7 +44,7 @@ Preview of the fetched page:
 Dry run: nothing written.
 ```
 
-Output from doc-scraper 2.12.0 against <https://vitepress.dev/guide/what-is-vitepress>, 2026-10-14. Exit code 2.
+Output from doc-scraper 2.24.0 against <https://vitepress.dev/guide/what-is-vitepress>, 2026-10-26. Exit code 2.
 
 ## Crawl it
 
