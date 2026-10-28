@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,7 +17,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/andybalholm/cascadia"
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -27,6 +25,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
@@ -333,16 +332,23 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(fmt.Sprintf("%s is not an HTML page (Content-Type %s); get_page only converts HTML", clipInput(urlStr), clipInput(ct))), nil
 	}
 
-	const maxPageSize = 50 * 1024 * 1024
-	bodyBytes, err := io.ReadAll(io.LimitReader(body, maxPageSize))
+	maxPageSize := config.GetEffectiveMaxPageSize(s.cfg.AppConfig)
+	bodyBytes, err := io.ReadAll(io.LimitReader(body, maxPageSize+1))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to read response: %v", err)), nil
 	}
+	if int64(len(bodyBytes)) > maxPageSize {
+		return mcp.NewToolResultError(fmt.Sprintf("%s exceeds max_page_size_bytes (%d bytes)", clipInput(urlStr), maxPageSize)), nil
+	}
 
-	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(bodyBytes))
+	doc, release, err := pagebudget.Shared.Parse(ctx, bodyBytes)
+	if errors.Is(err, pagebudget.ErrPageTooComplex) {
+		return mcp.NewToolResultError(fmt.Sprintf("%s is too complex to convert: %v", clipInput(urlStr), err)), nil
+	}
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to parse HTML: %v", err)), nil
 	}
+	defer release()
 
 	title := strings.TrimSpace(doc.Find("title").First().Text())
 	if title == "" {

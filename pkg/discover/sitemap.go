@@ -27,6 +27,9 @@ const (
 	maxSitemapURLs   = 50000
 	maxSitemapShards = 2
 	maxSitemapBytes  = 64 << 20
+	// The sitemap protocol's limits on an uncompressed file and on one URL.
+	maxSitemapInflatedBytes = 50 << 20
+	maxLocBytes             = 2048
 )
 
 // fetchSitemap locates the sitemap and flattens it, recursing one level into
@@ -35,21 +38,22 @@ const (
 func (d *Discoverer) fetchSitemap(ctx context.Context, finalURL *url.URL, robotsSitemaps []string) SitemapInfo {
 	candidates := append(append([]string{}, robotsSitemaps...), parse.SitemapCandidates(finalURL)...)
 
+	host := finalURL.Hostname()
 	seen := map[string]struct{}{}
 	for _, c := range candidates {
 		if _, dup := seen[c]; dup {
 			continue
 		}
 		seen[c] = struct{}{}
-		if info, ok := d.loadSitemap(ctx, c); ok {
+		if info, ok := d.loadSitemap(ctx, c, host); ok {
 			return info
 		}
 	}
 	return SitemapInfo{}
 }
 
-func (d *Discoverer) loadSitemap(ctx context.Context, sitemapURL string) (SitemapInfo, bool) {
-	doc, ok := d.streamSitemap(ctx, sitemapURL, maxSitemapURLs)
+func (d *Discoverer) loadSitemap(ctx context.Context, sitemapURL, host string) (SitemapInfo, bool) {
+	doc, ok := d.streamSitemap(ctx, sitemapURL, host, maxSitemapURLs)
 	if !ok || len(doc.locs) == 0 {
 		return SitemapInfo{}, false
 	}
@@ -64,7 +68,7 @@ func (d *Discoverer) loadSitemap(ctx context.Context, sitemapURL string) (Sitema
 			if i >= maxSitemapShards {
 				break
 			}
-			if shardDoc, sok := d.streamSitemap(ctx, shard, maxSitemapURLs-len(info.URLs)); sok && !shardDoc.isIndex {
+			if shardDoc, sok := d.streamSitemap(ctx, shard, host, maxSitemapURLs-len(info.URLs)); sok && !shardDoc.isIndex {
 				info.URLs = append(info.URLs, shardDoc.locs...)
 				info.Truncated = info.Truncated || shardDoc.truncated
 			}
@@ -82,9 +86,12 @@ type sitemapDoc struct {
 	truncated bool
 }
 
-func (d *Discoverer) streamSitemap(ctx context.Context, sitemapURL string, maxURLs int) (sitemapDoc, bool) {
+func (d *Discoverer) streamSitemap(ctx context.Context, sitemapURL, host string, maxURLs int) (sitemapDoc, bool) {
 	if maxURLs <= 0 {
 		return sitemapDoc{truncated: true}, true
+	}
+	if u, err := url.Parse(sitemapURL); err != nil || u.Hostname() != host {
+		return sitemapDoc{}, false
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sitemapURL, nil)
 	if err != nil {
@@ -101,6 +108,9 @@ func (d *Discoverer) streamSitemap(ctx context.Context, sitemapURL string, maxUR
 	if resp.StatusCode != http.StatusOK {
 		return sitemapDoc{}, false
 	}
+	if resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.Hostname() != host {
+		return sitemapDoc{}, false
+	}
 
 	var reader io.Reader = bufio.NewReader(io.LimitReader(resp.Body, maxSitemapBytes))
 	if magic, perr := reader.(*bufio.Reader).Peek(2); perr == nil && len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
@@ -109,7 +119,7 @@ func (d *Discoverer) streamSitemap(ctx context.Context, sitemapURL string, maxUR
 			return sitemapDoc{}, false
 		}
 		defer func() { _ = zr.Close() }()
-		reader = zr
+		reader = io.LimitReader(zr, maxSitemapInflatedBytes)
 	}
 	doc := parseSitemapStream(reader, maxURLs)
 	return doc, len(doc.locs) > 0 || doc.isIndex
@@ -121,7 +131,7 @@ func (d *Discoverer) streamSitemap(ctx context.Context, sitemapURL string, maxUR
 func parseSitemapStream(r io.Reader, maxURLs int) sitemapDoc {
 	dec := xml.NewDecoder(r)
 	var doc sitemapDoc
-	var sawRoot, inLoc bool
+	var sawRoot, inLoc, locTooLong bool
 	var current strings.Builder
 	for {
 		tok, err := dec.Token()
@@ -137,15 +147,24 @@ func parseSitemapStream(r io.Reader, maxURLs int) sitemapDoc {
 			}
 			if t.Name.Local == "loc" {
 				inLoc = true
+				locTooLong = false
 				current.Reset()
 			}
 		case xml.CharData:
-			if inLoc {
-				current.Write(t)
+			if inLoc && !locTooLong {
+				if current.Len()+len(t) > maxLocBytes {
+					locTooLong = true
+					current.Reset()
+				} else {
+					current.Write(t)
+				}
 			}
 		case xml.EndElement:
 			if t.Name.Local == "loc" && inLoc {
 				inLoc = false
+				if locTooLong {
+					continue
+				}
 				if loc := strings.TrimSpace(current.String()); loc != "" {
 					doc.locs = append(doc.locs, loc)
 					if len(doc.locs) >= maxURLs {

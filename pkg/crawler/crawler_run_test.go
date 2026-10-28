@@ -26,6 +26,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
@@ -1313,4 +1314,33 @@ func TestCrawlerRun_WritesUTCTimestamps(t *testing.T) {
 	for _, m := range stamps {
 		assert.Regexp(t, `Z$`, m[2], m[1])
 	}
+}
+
+func TestCrawlerRun_TooComplexPageFailsOthersSaved(t *testing.T) {
+	dense := "<html><body>" + strings.Repeat("<p>a</p>", pagebudget.MaxPageUnits/2+1) + "</body></html>"
+	server, _ := newDocServer(t, map[string]string{
+		"/docs/index.html": `<html><head><title>Index</title></head><body><a href="/docs/dense.html">D</a><a href="/docs/a.html">A</a></body></html>`,
+		"/docs/dense.html": dense,
+		"/docs/a.html":     `<html><head><title>A</title></head><body>A</body></html>`,
+	})
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+
+	assert.EqualValues(t, 2, p.PagesSaved, "index and a")
+	assert.EqualValues(t, 1, p.PagesFailed, "the dense page")
+	assert.NoFileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "dense.md"))
+}
+
+func TestCrawlerRun_RobotsSitemapOffHostNotFetched(t *testing.T) {
+	other, otherRec := newSitemapDocServer(t, "/maps/docs.xml", "")
+	offHostSitemap := strings.Replace(other.URL, "127.0.0.1", "localhost", 1) + "/maps/docs.xml"
+	server, _ := newSitemapDocServer(t, "/unused.xml", "User-agent: *\nAllow: /\n\nSitemap: "+offHostSitemap+"\n")
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	assert.False(t, otherRec.wasRequested("/maps/docs.xml"), "a robots.txt sitemap on another host is not fetched")
 }

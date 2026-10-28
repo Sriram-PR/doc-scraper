@@ -10,14 +10,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 )
 
 var fixturePage = `<!DOCTYPE html>
@@ -420,4 +424,114 @@ func TestDiscoverer_LandingSeedNotesEveryFailedCandidate(t *testing.T) {
 	assert.Nil(t, r.Sample)
 	assert.True(t, r.Detection.Fallback)
 	assert.Regexp(t, `^checked /guide/deep/start: .*HTTP 404; checked /intro: the vitepress selector matched nothing there either$`, r.SampleNote)
+}
+
+// contentServer serves each route's body as HTML. (fileServer above maps
+// routes to files on disk instead.)
+func contentServer(t *testing.T, routes map[string]string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	for route, body := range routes {
+		mux.HandleFunc(route, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, body)
+		})
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestDraftSite_TooComplexSeedFails(t *testing.T) {
+	dense := "<html><body><main>" + strings.Repeat("<p>a</p>", pagebudget.MaxPageUnits/2+1) + "</main></body></html>"
+	srv := contentServer(t, map[string]string{"/docs/": dense})
+
+	_, err := testDiscoverer(srv).DraftSite(context.Background(), DraftRequest{URL: srv.URL + "/docs/"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pagebudget.ErrPageTooComplex)
+}
+
+func TestDraftSite_ReleasesItsReservation(t *testing.T) {
+	srv := contentServer(t, map[string]string{"/docs/": `<html><head><title>T</title></head><body><main><h1>T</h1><p>hello</p></main></body></html>`})
+	for range 3 {
+		_, _ = testDiscoverer(srv).DraftSite(context.Background(), DraftRequest{URL: srv.URL + "/docs/"})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, release, err := pagebudget.Shared.Reserve(ctx, pagebudget.MaxPageUnits)
+	require.NoError(t, err, "every DraftSite call returned its reservation")
+	release()
+}
+
+func TestParseSitemapStream_SkipsOverlongLoc(t *testing.T) {
+	in := `<urlset><url><loc>https://example.com/` + strings.Repeat("a", 3000) + `</loc></url><url><loc>https://example.com/ok</loc></url></urlset>`
+	doc := parseSitemapStream(strings.NewReader(in), 10)
+	assert.Equal(t, []string{"https://example.com/ok"}, doc.locs)
+}
+
+func TestStreamSitemap_GzipCappedAfterInflate(t *testing.T) {
+	var buf bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	_, _ = zw.Write([]byte(`<urlset><url><loc>https://example.com/docs/a</loc></url><url><loc>`))
+	chunk := []byte(strings.Repeat("a", 1<<20))
+	for range 256 {
+		_, _ = zw.Write(chunk)
+	}
+	_, _ = zw.Write([]byte(`</loc></url></urlset>`))
+	_ = zw.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(buf.Bytes()) }))
+	t.Cleanup(srv.Close)
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	doc, ok := testDiscoverer(srv).streamSitemap(context.Background(), srv.URL+"/sitemap.xml", "127.0.0.1", 50000)
+	runtime.ReadMemStats(&after)
+
+	require.True(t, ok)
+	assert.Equal(t, []string{"https://example.com/docs/a"}, doc.locs)
+	assert.True(t, doc.truncated)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(300<<20), "256 MiB inflated must stop at the cap")
+}
+
+// offHost rewrites a test server URL to the same listener under the name
+// localhost, which is a different hostname from 127.0.0.1.
+func offHost(srv *httptest.Server) string {
+	return strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+}
+
+func TestFetchSitemap_SkipsOffHostSitemaps(t *testing.T) {
+	var offHits atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		offHits.Add(1)
+		_, _ = io.WriteString(w, `<urlset><url><loc>https://example.com/docs/x</loc></url></urlset>`)
+	}))
+	t.Cleanup(other.Close)
+
+	t.Run("robots", func(t *testing.T) {
+		srv := contentServer(t, map[string]string{})
+		info := testDiscoverer(srv).fetchSitemap(context.Background(), mustURL(t, srv.URL+"/docs/"), []string{offHost(other) + "/sitemap.xml"})
+		assert.False(t, info.Found)
+	})
+	t.Run("shard", func(t *testing.T) {
+		srv := contentServer(t, map[string]string{
+			"/sitemap.xml": `<sitemapindex><sitemap><loc>` + offHost(other) + `/s1.xml</loc></sitemap></sitemapindex>`,
+		})
+		info := testDiscoverer(srv).fetchSitemap(context.Background(), mustURL(t, srv.URL+"/docs/"), nil)
+		assert.Empty(t, info.URLs)
+	})
+	t.Run("redirect", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/sitemap.xml", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, offHost(other)+"/sitemap.xml", http.StatusFound)
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		info := testDiscoverer(srv).fetchSitemap(context.Background(), mustURL(t, srv.URL+"/docs/"), nil)
+		assert.False(t, info.Found)
+	})
+	// The HTTP client follows the redirect before the host check sees it, so
+	// the off-host server gets exactly that one request; robots and shard
+	// sitemaps on another host are never requested.
+	assert.EqualValues(t, 1, offHits.Load())
 }

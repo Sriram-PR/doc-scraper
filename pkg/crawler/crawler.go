@@ -1,7 +1,6 @@
 package crawler
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -24,6 +23,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/queue"
@@ -912,12 +912,20 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	}
 	// If successful, resp.Body is open and passed to the next stage.
 
-	var parseBodyErr error
-	var originalDoc *goquery.Document
-	originalDoc, parseBodyErr = c.readAndParseBody(resp, finalURL, taskLog) // Closes resp.Body
+	bodyBytes, readErr := c.readBody(resp, finalURL, taskLog) // Closes resp.Body
+	if handleTaskError(readErr) {
+		return
+	}
+	// The request is done; holding request slots while waiting for the page
+	// budget could starve image downloads of a page that holds the budget.
+	cleanupResources()
+
+	originalDoc, releaseDoc, parseBodyErr := parseBody(taskCtx, bodyBytes, finalURL)
 	if handleTaskError(parseBodyErr) {
 		return
 	}
+	defer releaseDoc()
+	taskLog.Debug("Successfully parsed HTML into goquery document.")
 
 	// Checked before content selection so a noindex page (mdBook's print.html
 	// repeats every chapter) never seeds the selector cache or the corpus. No
@@ -1218,12 +1226,11 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	return finalURL, resp, nil
 }
 
-// readAndParseBody reads resp.Body into a goquery.Document, closing the body when done.
-func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskLog *slog.Logger) (doc *goquery.Document, err error) {
+// readBody reads resp.Body, closing it when done.
+func (c *Crawler) readBody(resp *http.Response, finalURL *url.URL, taskLog *slog.Logger) ([]byte, error) {
 	taskLog.Debug(fmt.Sprintf("Reading response body from: %s", finalURL.String()))
 	defer resp.Body.Close()
 
-	// Read response body with size limit to prevent OOM on oversized pages
 	maxPageSize := c.resolved.MaxPageSizeBytes
 	limitedReader := io.LimitReader(resp.Body, maxPageSize+1) // +1 to detect exceeding the limit
 	bodyBytes, readErr := io.ReadAll(limitedReader)
@@ -1234,14 +1241,23 @@ func (c *Crawler) readAndParseBody(resp *http.Response, finalURL *url.URL, taskL
 		return nil, fmt.Errorf("%w: page '%s' exceeds max size (%d > %d bytes)", utils.ErrResponseBodyRead, finalURL.String(), len(bodyBytes), maxPageSize)
 	}
 	taskLog.Debug(fmt.Sprintf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String()))
+	return bodyBytes, nil
+}
 
-	doc, parseErr := goquery.NewDocumentFromReader(bytes.NewReader(bodyBytes))
-	if parseErr != nil {
-		return nil, fmt.Errorf("%w: parsing HTML from '%s': %w", utils.ErrParsing, finalURL.String(), parseErr)
+// parseBody parses body through the shared page budget; release must be
+// called when the page task is done with the document.
+func parseBody(ctx context.Context, body []byte, finalURL *url.URL) (*goquery.Document, func(), error) {
+	doc, release, err := pagebudget.Shared.Parse(ctx, body)
+	switch {
+	case err == nil:
+		return doc, release, nil
+	case errors.Is(err, pagebudget.ErrPageTooComplex):
+		return nil, nil, fmt.Errorf("%w: page '%s': %w", utils.ErrResponseBodyRead, finalURL.String(), err)
+	case ctx.Err() != nil:
+		return nil, nil, err
+	default:
+		return nil, nil, fmt.Errorf("%w: parsing HTML from '%s': %w", utils.ErrParsing, finalURL.String(), err)
 	}
-
-	taskLog.Debug("Successfully parsed HTML into goquery document.")
-	return doc, nil
 }
 
 // extractLinksAndImages extracts markdown links and image references from markdown content.

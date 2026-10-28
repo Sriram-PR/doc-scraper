@@ -37,6 +37,11 @@ type DraftResult struct {
 // PreviewURL, else the sample page discovery used, else the seed (URL) or the
 // entry's first start URL (Base).
 func (d *Discoverer) DraftSite(ctx context.Context, req DraftRequest) (*DraftResult, error) {
+	d, release, err := d.withPageBudget(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	var draft *Draft
 	var doc *goquery.Document
 	var pageURL *url.URL

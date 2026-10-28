@@ -9,27 +9,63 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
-// cgnatRange is RFC 6598 Carrier-Grade NAT space (100.64.0.0/10). Go's
-// netip.Addr.IsPrivate does not include this range, but it should be blocked
-// for SSRF defense since it commonly addresses internal infrastructure.
-var cgnatRange = netip.MustParsePrefix("100.64.0.0/10")
-
-var (
-	nat64Range         = netip.MustParsePrefix("64:ff9b::/96")
-	nat64LocalUseRange = netip.MustParsePrefix("64:ff9b:1::/48")
-	sixToFourRange     = netip.MustParsePrefix("2002::/16")
-	ipv4CompatRange    = netip.MustParsePrefix("::/96")
+// Ranges from the IANA IPv4 and IPv6 Special-Purpose Address Registries that
+// are not globally reachable, plus public addresses that reach the host's own
+// provider.
+var blockedIPv4 = mustPrefixes(
+	"0.0.0.0/8",        // "This network"
+	"10.0.0.0/8",       // Private-Use
+	"100.64.0.0/10",    // Shared Address Space (CGNAT)
+	"127.0.0.0/8",      // Loopback
+	"169.254.0.0/16",   // Link Local, incl. cloud metadata 169.254.169.254
+	"172.16.0.0/12",    // Private-Use
+	"192.0.0.0/24",     // IETF Protocol Assignments
+	"192.0.2.0/24",     // Documentation (TEST-NET-1)
+	"192.88.99.0/24",   // Deprecated 6to4 Relay Anycast
+	"192.168.0.0/16",   // Private-Use
+	"198.18.0.0/15",    // Benchmarking
+	"198.51.100.0/24",  // Documentation (TEST-NET-2)
+	"203.0.113.0/24",   // Documentation (TEST-NET-3)
+	"224.0.0.0/4",      // Multicast
+	"240.0.0.0/4",      // Reserved, incl. Limited Broadcast
+	"168.63.129.16/32", // Azure host endpoint: public space, reachable only from inside Azure
 )
 
-// embeddedIPv4 returns the IPv4 address an IPv6 translation or tunnel address
-// routes to, so a gateway on the path cannot be used to reach a blocked one.
-func embeddedIPv4(addr netip.Addr) (netip.Addr, bool) {
-	if !addr.Is6() {
-		return netip.Addr{}, false
+var (
+	// 2000::/3 is the only IPv6 block IANA allocates as Global Unicast.
+	globalUnicastIPv6 = netip.MustParsePrefix("2000::/3")
+	blockedIPv6       = mustPrefixes(
+		"2001::/23",     // IETF Protocol Assignments, incl. Teredo and Benchmarking
+		"2001:db8::/32", // Documentation
+		"3fff::/20",     // Documentation
+	)
+	nat64Range     = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFourRange = netip.MustParsePrefix("2002::/16")
+)
+
+func mustPrefixes(cidrs ...string) []netip.Prefix {
+	prefixes := make([]netip.Prefix, len(cidrs))
+	for i, c := range cidrs {
+		prefixes[i] = netip.MustParsePrefix(c)
 	}
+	return prefixes
+}
+
+func inAny(prefixes []netip.Prefix, addr netip.Addr) bool {
+	for _, p := range prefixes {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// embeddedIPv4 returns the IPv4 address a NAT64 or 6to4 address routes to, so
+// a gateway on the path cannot be used to reach a blocked one.
+func embeddedIPv4(addr netip.Addr) (netip.Addr, bool) {
 	b := addr.As16()
 	switch {
-	case nat64Range.Contains(addr), nat64LocalUseRange.Contains(addr), ipv4CompatRange.Contains(addr):
+	case nat64Range.Contains(addr):
 		return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
 	case sixToFourRange.Contains(addr):
 		return netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]}), true
@@ -38,35 +74,26 @@ func embeddedIPv4(addr netip.Addr) (netip.Addr, bool) {
 }
 
 // IsBlockedAddr reports whether the given IP address should be rejected from
-// outbound HTTP dials to prevent SSRF against internal infrastructure. It
-// blocks loopback, unspecified, link-local, private (RFC 1918 / RFC 4193),
-// CGNAT, and multicast addresses, and NAT64, 6to4 and IPv4-compatible IPv6
-// addresses that carry one of them.
+// outbound HTTP dials to prevent SSRF against internal infrastructure. Only
+// globally reachable addresses are allowed; NAT64 and 6to4 addresses are
+// judged by the IPv4 address they carry.
 func IsBlockedAddr(addr netip.Addr) bool {
+	addr = addr.WithZone("").Unmap()
 	if !addr.IsValid() {
 		return true
 	}
-	if addr.IsLoopback() ||
-		addr.IsUnspecified() ||
-		addr.IsLinkLocalUnicast() ||
-		addr.IsLinkLocalMulticast() ||
-		addr.IsPrivate() ||
-		addr.IsMulticast() ||
-		addr.IsInterfaceLocalMulticast() {
-		return true
-	}
-	if addr.Is4() && cgnatRange.Contains(addr) {
-		return true
+	if addr.Is4() {
+		return inAny(blockedIPv4, addr)
 	}
 	if v4, ok := embeddedIPv4(addr); ok {
 		return IsBlockedAddr(v4)
 	}
-	return false
+	return !globalUnicastIPv6.Contains(addr) || inAny(blockedIPv6, addr)
 }
 
 // SafeDialContext wraps the given base dialer with a DialContext that resolves
-// the destination hostname, rejects connections to private/loopback/link-local/
-// CGNAT/multicast addresses, and dials each pre-validated IP directly to
+// the destination hostname, rejects connections to addresses that are
+// not globally reachable, and dials each pre-validated IP directly to
 // prevent DNS-rebinding races between the check and the connect.
 //
 // HTTPS still works because http.Transport sets TLS ServerName from the
@@ -80,7 +107,7 @@ func SafeDialContext(base *net.Dialer) func(ctx context.Context, network, addr s
 
 		if parsed, perr := netip.ParseAddr(host); perr == nil {
 			if IsBlockedAddr(parsed.Unmap()) {
-				return nil, fmt.Errorf("%w: %s (private/loopback/link-local/cgnat/multicast)", utils.ErrBlockedAddress, parsed)
+				return nil, fmt.Errorf("%w: %s (not a public address)", utils.ErrBlockedAddress, parsed)
 			}
 			return base.DialContext(ctx, network, addr)
 		}
@@ -136,7 +163,7 @@ func resolveAllowed(ctx context.Context, lookup lookupFunc, host string) ([]neti
 func checkHost(ctx context.Context, lookup lookupFunc, host string) error {
 	if parsed, err := netip.ParseAddr(host); err == nil {
 		if IsBlockedAddr(parsed.Unmap()) {
-			return fmt.Errorf("%w: %s (private/loopback/link-local/cgnat/multicast)", utils.ErrBlockedAddress, parsed)
+			return fmt.Errorf("%w: %s (not a public address)", utils.ErrBlockedAddress, parsed)
 		}
 		return nil
 	}
