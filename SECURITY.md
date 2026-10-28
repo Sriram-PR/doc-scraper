@@ -18,7 +18,7 @@ Reports written or found with AI tools are fine if you have verified them yourse
 
 doc-scraper fetches pages from sites it is pointed at, so content served by those sites is untrusted. If you think you have found a vulnerability, report it even if it doesn't fit the list below. These are the areas we care about most:
 
-- **SSRF guard bypass.** With `allow_private_networks` unset or `false` (the default), any way to make doc-scraper connect to a private, loopback, link-local, CGNAT, or multicast address, or send one to a configured proxy, including through redirects or DNS.
+- **SSRF guard bypass.** With `allow_private_networks` unset or `false` (the default), any way to make doc-scraper connect to an address that is not globally reachable (private, loopback, link-local, CGNAT, multicast, documentation, benchmarking or reserved space, per the IANA special-purpose registries), or send one to a configured proxy, including through redirects or DNS.
 - **Crafted site content.** A page, sitemap, `robots.txt`, or `llms.txt` that crashes doc-scraper, hangs it, or exhausts memory or disk well beyond the size of the content.
 - **Writes outside the configured directories.** A URL or page content that makes doc-scraper create or overwrite files outside `output_base_dir` or `state_dir`.
 - **MCP tool arguments** that read or write files outside those directories, or fetch past the SSRF guard. The MCP server only speaks over stdio and opens no network port.

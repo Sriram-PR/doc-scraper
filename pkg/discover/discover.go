@@ -10,11 +10,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 )
 
 const maxFetchBytes = 8 << 20
@@ -47,6 +47,9 @@ type Discoverer struct {
 	Client    *http.Client
 	UserAgent string
 	Log       *slog.Logger
+	// pages is the reservation this call's pages are parsed from; set by
+	// withPageBudget.
+	pages *pagebudget.Budget
 }
 
 // Run probes rawURL and assembles a Report. Request budget: robots.txt, the
@@ -58,6 +61,11 @@ func (d *Discoverer) Run(ctx context.Context, rawURL string) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
+	d, release, err := d.withPageBudget(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	r := &Report{SeedURL: seed.String()}
 
 	r.Robots = d.fetchRobots(ctx, seed)
@@ -86,6 +94,23 @@ func (d *Discoverer) Run(ctx context.Context, rawURL string) (*Report, error) {
 	analyzeScope(r)
 	d.confirmOnSample(ctx, r)
 	return r, nil
+}
+
+// withPageBudget returns a copy of d whose pages are parsed from one
+// reservation on the shared page budget. Discovery keeps several documents
+// alive at once (seed, samples, preview), so a per-page share could wait on
+// itself. release returns the reservation.
+func (d *Discoverer) withPageBudget(ctx context.Context) (*Discoverer, func(), error) {
+	if d.pages != nil {
+		return d, func() {}, nil
+	}
+	pages, release, err := pagebudget.Shared.Reserve(ctx, pagebudget.MaxPageUnits)
+	if err != nil {
+		return nil, nil, err
+	}
+	dd := *d
+	dd.pages = pages
+	return &dd, release, nil
 }
 
 func (d *Discoverer) get(ctx context.Context, u string) ([]byte, int, error) {
@@ -132,7 +157,15 @@ func (d *Discoverer) fetchPage(ctx context.Context, seed *url.URL) (*goquery.Doc
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading %s: %w", seed, err)
 	}
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
+	pages := d.pages
+	if pages == nil {
+		pages = pagebudget.Shared
+	}
+	doc, release, err := pages.Parse(ctx, body)
+	if err == nil && d.pages == nil {
+		// Outside a reservation the document is not tracked once parsed.
+		release()
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("parsing %s: %w", seed, err)
 	}
