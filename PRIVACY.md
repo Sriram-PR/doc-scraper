@@ -14,9 +14,10 @@ Everything doc-scraper produces stays on your machine: crawled Markdown and JSON
 
 The only network requests doc-scraper makes are the ones you ask for:
 
-- Fetching pages, robots.txt files, and sitemaps from the documentation sites listed in your configuration when you run a crawl.
+- Fetching pages, robots.txt files, and sitemaps from the documentation sites listed in your configuration when you run a crawl, including when an AI assistant invokes the `crawl_site` tool.
 - Fetching a single URL when you (or your AI assistant) invoke the `get_page` tool.
-- Probing a URL when you run `doc-scraper add`: the page itself, its robots.txt, `/llms.txt`, and the site's sitemap (a few requests in total, plus at most two child sitemaps if the sitemap is an index).
+- Probing a URL when you run `doc-scraper add`, or when an AI assistant invokes `draft_site` with a `url`: robots.txt, the page itself, `/llms.txt`, sitemaps (the ones robots.txt lists plus up to nine conventional locations, and at most two children of a sitemap index), and up to two sample pages. With `draft_site`, a `preview_url` adds one more fetch.
+- Fetching one page to preview when an AI assistant invokes `draft_site` with only a configured `site_key`: the entry's first start URL, or `preview_url` if one is given.
 - Downloading images from crawled pages, only if you enable image downloading in your configuration.
 
 Reading, searching, and diffing crawled content (`read_page`, `search_docs`, `list_pages`, `diff_crawl`, `get_freshness`) uses only local files and makes no network requests at all.
