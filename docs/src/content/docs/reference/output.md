@@ -78,7 +78,7 @@ The file mixes two record kinds, distinguished by the `record_type` field:
 | `content` | Full markdown content |
 | `headings` | Array of headings extracted from the page |
 | `links` | Array of links found in the content |
-| `images` | Array of image URLs found in the content |
+| `images` | Array of image URLs found in the content, or `null` when the page has none (Go encodes a nil slice as JSON `null`, not `[]`) |
 | `content_hash` | SHA-256 hash of the content (used for incremental crawling) |
 | `crawled_at` | Timestamp of when the page was crawled |
 | `depth` | Crawl depth from the start URL |
