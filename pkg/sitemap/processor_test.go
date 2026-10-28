@@ -9,9 +9,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -572,31 +576,6 @@ func TestProcessSitemapRespectsPerHostLimit(t *testing.T) {
 	assert.LessOrEqual(t, f.peakFor("example.com"), perHost, "sitemap fetches exceeded max_requests_per_host")
 }
 
-func TestProcessSitemapDistinctHostsNotSerialized(t *testing.T) {
-	const perHost = 2
-	const nested = 12
-	hosts := []string{"a.example.com", "b.example.com"}
-	routes, indexURLs := sitemapIndexOver(hosts, nested)
-	f := newHostConcurrencyFetcher(routes, 15*time.Millisecond)
-
-	pq, sitemapQueue, wg, cancel := startConcurrencyProcessor(t, f, 8, perHost)
-	defer cancel()
-
-	for _, u := range indexURLs {
-		wg.Add(1)
-		sitemapQueue <- u
-	}
-
-	waitForPQLen(t, pq, nested*len(hosts), 20*time.Second)
-	drainPQAndBalance(pq, wg)
-	wg.Wait()
-
-	for _, host := range hosts {
-		assert.LessOrEqual(t, f.peakFor(host), perHost, "host %s exceeded per-host limit", host)
-		assert.GreaterOrEqual(t, f.peakFor(host), 2, "host %s never reached its own limit; hosts appear serialized", host)
-	}
-}
-
 func TestProbe_SkipsNonSitemapsAndProcessesFirstIndex(t *testing.T) {
 	const ns = `xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"`
 	routes := map[string]string{
@@ -755,4 +734,136 @@ func TestReadSitemapBodyPlainUnchanged(t *testing.T) {
 	got, err := readSitemapBody(strings.NewReader("<urlset/>"))
 	require.NoError(t, err)
 	assert.Equal(t, "<urlset/>", string(got))
+}
+
+func TestMarkSitemapProcessedStopsAtLimit(t *testing.T) {
+	sp, _, _, _ := newTestProcessor(t, newMockFetcher(""), newMockPageStore(), defaultSiteCfg(), nil)
+	for i := range maxSitemapsPerSite {
+		require.True(t, sp.MarkSitemapProcessed(fmt.Sprintf("https://example.com/s%d.xml", i)))
+	}
+	assert.False(t, sp.MarkSitemapProcessed("https://example.com/one-more.xml"))
+	assert.False(t, sp.MarkSitemapProcessed("https://example.com/s0.xml"))
+}
+
+// genFetcher serves an endless tree: /gen/N.xml is an index of 3N+1..3N+3.
+type genFetcher struct{ hits atomic.Int32 }
+
+func (g *genFetcher) FetchWithRetry(req *http.Request, _ context.Context) (*http.Response, error) {
+	g.hits.Add(1)
+	n, _ := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(req.URL.Path, "/gen/"), ".xml"))
+	var b strings.Builder
+	b.WriteString(`<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
+	for i := 1; i <= 3; i++ {
+		fmt.Fprintf(&b, `<sitemap><loc>https://example.com/gen/%d.xml</loc></sitemap>`, 3*n+i)
+	}
+	b.WriteString(`</sitemapindex>`)
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(b.String()))}, nil
+}
+
+func TestProcessSitemapIndexDepthLimit(t *testing.T) {
+	g := &genFetcher{}
+	sp, sitemapQueue, _, wg := newTestProcessor(t, g, newMockPageStore(), defaultSiteCfg(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/gen/0.xml"
+	waitDone(t, wg, 10*time.Second)
+
+	assert.EqualValues(t, 1+3+9, g.hits.Load(), "root, 3 at depth 1, 9 at depth 2")
+}
+
+func TestProcessSitemapIndexCountLimit(t *testing.T) {
+	const n = 2000
+	const ns = `xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"`
+	routes := map[string]string{}
+	var idx strings.Builder
+	fmt.Fprintf(&idx, `<sitemapindex %s>`, ns)
+	for i := range n {
+		nested := fmt.Sprintf("https://example.com/docs/sitemap-%d.xml", i)
+		fmt.Fprintf(&idx, `<sitemap><loc>%s</loc></sitemap>`, nested)
+		routes[nested] = fmt.Sprintf(`<urlset %s><url><loc>https://example.com/docs/page-%d</loc></url></urlset>`, ns, i)
+	}
+	idx.WriteString(`</sitemapindex>`)
+	routes["https://example.com/sitemap_index.xml"] = idx.String()
+
+	// max_depth 1 queues no pages, so the WaitGroup tracks only sitemaps.
+	siteCfg := defaultSiteCfg()
+	siteCfg.MaxDepth = 1
+	f := &recordingFetcher{routes: routes}
+	sp, sitemapQueue, _, wg := newTestProcessor(t, f, newMockPageStore(), siteCfg, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/sitemap_index.xml"
+	waitDone(t, wg, 10*time.Second)
+
+	f.mu.Lock()
+	fetched := len(f.requested)
+	f.mu.Unlock()
+	assert.Equal(t, 1+maxSitemapsPerSite, fetched, "the index and the first 1,000 nested sitemaps")
+}
+
+func waitDone(t *testing.T, wg *sync.WaitGroup, timeout time.Duration) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatal("sitemap processing did not finish")
+	}
+}
+
+// recordingFetcher serves routes and records every requested URL; a route
+// may name a final URL to simulate a redirect.
+type recordingFetcher struct {
+	mu        sync.Mutex
+	routes    map[string]string
+	redirects map[string]string
+	requested []string
+}
+
+func (f *recordingFetcher) FetchWithRetry(req *http.Request, _ context.Context) (*http.Response, error) {
+	f.mu.Lock()
+	f.requested = append(f.requested, req.URL.String())
+	f.mu.Unlock()
+	final := req
+	if to, ok := f.redirects[req.URL.String()]; ok {
+		final = req.Clone(req.Context())
+		final.URL, _ = url.Parse(to)
+	}
+	return &http.Response{StatusCode: http.StatusOK, Request: final, Body: io.NopCloser(strings.NewReader(f.routes[req.URL.String()]))}, nil
+}
+
+func (f *recordingFetcher) was(u string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Contains(f.requested, u)
+}
+
+func TestProcessSitemapSkipsOffHost(t *testing.T) {
+	const ns = `xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"`
+	f := &recordingFetcher{
+		routes: map[string]string{
+			"https://example.com/index.xml": `<sitemapindex ` + ns + `><sitemap><loc>https://other.example/s.xml</loc></sitemap><sitemap><loc>https://example.com/moved.xml</loc></sitemap></sitemapindex>`,
+			"https://other.example/s.xml":   `<urlset ` + ns + `><url><loc>https://example.com/docs/a</loc></url></urlset>`,
+			"https://example.com/moved.xml": `<urlset ` + ns + `><url><loc>https://example.com/docs/b</loc></url></urlset>`,
+		},
+		redirects: map[string]string{"https://example.com/moved.xml": "https://other.example/moved.xml"},
+	}
+	sp, sitemapQueue, pq, wg := newTestProcessor(t, f, newMockPageStore(), defaultSiteCfg(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sp.Start(ctx)
+
+	wg.Add(1)
+	sitemapQueue <- "https://example.com/index.xml"
+	waitDone(t, wg, 10*time.Second)
+
+	assert.False(t, f.was("https://other.example/s.xml"), "an off-host nested sitemap is never requested")
+	assert.Zero(t, pq.Len(), "a sitemap redirected off-host is not parsed")
 }

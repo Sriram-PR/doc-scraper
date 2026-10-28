@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,7 +114,7 @@ func Open(path string, retention int, log *slog.Logger) (*Index, error) {
 	// pools gets them; a plain db.Exec would configure only whichever single
 	// connection happened to run it, leaving the rest without foreign_keys
 	// and silently breaking ON DELETE CASCADE.
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", path)
+	dsn := sqliteDSN(path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -136,6 +137,14 @@ func Open(path string, retention int, log *slog.Logger) (*Index, error) {
 	}
 	idx.log.Info("crawl-history index opened", "retention", retention, "schema_version", latestVersion())
 	return idx, nil
+}
+
+func sqliteDSN(path string) string {
+	return (&url.URL{
+		Scheme:   "file",
+		Opaque:   url.PathEscape(path),
+		RawQuery: "_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)",
+	}).String()
 }
 
 // enableWAL switches the database to WAL journaling, retrying on SQLITE_BUSY.
