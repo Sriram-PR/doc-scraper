@@ -16,7 +16,8 @@ The only network requests doc-scraper makes are the ones you ask for:
 
 - Fetching pages, robots.txt files, and sitemaps from the documentation sites listed in your configuration when you run a crawl, including when an AI assistant invokes the `crawl_site` tool.
 - Fetching a single URL when you (or your AI assistant) invoke the `get_page` tool.
-- Probing a URL when you run `doc-scraper add`, or when an AI assistant invokes `draft_site` for a new docs URL: the page itself, its robots.txt, `/llms.txt`, and the site's sitemap. The discovery budget allows up to about 15 requests (robots.txt, the seed page, `/llms.txt`, up to nine sitemap probes, at most two sitemap-index children, and up to two sample pages when the seed's selector fails validation).
+- Probing a URL when you run `doc-scraper add`, or when an AI assistant invokes `draft_site` with a `url`: robots.txt, the page itself, `/llms.txt`, sitemaps (the ones robots.txt lists plus up to nine conventional locations, and at most two children of a sitemap index), and up to two sample pages. With `draft_site`, a `preview_url` adds one more fetch.
+- Fetching one page to preview when an AI assistant invokes `draft_site` with only a configured `site_key`: the entry's first start URL, or `preview_url` if one is given.
 - Downloading images from crawled pages, only if you enable image downloading in your configuration.
 
 Reading, searching, and diffing crawled content (`read_page`, `search_docs`, `list_pages`, `diff_crawl`, `get_freshness`) uses only local files and makes no network requests at all.
