@@ -3,7 +3,6 @@ package crawler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -113,7 +112,7 @@ func (e *lossEnv) failPages(from, to, code int) {
 func requireLossy(t *testing.T, err error, reason string) *LossyCrawlError {
 	t.Helper()
 	var lossy *LossyCrawlError
-	require.True(t, errors.As(err, &lossy), "want *LossyCrawlError, got %v", err)
+	require.ErrorAs(t, err, &lossy)
 	assert.Equal(t, reason, lossy.Reason)
 	return lossy
 }
@@ -154,7 +153,7 @@ func TestLossGuard_EmptyCrawlWithNoindexPageRefused(t *testing.T) {
 	_, err = e.crawl(t, false, false)
 
 	requireLossy(t, err, RefusedEmpty)
-	assert.ErrorContains(t, err, "zero successful pages")
+	require.ErrorContains(t, err, "zero successful pages")
 	assert.EqualValues(t, 5, e.liveJSONLPages(t))
 	assert.Equal(t, 5, e.liveMarkdownFiles(t))
 }
