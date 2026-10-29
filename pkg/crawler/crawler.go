@@ -87,7 +87,8 @@ type Crawler struct {
 	idx *index.Index
 
 	// nil means work directly in the live output dir and visited DB.
-	stage *Stage
+	stage       *Stage
+	allowShrink bool
 
 	// Optional periodic progress reporter (e.g. MCP job status updates).
 	// Invoked from the progress reporter goroutine, never per-page, so it
@@ -114,6 +115,10 @@ type CrawlerOptions struct {
 	// over the live corpus when a staged crawl completes. The store passed to
 	// the crawler must live at Stage.DBPath(); a successful staged Run closes it.
 	Stage *Stage
+
+	// AllowShrink publishes a crawl even if it lost many pages or failed many
+	// pages transiently; a crawl that saved nothing is still refused.
+	AllowShrink bool
 }
 
 // NewCrawlerWithOptions wires a Crawler and its components; opts may be nil to use defaults.
@@ -182,6 +187,7 @@ func NewCrawlerWithOptions(
 		c.progressCallback = opts.ProgressCallback
 		c.idx = opts.Index
 		c.stage = opts.Stage
+		c.allowShrink = opts.AllowShrink
 	}
 
 	c.output = NewOutputManager(logger, resolved, siteCfg, siteKey, siteOutputDir)
@@ -319,17 +325,6 @@ func (c *Crawler) Run(resume bool) (err error) {
 	c.workersWg.Wait()
 
 	c.logRunSummary(overallStart, runLog)
-	// A drained queue is not success if every attempted page failed: without
-	// this, a fully unreachable site produces an empty corpus and exit code 0.
-	// A continued staged crawl counts pages saved by earlier runs, so it fails
-	// only when staging would be swapped in empty. An incremental re-crawl
-	// degrades on individual failures (a page now 404ing) but fails when no page
-	// even checked out unchanged, so an outage is not recorded as a fresh crawl.
-	noPages := !resume || (c.stage != nil && c.stage.Staged && c.output.PagesSaved() == 0)
-	nothingChecked := c.appCfg.EnableIncremental && c.unchangedCounter.Load() == 0
-	if (noPages || nothingChecked) && c.crawlCtx.Err() == nil && c.processedCounter.Load() > 0 && c.succeededCounter.Load() == 0 {
-		return fmt.Errorf("crawl completed with zero successful pages: all %d attempted page tasks failed", c.processedCounter.Load())
-	}
 	return c.crawlCtx.Err()
 }
 
@@ -337,12 +332,20 @@ func (c *Crawler) Run(resume bool) (err error) {
 // run is recorded in crawl history and, when staged, swapped over the live
 // corpus; the search index follows whatever corpus is live.
 func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
+	staged := c.stage != nil && c.stage.Staged
+	// Decided before anything on disk changes: an in-place run deletes the
+	// files of 404 pages in dropGonePages, which a refusal must not do.
+	if runErr == nil {
+		if lossy := c.checkLoss(staged); lossy != nil {
+			runLog.Error(lossy.Error())
+			runErr = lossy
+		}
+	}
 	completed := runErr == nil
 	if completed {
 		c.dropGonePages(runLog)
 	}
 	c.output.Finalize()
-	staged := c.stage != nil && c.stage.Staged
 
 	if staged {
 		if !completed {
@@ -360,6 +363,44 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 	}
 	c.output.writeChunks()
 	return runErr
+}
+
+// checkLoss returns a *LossyCrawlError when the finished run lost too much to
+// publish, nil otherwise.
+func (c *Crawler) checkLoss(staged bool) *LossyCrawlError {
+	c.gonePagesMu.Lock()
+	gone := append([]*url.URL(nil), c.gonePages...)
+	c.gonePagesMu.Unlock()
+	f := c.failures.snapshot()
+
+	in := lossInput{
+		NewPages:    c.output.UniquePages(gone),
+		Transient:   int(f.Count(FailureTemporary)),
+		Incremental: c.appCfg.EnableIncremental,
+		Processed:   c.processedCounter.Load(),
+		Succeeded:   c.succeededCounter.Load(),
+		Unchanged:   c.unchangedCounter.Load(),
+		AllowShrink: c.allowShrink,
+	}
+	in.Attempted = int(in.Succeeded+in.Unchanged) + in.Transient + int(f.Count(FailureSelector)+f.Count(FailureOther))
+	if c.idx != nil && c.resolved.EnableJSONLOutput {
+		lc, err := c.idx.GetLatestCrawl(context.Background(), c.siteKey)
+		if err != nil {
+			c.log.Warn("Could not read the last recorded crawl; skipping the shrink check", "err", err)
+		} else if lc != nil {
+			in.Baseline, in.HasBaseline = lc.TotalPages, true
+		}
+	}
+
+	v := decideLoss(in)
+	if !v.Refused {
+		return nil
+	}
+	return &LossyCrawlError{
+		SiteKey: c.siteKey, Reason: v.Reason,
+		NewPages: v.NewPages, Baseline: v.Baseline, Transient: v.Transient, Attempted: v.Attempted, Processed: v.Processed,
+		Failures: f, StagingKept: staged,
+	}
 }
 
 // dropGonePages removes pages the site no longer serves. An incremental crawl
