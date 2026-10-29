@@ -40,8 +40,8 @@ After all sites complete, the orchestrator logs a summary at `info` level (shown
 level=INFO msg="============================================"
 level=INFO msg="Parallel crawl completed in 3.93211875s"
 level=INFO msg="Site Results:"
-level=INFO msg="  broken_docs: FAILED - 0 pages saved, 0 unchanged, 1 failed, in 47.281374ms"
-level=INFO msg="    Error: crawl completed with zero successful pages: all 1 attempted page tasks failed"
+level=INFO msg="  broken_docs: KEPT BACK - 0 pages saved, 0 unchanged, 1 failed, in 47.281374ms"
+level=INFO msg="    Error: crawl kept back: zero successful pages (1 attempted)"
 level=INFO msg="  rust_cli_book: SUCCESS - 17 pages saved, 0 unchanged, 0 failed, in 3.931996946s"
 level=INFO msg=--------------------------------------------
 level=INFO msg="Total: 2 sites (1 success, 1 failed), 17 pages saved, 0 unchanged, 1 failed"
