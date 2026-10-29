@@ -352,6 +352,54 @@ func (om *OutputManager) buildCrawlMeta() models.CrawlMetaJSONL {
 	}
 }
 
+// UniquePages counts the distinct pages the run would publish, without
+// finalizing the JSONL. It reads the streamed file, so pages recorded twice
+// (a requeued URL) count once; exclude drops pages about to be removed.
+func (om *OutputManager) UniquePages(exclude []*url.URL) int {
+	if om.jsonlFilePath == "" {
+		return om.PagesSaved()
+	}
+	om.jsonlFileMu.Lock()
+	spans, err := indexLastPageOffsets(om.jsonlFilePath)
+	om.jsonlFileMu.Unlock()
+	if err != nil {
+		om.log.Warn("Failed to count JSONL pages; using the streamed count", "path", om.jsonlFilePath, "err", err)
+		return om.PagesSaved()
+	}
+	skip := make(map[string]struct{}, len(exclude))
+	for _, u := range exclude {
+		skip[parse.NormalizeURL(u)] = struct{}{}
+	}
+	n := 0
+	for raw := range spans {
+		if u, err := url.Parse(raw); err == nil {
+			if _, ok := skip[parse.NormalizeURL(u)]; ok {
+				continue
+			}
+		}
+		n++
+	}
+	return n
+}
+
+// appendRaw writes a page record line copied from another corpus.
+func (om *OutputManager) appendRaw(line []byte) bool {
+	om.jsonlFileMu.Lock()
+	defer om.jsonlFileMu.Unlock()
+	if om.jsonlFile == nil {
+		return false
+	}
+	if len(line) == 0 || line[len(line)-1] != '\n' {
+		line = append(append([]byte(nil), line...), '\n')
+	}
+	if _, err := om.jsonlFile.Write(line); err != nil {
+		om.log.Error("Failed to write a carried-forward JSONL record", "path", om.jsonlFilePath, "err", err)
+		return false
+	}
+	om.pagesRecorded.Add(1)
+	return true
+}
+
 // pageSpan is the byte range of one page record within the streamed JSONL file.
 type pageSpan struct {
 	offset int64
