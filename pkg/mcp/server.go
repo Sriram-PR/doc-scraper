@@ -150,13 +150,17 @@ func (s *Server) registerTools() {
 		mcp.WithOpenWorldHintAnnotation(true),
 		mcp.WithDescription("Start a background crawl for a configured site. Returns immediately with a job ID. "+
 			"The crawl builds in a staging area and replaces the stored corpus only when it completes, "+
-			"so a cancelled or failed crawl leaves the previous corpus intact."),
+			"so a cancelled or failed crawl leaves the previous corpus intact. A crawl that lost a large share of "+
+			"its pages is kept back instead (the job fails with refused set), and the stored corpus is kept."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config (use list_sites to discover available keys)"),
 		),
 		mcp.WithBoolean("incremental",
 			mcp.Description("Enable incremental mode (skip unchanged pages)"),
+		),
+		mcp.WithBoolean("allow_shrink",
+			mcp.Description("Publish the crawl even if it lost many pages compared to the last one (use with incremental:true to publish a kept-back crawl)"),
 		),
 		outputSchemaFor[crawlSiteResult](),
 	)

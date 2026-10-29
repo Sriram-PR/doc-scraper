@@ -42,7 +42,7 @@ Numeric limits (`max_results`, `limit`, `max_bytes`, `wait_seconds`) above their
 
 `search_docs` returns `results` best first. Each result's `match` is `all` when it contains every query word (common words such as "how" or "the" aside) or `partial` when it came from the fallback that fills the remaining slots up to `limit` with results containing only some of the words, or built-in synonyms in their place; partial results always follow full ones. Queries using FTS5 syntax are never relaxed. A query made only of common words, unless quoted, is rejected as having no searchable terms. `rank` is the raw BM25 score and compares only results with the same `match`.
 
-Jobs have one shape everywhere: `describe_server`'s `recent_jobs` and `get_freshness`'s `running_job` carry the same fields as `get_job_status` (`job_id`, `site_key`, `status`, page counts, `incremental`, and `completed_at`, `duration_seconds` and `error_message` once they apply).
+Jobs have one shape everywhere: `describe_server`'s `recent_jobs` and `get_freshness`'s `running_job` carry the same fields as `get_job_status` (`job_id`, `site_key`, `status`, page counts (`pages_processed`, `pages_queued`, `pages_unchanged`, `pages_saved`, `pages_failed`, `pages_carried_forward`), `failures`, `refused`, `incremental`, and `completed_at`, `duration_seconds` and `error_message` once they apply).
 
 ## Examples
 
@@ -74,8 +74,10 @@ Result: Returns job ID for tracking progress
 ```
 Tool: get_job_status
 Arguments: { "job_id": "abc-123-def", "wait_seconds": 60 }
-Result: Waits until the job finishes or 60 seconds pass, then returns status, live page counts (pages_processed, pages_queued, pages_unchanged), and completion info. On an incremental crawl, pages_unchanged counts re-checked pages whose content had not changed; pages_processed excludes them.
+Result: Waits until the job finishes or 60 seconds pass, then returns status, live page counts (pages_processed, pages_queued, pages_unchanged, pages_saved, pages_failed, pages_carried_forward), failures by class, and completion info. On an incremental crawl, pages_unchanged counts re-checked pages whose content had not changed; pages_processed excludes them.
 ```
+
+`failures` lists failed pages by class: `temporary` (server errors, rate limiting, network errors, timeouts), `gone` (404 or 410), `selector` (the content selector matched nothing), `policy` (robots.txt, scope, non-HTML, depth) and `other`, each with a count and one sample URL and error. A job whose crawl finished but lost a large share of its pages fails with `refused` set to `empty`, `temporary_failures` or `shrink`; the stored corpus is kept, and `error_message` says how to continue: `crawl_site` with `incremental:true` retries the failed pages, and adding `allow_shrink:true` publishes the kept crawl as it is.
 
 **Enumerate crawled pages:**
 

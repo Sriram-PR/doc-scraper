@@ -423,6 +423,7 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 	}
 
 	incremental := request.GetBool("incremental", false)
+	allowShrink := request.GetBool("allow_shrink", false)
 
 	siteCfg, errResult := s.resolveSiteOrError(siteKey)
 	if errResult != nil {
@@ -455,7 +456,7 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 		siteCfg = latest
 	}
 
-	go s.runCrawlJob(job, siteCfg, siteKey)
+	go s.runCrawlJob(job, siteCfg, siteKey, allowShrink)
 
 	return structuredResult(crawlSiteResult{
 		Status:      "started",
@@ -514,7 +515,7 @@ const (
 // the same site to close its store.
 var crawlRestartWait = 30 * time.Second
 
-func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string) {
+func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string, allowShrink bool) {
 	// Deferred first so it runs last, after the store is closed.
 	defer s.jobManager.FinishJob(job.ID)
 	s.jobManager.UpdateStatus(job.ID, JobStatusRunning, "")
@@ -564,8 +565,9 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 			ProgressCallback: func(processed, queued int64) {
 				s.jobManager.UpdateProgress(jobID, processed, queued)
 			},
-			Index: s.idx,
-			Stage: stage,
+			Index:       s.idx,
+			Stage:       stage,
+			AllowShrink: allowShrink,
 		},
 	)
 	if err != nil {
@@ -575,14 +577,22 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 
 	s.jobManager.AttachProgress(jobID, func() JobProgress {
 		p := crawlerInstance.GetProgress()
-		return JobProgress{Processed: p.PagesProcessed, Queued: int64(p.PagesQueued), Unchanged: p.PagesUnchanged}
+		return JobProgress{
+			Processed: p.PagesProcessed, Queued: int64(p.PagesQueued), Unchanged: p.PagesUnchanged,
+			Saved: p.PagesSaved, Failed: p.PagesFailed, CarriedForward: p.PagesCarriedForward, Failures: p.Failures.Classes,
+		}
 	})
 	err = crawlerInstance.Run(resume)
 	s.jobManager.DetachProgress(jobID)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		var lossy *crawler.LossyCrawlError
+		switch {
+		case errors.Is(err, context.Canceled):
 			s.jobManager.UpdateStatus(job.ID, JobStatusCancelled, "")
-		} else {
+		case errors.As(err, &lossy):
+			s.jobManager.SetRefused(job.ID, lossy.Reason)
+			s.jobManager.UpdateStatus(job.ID, JobStatusFailed, lossy.Error()+". "+lossy.Hint("mcp"))
+		default:
 			s.jobManager.UpdateStatus(job.ID, JobStatusFailed, err.Error())
 		}
 		return

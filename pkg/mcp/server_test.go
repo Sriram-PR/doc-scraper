@@ -129,7 +129,7 @@ func TestRunCrawlJob_Completes(t *testing.T) {
 	job, err := s.jobManager.CreateJob("docs", false)
 	require.NoError(t, err)
 
-	s.runCrawlJob(job, siteCfg, "docs")
+	s.runCrawlJob(job, siteCfg, "docs", false)
 
 	got := s.jobManager.GetJob(job.ID)
 	require.Equal(t, JobStatusCompleted, got.Status, "error: %s", got.ErrorMessage)
@@ -151,7 +151,7 @@ func TestRunCrawlJob_FailsWithoutValidStartURLs(t *testing.T) {
 	job, err := s.jobManager.CreateJob("docs", false)
 	require.NoError(t, err)
 
-	s.runCrawlJob(job, siteCfg, "docs")
+	s.runCrawlJob(job, siteCfg, "docs", false)
 
 	got := s.jobManager.GetJob(job.ID)
 	assert.Equal(t, JobStatusFailed, got.Status)
@@ -164,7 +164,7 @@ func TestRunCrawlJob_CancelledJobEndsCancelled(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, s.jobManager.CancelJob(job.ID))
 
-	s.runCrawlJob(job, siteCfg, "docs")
+	s.runCrawlJob(job, siteCfg, "docs", false)
 
 	assert.Equal(t, JobStatusCancelled, s.jobManager.GetJob(job.ID).Status)
 }
@@ -174,7 +174,7 @@ func TestRunCrawlJob_IncrementalJobCrawlsIncrementally(t *testing.T) {
 	for _, incremental := range []bool{false, true} {
 		job, err := s.jobManager.CreateJob("docs", incremental)
 		require.NoError(t, err)
-		s.runCrawlJob(job, siteCfg, "docs")
+		s.runCrawlJob(job, siteCfg, "docs", false)
 		got := s.jobManager.GetJob(job.ID)
 		require.Equal(t, JobStatusCompleted, got.Status, "error: %s", got.ErrorMessage)
 	}

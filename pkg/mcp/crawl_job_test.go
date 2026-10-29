@@ -82,7 +82,7 @@ func runJob(t *testing.T, s *Server, siteCfg *config.SiteConfig, siteKey string,
 	t.Helper()
 	job, err := s.jobManager.CreateJob(siteKey, incremental)
 	require.NoError(t, err)
-	s.runCrawlJob(job, siteCfg, siteKey)
+	s.runCrawlJob(job, siteCfg, siteKey, false)
 	got := s.jobManager.GetJob(job.ID)
 	require.NotNil(t, got)
 	require.Equal(t, JobStatusCompleted, got.Status, "job error: %s", got.ErrorMessage)
@@ -172,7 +172,7 @@ func TestGetJobStatus_ReportsLiveProgress(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.runCrawlJob(job, siteCfg, siteKey)
+		s.runCrawlJob(job, siteCfg, siteKey, false)
 	}()
 	t.Cleanup(func() {
 		close(release)
@@ -247,7 +247,7 @@ func TestGetFreshness_RunningJobReportsPagesUnchanged(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.runCrawlJob(job, siteCfg, siteKey)
+		s.runCrawlJob(job, siteCfg, siteKey, false)
 	}()
 	t.Cleanup(func() {
 		close(release)
@@ -324,4 +324,69 @@ func TestShutdown_WaitsForCancelledCrawls(t *testing.T) {
 	s.jobManager.mu.RLock()
 	defer s.jobManager.mu.RUnlock()
 	assert.Empty(t, s.jobManager.workers, "Shutdown returned while a crawl was still running")
+}
+
+func TestRunCrawlJob_ReportsCountsAndFailures(t *testing.T) {
+	const siteKey = "docs"
+	s, siteCfg, _ := newCrawlJobServerWith(t, siteKey, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/docs/index.html" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<html><head><title>Doc</title></head><body><main id="c"><p>X</p><a href="/docs/gone.html">g</a></main></body></html>`)
+	}))
+	job, err := s.jobManager.CreateJob(siteKey, false)
+	require.NoError(t, err)
+	s.runCrawlJob(job, siteCfg, siteKey, false)
+
+	_, got := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
+	assert.Equal(t, string(JobStatusCompleted), got["status"])
+	assert.EqualValues(t, 1, got["pages_saved"])
+	assert.EqualValues(t, 1, got["pages_failed"])
+	assert.EqualValues(t, 0, got["pages_carried_forward"])
+	failures, ok := got["failures"].([]any)
+	require.True(t, ok, "failures list present: %v", got)
+	require.Len(t, failures, 1)
+	assert.Equal(t, "gone", failures[0].(map[string]any)["class"])
+	assert.NotContains(t, got, "refused")
+}
+
+func TestRunCrawlJob_RefusedJob(t *testing.T) {
+	const siteKey = "docs"
+	s, siteCfg, _ := newCrawlJobServerWith(t, siteKey, http.NotFoundHandler())
+	job, err := s.jobManager.CreateJob(siteKey, false)
+	require.NoError(t, err)
+	s.runCrawlJob(job, siteCfg, siteKey, false)
+
+	_, got := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
+	assert.Equal(t, string(JobStatusFailed), got["status"])
+	assert.Equal(t, "empty", got["refused"])
+	assert.Contains(t, got["error_message"], "crawl kept back")
+	assert.Contains(t, got["error_message"], "crawl_site with incremental:true")
+}
+
+func TestRunCrawlJob_AllowShrinkPublishesTransientLoss(t *testing.T) {
+	const siteKey = "docs"
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/docs/index.html" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<html><head><title>Doc</title></head><body><main id="c"><p>X</p>`+
+			`<a href="/docs/a.html">a</a><a href="/docs/b.html">b</a><a href="/docs/c.html">c</a></main></body></html>`)
+	})
+	for _, tc := range []struct {
+		allowShrink bool
+		want        JobStatus
+	}{{false, JobStatusFailed}, {true, JobStatusCompleted}} {
+		s, siteCfg, _ := newCrawlJobServerWith(t, siteKey, handler)
+		job, err := s.jobManager.CreateJob(siteKey, false)
+		require.NoError(t, err)
+		s.runCrawlJob(job, siteCfg, siteKey, tc.allowShrink)
+
+		_, got := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
+		assert.Equal(t, string(tc.want), got["status"], "allow_shrink=%v: %v", tc.allowShrink, got["error_message"])
+	}
 }
