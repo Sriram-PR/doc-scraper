@@ -44,7 +44,7 @@ func (f Failures) Count(class string) int64 {
 // classify sorts a failed task's error into a class. Temporary failures are the
 // ones a later run can be expected to fix; only they count toward refusing a
 // crawl, because steady 404s, selector misses and scope skips are normal on
-// healthy sites (pinia: 57% 404s on every run).
+// healthy sites, sometimes for most of their links.
 func classify(err error, gone bool) string {
 	switch {
 	case gone:

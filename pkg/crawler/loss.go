@@ -8,8 +8,8 @@ const (
 	RefusedShrink            = "shrink"
 )
 
-// Measured on 17 healthy re-crawls of real docs sites: corpus sizes never
-// changed and no page failed transiently (docs/research/v2.25.0-lossy-crawl.md).
+// Healthy re-crawls of real docs sites keep the same corpus and have no
+// transient failures, so these leave wide room.
 const (
 	shrinkMinBaseline    = 20
 	shrinkMaxKeptPercent = 70

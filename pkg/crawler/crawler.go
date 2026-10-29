@@ -267,6 +267,7 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 }
 
 // Run starts the crawling process for the configured site and blocks until completion or cancellation.
+// A crawl that finished but was kept back returns a *LossyCrawlError.
 func (c *Crawler) Run(resume bool) (err error) {
 	c.output.crawlStartTime = time.Now().UTC()
 	c.output.SetIndex(c.idx, deriveMode(resume, c.appCfg.EnableIncremental))
@@ -342,8 +343,8 @@ func (c *Crawler) Run(resume bool) (err error) {
 }
 
 // finish finalizes the output files and publishes the result. Only a completed
-// run is recorded in crawl history and, when staged, swapped over the live
-// corpus; the search index follows whatever corpus is live.
+// run that did not lose too much is recorded in crawl history and, when staged,
+// swapped over the live corpus; the search index follows whatever corpus is live.
 func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 	staged := c.stage != nil && c.stage.Staged
 	// Decided before anything on disk changes: an in-place run deletes the

@@ -359,11 +359,8 @@ func (om *OutputManager) UniquePages(exclude []*url.URL) int {
 	if om.jsonlFilePath == "" {
 		return om.PagesSaved()
 	}
-	om.jsonlFileMu.Lock()
-	spans, err := indexLastPageOffsets(om.jsonlFilePath)
-	om.jsonlFileMu.Unlock()
+	spans, err := om.streamedPageSpans()
 	if err != nil {
-		om.log.Warn("Failed to count JSONL pages; using the streamed count", "path", om.jsonlFilePath, "err", err)
 		return om.PagesSaved()
 	}
 	skip := make(map[string]struct{}, len(exclude))
@@ -388,11 +385,8 @@ func (om *OutputManager) recordedPageKeys() map[string]struct{} {
 	if om.jsonlFilePath == "" {
 		return nil
 	}
-	om.jsonlFileMu.Lock()
-	spans, err := indexLastPageOffsets(om.jsonlFilePath)
-	om.jsonlFileMu.Unlock()
+	spans, err := om.streamedPageSpans()
 	if err != nil {
-		om.log.Warn("Failed to read JSONL page URLs", "path", om.jsonlFilePath, "err", err)
 		return nil
 	}
 	keys := make(map[string]struct{}, len(spans))
@@ -402,6 +396,16 @@ func (om *OutputManager) recordedPageKeys() map[string]struct{} {
 		}
 	}
 	return keys
+}
+
+func (om *OutputManager) streamedPageSpans() (map[string]pageSpan, error) {
+	om.jsonlFileMu.Lock()
+	spans, err := indexLastPageOffsets(om.jsonlFilePath)
+	om.jsonlFileMu.Unlock()
+	if err != nil {
+		om.log.Warn("Failed to read the streamed JSONL page records", "path", om.jsonlFilePath, "err", err)
+	}
+	return spans, err
 }
 
 // appendRaw writes a page record line copied from another corpus.

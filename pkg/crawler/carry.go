@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,11 +20,9 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
 )
 
-// carryForward keeps a page from the live corpus when a staged crawl fails to
-// fetch it for a temporary reason, so a 503 on one page does not drop it from
-// the swapped-in corpus. Pages are only noted during the run and copied once
-// the crawl is known to be published: copied early, they would make an outage
-// look like a crawl that saved pages.
+// carryForward keeps a live page that a staged crawl failed to fetch for a
+// temporary reason. Copying waits until the crawl is published, or an outage
+// would pass for a crawl that saved pages.
 type carryForward struct {
 	liveDir   string
 	jsonlPath string
@@ -184,7 +183,7 @@ func readSpan(path string, span pageSpan) ([]byte, error) {
 	}
 	defer f.Close()
 	buf := make([]byte, span.length)
-	if _, err := f.ReadAt(buf, span.offset); err != nil && err != io.EOF {
+	if _, err := f.ReadAt(buf, span.offset); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	return buf, nil
