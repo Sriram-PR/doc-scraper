@@ -20,6 +20,7 @@ var (
 	ErrRequestCreation  = errors.New("failed to create HTTP request")
 	ErrBlockedAddress   = errors.New("blocked address (SSRF guard)") // Permanent; never retried
 	ErrResponseBodyRead = errors.New("failed to read response body")
+	ErrPageTooLarge     = errors.New("page exceeds max size")
 	ErrConfigValidation = errors.New("configuration validation error")
 	ErrNonHTMLContent   = errors.New("non-HTML content type")
 )

@@ -68,6 +68,7 @@ type Crawler struct {
 	succeededCounter atomic.Int64
 	unchangedCounter atomic.Int64
 	savedCounter     atomic.Int64
+	failures         failureTally
 	crawlCtx         context.Context
 	cancelCrawl      context.CancelFunc
 
@@ -236,17 +237,20 @@ type CrawlerProgress struct {
 	PagesUnchanged int64
 	PagesQueued    int
 	IsRunning      bool
+	Failures       Failures
 }
 
 func (c *Crawler) GetProgress() CrawlerProgress {
+	f := c.failures.snapshot()
 	return CrawlerProgress{
 		SiteKey:        c.siteKey,
 		PagesProcessed: c.processedCounter.Load(),
 		PagesSaved:     c.savedCounter.Load(),
-		PagesFailed:    c.processedCounter.Load() - c.succeededCounter.Load(),
+		PagesFailed:    c.processedCounter.Load() - c.succeededCounter.Load() - f.Noindex,
 		PagesUnchanged: c.unchangedCounter.Load(),
 		PagesQueued:    c.pq.Len(),
 		IsRunning:      c.crawlCtx.Err() == nil,
+		Failures:       f,
 	}
 }
 
@@ -695,6 +699,13 @@ func (c *Crawler) logRunSummary(overallStart time.Time, runLog *slog.Logger) {
 	summaryLog.Info(fmt.Sprintf("Duration:         %v", duration))
 	summaryLog.Info(fmt.Sprintf("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Unchanged Pages: %d, Pages Saved (for YAML): %d",
 		finalVisitedCount, finalProcessedCount, c.unchangedCounter.Load(), c.output.PagesSaved()))
+	f := c.failures.snapshot()
+	for _, fc := range f.Classes {
+		summaryLog.Info("Failed pages by class", "class", fc.Class, "count", fc.Count, "sample_url", fc.SampleURL, "sample_error", fc.SampleError)
+	}
+	if f.Noindex > 0 {
+		summaryLog.Info("Pages skipped as noindex", "count", f.Noindex)
+	}
 	summaryLog.Info("========================================================================")
 }
 
@@ -787,6 +798,8 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	var savedContentPath string       // Absolute path to the saved .md file.
 	var normalizedURLString string    // Populated from handleSetupAndResumeCheck.
 	var contentHash string            // Hash of the extracted content region for incremental crawling.
+	var gone bool                     // The page answered 404 or 410.
+	var noindexPage bool              // Saved nothing on purpose; neither success nor failure.
 
 	// Deferred function for panic recovery, final status logging, DB update, and WaitGroup decrement.
 	defer func() {
@@ -856,9 +869,15 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 
 		if !skipped {
 			c.processedCounter.Add(1)
-			if finalStatus == models.PageStatusSuccess {
+			if finalStatus == models.PageStatusSuccess && !noindexPage {
 				c.succeededCounter.Add(1)
 			}
+		}
+		if noindexPage {
+			c.failures.markNoindex()
+		}
+		if taskErr != nil {
+			c.failures.record(currentURL, taskErr, classify(taskErr, gone))
 		}
 		c.wg.Done()
 	}()
@@ -904,6 +923,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// fetchAndValidatePage closes resp.Body on error if resp is not nil.
 	if handleTaskError(fetchErr) {
 		if resp != nil && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone) {
+			gone = true
 			c.gonePagesMu.Lock()
 			c.gonePages = append(c.gonePages, parsedOriginalURL)
 			c.gonePagesMu.Unlock()
@@ -931,6 +951,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// repeats every chapter) never seeds the selector cache or the corpus. No
 	// content hash is recorded, so turning respect_noindex off later reprocesses it.
 	if noindex, nofollow := process.RobotsDirectives(originalDoc, resp.Header); noindex && c.resolved.RespectNoindex {
+		noindexPage = true
 		cleanupResources()
 		if nofollow && c.siteCfg.RespectNofollow {
 			taskLog.Info("Page is marked noindex, nofollow; not saved, links not followed")
@@ -1238,7 +1259,7 @@ func (c *Crawler) readBody(resp *http.Response, finalURL *url.URL, taskLog *slog
 		return nil, fmt.Errorf("%w: reading body from '%s': %w", utils.ErrResponseBodyRead, finalURL.String(), readErr)
 	}
 	if int64(len(bodyBytes)) > maxPageSize {
-		return nil, fmt.Errorf("%w: page '%s' exceeds max size (%d > %d bytes)", utils.ErrResponseBodyRead, finalURL.String(), len(bodyBytes), maxPageSize)
+		return nil, fmt.Errorf("%w: %w: '%s' (%d > %d bytes)", utils.ErrResponseBodyRead, utils.ErrPageTooLarge, finalURL.String(), len(bodyBytes), maxPageSize)
 	}
 	taskLog.Debug(fmt.Sprintf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String()))
 	return bodyBytes, nil

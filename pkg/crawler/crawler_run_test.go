@@ -840,6 +840,8 @@ func TestCrawlerRun_CountsSavedAndFailedPages(t *testing.T) {
 	assert.EqualValues(t, 4, p.PagesProcessed, "every attempted task")
 	assert.EqualValues(t, 2, p.PagesSaved, "index and a; the noindex page writes nothing")
 	assert.EqualValues(t, 1, p.PagesFailed, "gone.html 404s")
+	assert.EqualValues(t, 1, p.Failures.Noindex)
+	assert.EqualValues(t, 1, p.Failures.Count(FailureGone))
 }
 
 // TestCrawlerRun_IncrementalPartialFailureSucceeds keeps the degrade-not-fail
@@ -1343,4 +1345,40 @@ func TestCrawlerRun_RobotsSitemapOffHostNotFetched(t *testing.T) {
 	require.NoError(t, runCrawl(t, appCfg, siteCfg))
 
 	assert.False(t, otherRec.wasRequested("/maps/docs.xml"), "a robots.txt sitemap on another host is not fetched")
+}
+
+// A noindex page is not a saved page: a crawl whose only "success" is a
+// noindex page while the selector misses everything else saved nothing.
+func TestCrawlerRun_NoindexIsNotASuccess(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Index</title></head><body>`+
+		`<p>no main here</p><a href="/docs/print.html">print</a></body></html>`)
+	ms.set("/docs/print.html", `<html><head><title>P</title><meta name="robots" content="noindex"></head><body><main id="c">P</main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	p, err := runResumableCrawlErr(t, appCfg, siteCfg, false)
+
+	require.ErrorContains(t, err, "zero successful pages")
+	assert.EqualValues(t, 1, p.Failures.Noindex)
+	assert.EqualValues(t, 1, p.Failures.Count(FailureSelector))
+	assert.EqualValues(t, 1, p.PagesFailed, "the noindex page is neither saved nor failed")
+}
+
+func TestCrawlerRun_ClassifiesTransientFailures(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Index</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.setStatus("/docs/a.html", http.StatusInternalServerError)
+	appCfg := newTestAppConfig(t)
+	appCfg.InitialRetryDelay = 10 * time.Millisecond
+	appCfg.MaxRetryDelay = 20 * time.Millisecond
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+
+	assert.EqualValues(t, 1, p.Failures.Count(FailureTemporary), "a 500 after retries is a temporary failure")
+	assert.Equal(t, server.URL+"/docs/a.html", p.Failures.Classes[0].SampleURL)
 }
