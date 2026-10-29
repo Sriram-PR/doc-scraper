@@ -234,3 +234,39 @@ func jsonlHashOf(t *testing.T, path, pageURL string) string {
 	t.Fatalf("no record for %s", pageURL)
 	return ""
 }
+
+// MCP reads progress from another goroutine while Run sets the crawl up.
+func TestLossGuard_ProgressReadableDuringRun(t *testing.T) {
+	e := newLossEnv(t, 3)
+	_, err := e.crawl(t, false, false)
+	require.NoError(t, err)
+
+	crawlLog := newCrawlLog(t)
+	logger := crawlLog.logger()
+	ctx, cancel := crawlLog.deadlineContext(t, e.appCfg)
+	defer cancel()
+	stage, store, err := OpenStagedStore(ctx, e.appCfg, testSiteKey, false, logger)
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+	fetcher := fetch.NewFetcher(fetch.NewClient(e.appCfg.HTTPClientSettings, logger), e.appCfg, logger)
+	c, err := NewCrawlerWithOptions(e.appCfg, e.siteCfg, testSiteKey, logger, store, fetcher, fetch.NewRateLimiter(e.appCfg.DefaultDelayPerHost, logger), ctx, cancel, false,
+		&CrawlerOptions{Index: e.idx, Stage: stage})
+	require.NoError(t, err)
+
+	stop := make(chan struct{})
+	polled := make(chan struct{})
+	go func() {
+		defer close(polled)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				c.GetProgress()
+			}
+		}
+	}()
+	require.NoError(t, c.Run(false))
+	close(stop)
+	<-polled
+}

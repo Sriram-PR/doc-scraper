@@ -68,6 +68,7 @@ type Crawler struct {
 	succeededCounter atomic.Int64
 	unchangedCounter atomic.Int64
 	savedCounter     atomic.Int64
+	carriedCounter   atomic.Int64
 	failures         failureTally
 	crawlCtx         context.Context
 	cancelCrawl      context.CancelFunc
@@ -258,7 +259,7 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 		PagesSaved:          c.savedCounter.Load(),
 		PagesFailed:         c.processedCounter.Load() - c.succeededCounter.Load() - f.Noindex,
 		PagesUnchanged:      c.unchangedCounter.Load(),
-		PagesCarriedForward: c.carry.count(),
+		PagesCarriedForward: c.carriedCounter.Load(),
 		PagesQueued:         c.pq.Len(),
 		IsRunning:           c.crawlCtx.Err() == nil,
 		Failures:            f,
@@ -356,6 +357,7 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 	if completed {
 		if c.carry != nil {
 			c.carry.carryAll(c.output, c.contentProcessor, c.siteCfg, c.siteOutputDir)
+			c.carriedCounter.Store(c.carry.count())
 			if n := c.carry.count(); n > 0 {
 				runLog.Info("Kept the previous copy of pages that failed with a temporary error", "count", n)
 			}
