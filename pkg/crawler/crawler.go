@@ -349,7 +349,6 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 	// files of 404 pages in dropGonePages, which a refusal must not do.
 	if runErr == nil {
 		if lossy := c.checkLoss(staged); lossy != nil {
-			runLog.Error(lossy.Error())
 			runErr = lossy
 		}
 	}
