@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/taskspec"
 )
 
 var (
@@ -78,6 +79,18 @@ func TestDocs_ConfigurationReferenceMatchesConfigStructs(t *testing.T) {
 			assert.Equal(t, yamlKeys(tc.typ), tableKeys(docsSection(t, page, tc.heading)),
 				"docs reference/configuration.md %q table is out of sync with config.%s yaml keys", tc.heading, tc.typ.Name())
 		})
+	}
+}
+
+func TestDocs_TaskSpecGuideListsEveryField(t *testing.T) {
+	page := readDocsPage(t, "guides/task-specs.md")
+	typ := reflect.TypeFor[taskspec.TaskSpec]()
+	for i := range typ.NumField() {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		assert.Contains(t, page, `"`+name+`":`, "docs guides/task-specs.md does not show the %q field", name)
 	}
 }
 

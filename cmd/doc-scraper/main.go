@@ -63,6 +63,10 @@ var version = versionpkg.Version
 // exitInterrupted is the conventional 128+SIGINT status for a crawl stopped by a signal.
 const exitInterrupted = 130
 
+// exitKeptBack means the crawl finished but lost too much to publish; the
+// previous corpus is untouched.
+const exitKeptBack = 3
+
 var (
 	shutdownGrace = 30 * time.Second
 	forceExit     = os.Exit
@@ -198,6 +202,7 @@ func runCrawl(args []string) {
 	pprofAddr := fs.String("pprof", "", "pprof address, e.g. localhost:6060; only effective in builds with -tags pprof (default builds log a warning and ignore it)")
 	incrementalMode := fs.Bool("incremental", false, "Enable incremental crawling (skip unchanged pages)")
 	fullMode := fs.Bool("full", false, "Force full crawl (ignore incremental settings)")
+	allowShrink := fs.Bool("allow-shrink", false, "Publish the crawl even if it lost many pages compared to the last one")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: doc-scraper crawl [options]\n\nOptions:\n")
@@ -235,9 +240,9 @@ func runCrawl(args []string) {
 
 	logFormat := logFormatFor(*jsonLogs)
 	if *allSites || len(siteKeys) > 1 {
-		os.Exit(executeParallelCrawl(*configFile, siteKeys, *allSites, *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode))
+		os.Exit(executeParallelCrawl(*configFile, siteKeys, *allSites, *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode, *allowShrink))
 	}
-	os.Exit(executeCrawl(*configFile, siteKeys[0], *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode))
+	os.Exit(executeCrawl(*configFile, siteKeys[0], *logLevel, logFormat, *pprofAddr, isResume, *incrementalMode, *fullMode, *allowShrink))
 }
 
 func printConfigUsage(w io.Writer) {
@@ -473,9 +478,9 @@ func dispatchTaskSpec(spec *taskspec.TaskSpec) int {
 	switch spec.Command {
 	case taskspec.CommandCrawl:
 		if spec.AllSites || len(siteKeys) > 1 {
-			return executeParallelCrawl(spec.Config, siteKeys, spec.AllSites, spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full)
+			return executeParallelCrawl(spec.Config, siteKeys, spec.AllSites, spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full, spec.AllowShrink)
 		}
-		return executeCrawl(spec.Config, siteKeys[0], spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full)
+		return executeCrawl(spec.Config, siteKeys[0], spec.Loglevel, logFormat, spec.Pprof, spec.Resume || spec.Incremental, spec.Incremental, spec.Full, spec.AllowShrink)
 	case taskspec.CommandWatch:
 		executeWatch(spec.Config, siteKeys, spec.AllSites, spec.Interval, spec.Loglevel, logFormat)
 	}
@@ -726,7 +731,7 @@ func validateSiteConfigs(appCfg *config.AppConfig, siteKeys []string, log *slog.
 	}
 }
 
-func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) int {
+func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode, allowShrink bool) int {
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
 
@@ -756,7 +761,7 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 	}
 	defer func() { _ = idx.Close() }()
 
-	orch := orchestrate.NewOrchestrator(context.Background(), appCfg, siteKeys, isResume, logEntry).WithIndex(idx)
+	orch := orchestrate.NewOrchestrator(context.Background(), appCfg, siteKeys, isResume, logEntry).WithIndex(idx).WithAllowShrink(allowShrink)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -777,20 +782,30 @@ func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, l
 		orch.Cancel()
 	}()
 
-	results := orch.Run()
-
-	for _, r := range results {
-		if !r.Success {
-			if interrupted.Load() {
-				return exitInterrupted
-			}
-			return 1
-		}
-	}
-	return 0
+	return parallelExitCode(orch.Run(), interrupted.Load())
 }
 
-func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode bool) int {
+// parallelExitCode folds per-site results into one exit code: an interrupt
+// wins, then a hard error, then a kept-back crawl.
+func parallelExitCode(results []orchestrate.SiteResult, interrupted bool) int {
+	code := 0
+	for _, r := range results {
+		if r.Success {
+			continue
+		}
+		if interrupted {
+			return exitInterrupted
+		}
+		if !r.Refused {
+			code = 1
+		} else if code == 0 {
+			code = exitKeptBack
+		}
+	}
+	return code
+}
+
+func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode, allowShrink bool) int {
 	runtime.SetBlockProfileRate(1000)
 	runtime.SetMutexProfileFraction(1000)
 
@@ -892,7 +907,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 		crawlCtx,
 		cancelCrawl,
 		isResume,
-		&crawler.CrawlerOptions{Index: idx, Stage: stage},
+		&crawler.CrawlerOptions{Index: idx, Stage: stage, AllowShrink: allowShrink},
 	)
 	if err != nil {
 		fatal(log, "Failed to initialize crawler: %v", err)
@@ -901,7 +916,12 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	err = crawlerInstance.Run(isResume)
 
 	if err != nil {
+		var lossy *crawler.LossyCrawlError
 		switch {
+		case errors.As(err, &lossy):
+			log.Error(lossy.Error())
+			log.Error(lossy.Hint("cli"))
+			return exitKeptBack
 		case errors.Is(err, context.Canceled):
 			log.Warn("Crawl interrupted; it is incomplete.")
 			return exitInterrupted

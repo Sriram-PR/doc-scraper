@@ -32,6 +32,7 @@ type TaskSpec struct {
 	Resume      bool     `json:"resume,omitempty"`
 	Incremental bool     `json:"incremental,omitempty"`
 	Full        bool     `json:"full,omitempty"`
+	AllowShrink bool     `json:"allow_shrink,omitempty"`
 	Interval    string   `json:"interval,omitempty"`
 	Loglevel    string   `json:"loglevel,omitempty"`
 	JSONLogs    bool     `json:"json_logs,omitempty"`
@@ -120,8 +121,8 @@ func (s *TaskSpec) Validate() error {
 		if _, err := watch.ParseInterval(s.Interval); err != nil {
 			return fmt.Errorf("invalid interval %q: %w", s.Interval, err)
 		}
-		if s.Resume || s.Incremental || s.Full || s.Pprof != "" {
-			return fmt.Errorf("resume, incremental, full, and pprof are not valid for watch (watch is always incremental)")
+		if s.Resume || s.Incremental || s.Full || s.AllowShrink || s.Pprof != "" {
+			return fmt.Errorf("resume, incremental, full, allow_shrink, and pprof are not valid for watch (watch is always incremental)")
 		}
 	}
 

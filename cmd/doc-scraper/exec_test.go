@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	pkglog "github.com/Sriram-PR/doc-scraper/v2/pkg/log"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/orchestrate"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/taskspec"
 )
 
@@ -98,7 +100,7 @@ func TestExecuteCrawl_EndToEnd(t *testing.T) {
 	srv := crawlFixtureServer(t)
 	cfgPath, outDir, stateDir := writeCrawlConfig(t, srv.URL, "")
 
-	code := executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false)
+	code := executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false, false)
 	require.Equal(t, 0, code)
 
 	assert.GreaterOrEqual(t, countFiles(t, outDir, "*.md"), 3, "all three pages saved as markdown")
@@ -106,7 +108,7 @@ func TestExecuteCrawl_EndToEnd(t *testing.T) {
 	_, err := os.Stat(filepath.Join(stateDir, "index.db"))
 	require.NoError(t, err, "crawl-history index created")
 
-	code = executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", true, true, false)
+	code = executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", true, true, false, false)
 	assert.Equal(t, 0, code, "incremental follow-up crawl succeeds")
 }
 
@@ -115,10 +117,10 @@ func TestExecuteCrawl_UnreachableSiteFails(t *testing.T) {
 	cfgPath, _, _ := writeCrawlConfig(t, srv.URL, "")
 	srv.Close()
 
-	// Individual page failures are non-fatal, but a crawl where every
-	// attempted page failed must not exit 0 with an empty corpus.
-	code := executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false)
-	assert.Equal(t, 1, code)
+	// Nothing could be fetched: the crawl is kept back (exit 3) rather than
+	// swapping in an empty corpus.
+	code := executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false, false)
+	assert.Equal(t, exitKeptBack, code)
 }
 
 func TestExecuteParallelCrawl_EndToEnd(t *testing.T) {
@@ -131,7 +133,7 @@ func TestExecuteParallelCrawl_EndToEnd(t *testing.T) {
 `, srv.URL, hostOnly(srv.URL))
 	cfgPath, outDir, _ := writeCrawlConfig(t, srv.URL, extra)
 
-	code := executeParallelCrawl(cfgPath, []string{"fixture", "second"}, false, "error", pkglog.FormatText, "", false, false, false)
+	code := executeParallelCrawl(cfgPath, []string{"fixture", "second"}, false, "error", pkglog.FormatText, "", false, false, false, false)
 	require.Equal(t, 0, code)
 	assert.DirExists(t, filepath.Join(outDir, "fixture"))
 	assert.DirExists(t, filepath.Join(outDir, "second"))
@@ -157,10 +159,10 @@ func TestExecuteCrawl_SignalGoroutinesStopOnReturn(t *testing.T) {
 		run func() int
 	}{
 		{"executeCrawl", func() int {
-			return executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false)
+			return executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false, false)
 		}},
 		{"executeParallelCrawl", func() int {
-			return executeParallelCrawl(cfgPath, []string{"fixture"}, false, "error", pkglog.FormatText, "", false, false, false)
+			return executeParallelCrawl(cfgPath, []string{"fixture"}, false, "error", pkglog.FormatText, "", false, false, false, false)
 		}},
 	} {
 		t.Run(tc.fn, func(t *testing.T) {
@@ -249,4 +251,27 @@ func TestLoadAndValidateConfig(t *testing.T) {
 	assert.NotEmpty(t, cfg.OutputBaseDir)
 
 	validateSiteConfigs(cfg, []string{"fixture"}, log)
+}
+
+func TestParallelExitCode(t *testing.T) {
+	ok := orchestrate.SiteResult{Success: true}
+	refused := orchestrate.SiteResult{Refused: true, Error: errors.New("kept back")}
+	failed := orchestrate.SiteResult{Error: errors.New("boom")}
+	cases := []struct {
+		name        string
+		results     []orchestrate.SiteResult
+		interrupted bool
+		want        int
+	}{
+		{"all ok", []orchestrate.SiteResult{ok, ok}, false, 0},
+		{"one refused", []orchestrate.SiteResult{ok, refused}, false, exitKeptBack},
+		{"refused then failed", []orchestrate.SiteResult{refused, failed}, false, 1},
+		{"failed then refused", []orchestrate.SiteResult{failed, refused}, false, 1},
+		{"interrupted wins", []orchestrate.SiteResult{refused, failed}, true, exitInterrupted},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, parallelExitCode(tc.results, tc.interrupted))
+		})
+	}
 }

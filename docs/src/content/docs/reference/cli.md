@@ -36,9 +36,14 @@ Crawl one site, several sites in parallel, or every configured site. One of `-si
 | `-resume` | bool | Resume an interrupted crawl from existing state | `false` |
 | `-incremental` | bool | Enable incremental crawling (skip unchanged pages) | `false` |
 | `-full` | bool | Force full crawl (ignore incremental settings) | `false` |
+| `-allow-shrink` | bool | Publish the crawl even if it lost many pages compared to the last one | `false` |
 | `-loglevel` | string | Log level (`debug`, `info`, `warn`, `error`) | `info` |
 | `-json` | bool | Emit logs as JSON (one record per line) instead of text | `false` |
 | `-pprof` | string | pprof server address, e.g. `localhost:6060`. Only effective in builds with `-tags pprof`; default builds log a warning and ignore the flag | `""` (disabled) |
+
+A finished crawl is kept back instead of published when it would publish no pages, when at least 3 pages and a quarter of the content pages failed with temporary errors (server errors, rate limiting, network errors, timeouts), or when it has 30% fewer pages than the last recorded crawl of a site with at least 20 pages. The previous corpus stays as it was, the run is not recorded in crawl history, and a fresh crawl's staging is kept: `crawl -resume` retries the failed pages and publishes when they succeed, and `crawl -resume -allow-shrink` publishes the kept crawl as it is (it cannot publish a crawl with no pages). In a fresh crawl that is published, a page from the last crawl that failed with a temporary error keeps its previous copy.
+
+Exit codes: `0` success, `1` error, `3` crawl kept back, `130` interrupted. With several sites, an interrupt wins, then an error, then a kept-back crawl.
 
 ## `watch`
 
