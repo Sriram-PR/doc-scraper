@@ -382,6 +382,28 @@ func (om *OutputManager) UniquePages(exclude []*url.URL) int {
 	return n
 }
 
+// recordedPageKeys returns the normalized URLs of the pages in the streamed
+// JSONL; nil when JSONL output is off or the file can't be read.
+func (om *OutputManager) recordedPageKeys() map[string]struct{} {
+	if om.jsonlFilePath == "" {
+		return nil
+	}
+	om.jsonlFileMu.Lock()
+	spans, err := indexLastPageOffsets(om.jsonlFilePath)
+	om.jsonlFileMu.Unlock()
+	if err != nil {
+		om.log.Warn("Failed to read JSONL page URLs", "path", om.jsonlFilePath, "err", err)
+		return nil
+	}
+	keys := make(map[string]struct{}, len(spans))
+	for raw := range spans {
+		if u, err := url.Parse(raw); err == nil {
+			keys[parse.NormalizeURL(u)] = struct{}{}
+		}
+	}
+	return keys
+}
+
 // appendRaw writes a page record line copied from another corpus.
 func (om *OutputManager) appendRaw(line []byte) bool {
 	om.jsonlFileMu.Lock()

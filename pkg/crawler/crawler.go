@@ -89,6 +89,7 @@ type Crawler struct {
 	// nil means work directly in the live output dir and visited DB.
 	stage       *Stage
 	allowShrink bool
+	carry       *carryForward
 
 	// Optional periodic progress reporter (e.g. MCP job status updates).
 	// Invoked from the progress reporter goroutine, never per-page, so it
@@ -241,22 +242,26 @@ type CrawlerProgress struct {
 	// PagesUnchanged counts incremental re-checks whose content hash matched;
 	// they are fetched but not reprocessed, so PagesProcessed excludes them.
 	PagesUnchanged int64
-	PagesQueued    int
-	IsRunning      bool
-	Failures       Failures
+	// PagesCarriedForward counts pages that failed temporarily in a staged
+	// crawl and kept their copy from the live corpus.
+	PagesCarriedForward int64
+	PagesQueued         int
+	IsRunning           bool
+	Failures            Failures
 }
 
 func (c *Crawler) GetProgress() CrawlerProgress {
 	f := c.failures.snapshot()
 	return CrawlerProgress{
-		SiteKey:        c.siteKey,
-		PagesProcessed: c.processedCounter.Load(),
-		PagesSaved:     c.savedCounter.Load(),
-		PagesFailed:    c.processedCounter.Load() - c.succeededCounter.Load() - f.Noindex,
-		PagesUnchanged: c.unchangedCounter.Load(),
-		PagesQueued:    c.pq.Len(),
-		IsRunning:      c.crawlCtx.Err() == nil,
-		Failures:       f,
+		SiteKey:             c.siteKey,
+		PagesProcessed:      c.processedCounter.Load(),
+		PagesSaved:          c.savedCounter.Load(),
+		PagesFailed:         c.processedCounter.Load() - c.succeededCounter.Load() - f.Noindex,
+		PagesUnchanged:      c.unchangedCounter.Load(),
+		PagesCarriedForward: c.carry.count(),
+		PagesQueued:         c.pq.Len(),
+		IsRunning:           c.crawlCtx.Err() == nil,
+		Failures:            f,
 	}
 }
 
@@ -279,6 +284,13 @@ func (c *Crawler) Run(resume bool) (err error) {
 		return err
 	}
 	c.output.OpenFiles(resume)
+	if c.stage != nil && c.stage.Staged && c.resolved.EnableJSONLOutput {
+		cf, err := newCarryForward(c.stage.liveOut, c.resolved.JSONLOutputFilename, runLog)
+		if err != nil {
+			runLog.Warn("Pages that fail temporarily will not keep their previous copy", "err", err)
+		}
+		c.carry = cf
+	}
 
 	initialTasksFromDB, err := c.requeueIncomplete(resume, runLog)
 	if err != nil {
@@ -343,6 +355,12 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 	}
 	completed := runErr == nil
 	if completed {
+		if c.carry != nil {
+			c.carry.carryAll(c.output, c.contentProcessor, c.siteCfg, c.siteOutputDir)
+			if n := c.carry.count(); n > 0 {
+				runLog.Info("Kept the previous copy of pages that failed with a temporary error", "count", n)
+			}
+		}
 		c.dropGonePages(runLog)
 	}
 	c.output.Finalize()
@@ -375,6 +393,7 @@ func (c *Crawler) checkLoss(staged bool) *LossyCrawlError {
 
 	in := lossInput{
 		NewPages:    c.output.UniquePages(gone),
+		Carryable:   c.carry.carryable(c.output),
 		Transient:   int(f.Count(FailureTemporary)),
 		Incremental: c.appCfg.EnableIncremental,
 		Processed:   c.processedCounter.Load(),
@@ -918,7 +937,13 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			c.failures.markNoindex()
 		}
 		if taskErr != nil {
-			c.failures.record(currentURL, taskErr, classify(taskErr, gone))
+			class := classify(taskErr, gone)
+			c.failures.record(currentURL, taskErr, class)
+			if class == FailureTemporary && c.carry != nil {
+				if u, err := url.Parse(currentURL); err == nil {
+					c.carry.note(u)
+				}
+			}
 		}
 		c.wg.Done()
 	}()

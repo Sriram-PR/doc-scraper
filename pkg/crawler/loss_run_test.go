@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -196,4 +197,41 @@ func TestLossGuard_IncrementalTransientFailuresNotRecorded(t *testing.T) {
 	assert.Equal(t, 21, e.liveMarkdownFiles(t), "old files kept, including the 404 page's")
 	assert.EqualValues(t, 21, e.liveJSONLPages(t))
 	assert.EqualValues(t, 1, e.latestCrawl(t).ID, "refused incremental run not recorded")
+}
+
+func TestLossGuard_TransientFailureCarriesOldPageForward(t *testing.T) {
+	e := newLossEnv(t, 20)
+	_, err := e.crawl(t, false, false)
+	require.NoError(t, err)
+	oldHash := jsonlHashOf(t, e.liveJSONLPath(), e.url+"/docs/p10.html")
+
+	e.failPages(10, 10, http.StatusServiceUnavailable)
+	p, err := e.crawl(t, false, false)
+
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, p.PagesCarriedForward)
+	assert.EqualValues(t, 21, e.liveJSONLPages(t))
+	assert.Equal(t, oldHash, jsonlHashOf(t, e.liveJSONLPath(), e.url+"/docs/p10.html"))
+	diff, err := e.idx.DiffPrevious(context.Background(), testSiteKey, 100, 0)
+	require.NoError(t, err)
+	for _, entry := range diff.Entries {
+		assert.NotEqual(t, "removed", entry.Kind, "carried page must not show as removed: %s", entry.URL)
+	}
+}
+
+func jsonlHashOf(t *testing.T, path, pageURL string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, line := range strings.Split(string(b), "\n") {
+		var rec struct {
+			URL         string `json:"url"`
+			ContentHash string `json:"content_hash"`
+		}
+		if json.Unmarshal([]byte(line), &rec) == nil && rec.URL == pageURL {
+			return rec.ContentHash
+		}
+	}
+	t.Fatalf("no record for %s", pageURL)
+	return ""
 }

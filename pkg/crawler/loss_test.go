@@ -33,6 +33,9 @@ func TestDecideLoss(t *testing.T) {
 		{"furo root: 60% selector misses", lossInput{NewPages: 48, Attempted: 124, Processed: 126, Succeeded: 48, HasBaseline: true, Baseline: 48}, ""},
 		{"go.dev: redirects", lossInput{NewPages: 100, Attempted: 123, Processed: 129, Succeeded: 123, HasBaseline: true, Baseline: 100}, ""},
 		{"gitbook: 23% noindex", lossInput{NewPages: 247, Attempted: 256, Processed: 333, Succeeded: 251, HasBaseline: true, Baseline: 247}, ""},
+		{"outage: only carried pages", lossInput{NewPages: 0, Carryable: 1, Attempted: 1, Transient: 1, Processed: 1, AllowShrink: true}, RefusedEmpty},
+		{"one 503 carried keeps the corpus whole", lossInput{NewPages: 20, Carryable: 1, Attempted: 21, Transient: 1, Processed: 21, Succeeded: 20, HasBaseline: true, Baseline: 21}, ""},
+		{"carried pages count against shrink", lossInput{NewPages: 13, Carryable: 2, Attempted: 15, Transient: 2, Processed: 15, Succeeded: 13, HasBaseline: true, Baseline: 20}, ""},
 		{"click 429 storm", lossInput{NewPages: 2, Attempted: 38, Transient: 36, Processed: 38, Succeeded: 2, HasBaseline: true, Baseline: 38}, RefusedTemporaryFailures},
 	}
 	for _, tc := range cases {

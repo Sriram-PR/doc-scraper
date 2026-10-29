@@ -21,6 +21,7 @@ type lossInput struct {
 	Baseline    int
 	HasBaseline bool
 	NewPages    int
+	Carryable   int // failed temporarily; published as their previous copy
 	Attempted   int
 	Transient   int
 	Incremental bool
@@ -41,7 +42,8 @@ type lossVerdict struct {
 }
 
 func decideLoss(in lossInput) lossVerdict {
-	v := lossVerdict{NewPages: in.NewPages, Baseline: in.Baseline, Transient: in.Transient, Attempted: in.Attempted, Processed: in.Processed}
+	kept := in.NewPages + in.Carryable
+	v := lossVerdict{NewPages: kept, Baseline: in.Baseline, Transient: in.Transient, Attempted: in.Attempted, Processed: in.Processed}
 	refuse := func(reason string) lossVerdict {
 		v.Refused, v.Reason = true, reason
 		return v
@@ -60,7 +62,7 @@ func decideLoss(in lossInput) lossVerdict {
 	if in.Transient >= transientMinCount && in.Transient*100 >= in.Attempted*transientMaxPercent {
 		return refuse(RefusedTemporaryFailures)
 	}
-	if in.HasBaseline && in.Baseline >= shrinkMinBaseline && in.NewPages*100 <= in.Baseline*shrinkMaxKeptPercent {
+	if in.HasBaseline && in.Baseline >= shrinkMinBaseline && kept*100 <= in.Baseline*shrinkMaxKeptPercent {
 		return refuse(RefusedShrink)
 	}
 	return v
