@@ -66,7 +66,7 @@ Result: Returns up to max_bytes (default 102400) of the page as markdown with me
 ```
 Tool: crawl_site
 Arguments: { "site_key": "pytorch_docs", "incremental": true }
-Result: Returns job ID for tracking progress
+Result: Returns job ID for tracking progress. Add "allow_shrink": true to publish a crawl that would otherwise be kept back for losing pages
 ```
 
 **Check crawl progress:**

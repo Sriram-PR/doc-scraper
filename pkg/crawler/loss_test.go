@@ -22,6 +22,7 @@ func TestDecideLoss(t *testing.T) {
 		{"15 of 21 transient", lossInput{NewPages: 6, Attempted: 21, Transient: 15, Processed: 21, Succeeded: 6, HasBaseline: true, Baseline: 21}, RefusedTemporaryFailures},
 		{"2 transient is under the floor", lossInput{NewPages: 2, Attempted: 4, Transient: 2, Processed: 4, Succeeded: 2}, ""},
 		{"3 of 12 transient is exactly 25%", lossInput{NewPages: 9, Attempted: 12, Transient: 3, Processed: 12, Succeeded: 9}, RefusedTemporaryFailures},
+		{"6 of 25 transient is 24%", lossInput{NewPages: 19, Attempted: 25, Transient: 6, Processed: 25, Succeeded: 19}, ""},
 		{"3 of 13 transient is under 25%", lossInput{NewPages: 10, Attempted: 13, Transient: 3, Processed: 13, Succeeded: 10}, ""},
 		{"allow-shrink accepts transient loss", lossInput{NewPages: 6, Attempted: 21, Transient: 15, Processed: 21, Succeeded: 6, AllowShrink: true}, ""},
 		{"shrink to 70% refused", lossInput{NewPages: 14, Attempted: 14, Processed: 14, Succeeded: 14, HasBaseline: true, Baseline: 20}, RefusedShrink},
@@ -36,6 +37,7 @@ func TestDecideLoss(t *testing.T) {
 		{"outage: only carried pages", lossInput{NewPages: 0, Carryable: 1, Attempted: 1, Transient: 1, Processed: 1, AllowShrink: true}, RefusedEmpty},
 		{"one 503 carried keeps the corpus whole", lossInput{NewPages: 20, Carryable: 1, Attempted: 21, Transient: 1, Processed: 21, Succeeded: 20, HasBaseline: true, Baseline: 21}, ""},
 		{"carried pages count against shrink", lossInput{NewPages: 13, Carryable: 2, Attempted: 15, Transient: 2, Processed: 15, Succeeded: 13, HasBaseline: true, Baseline: 20}, ""},
+		{"resend: 2 other failures", lossInput{NewPages: 422, Attempted: 432, Processed: 432, Succeeded: 430, HasBaseline: true, Baseline: 422}, ""},
 		{"click 429 storm", lossInput{NewPages: 2, Attempted: 38, Transient: 36, Processed: 38, Succeeded: 2, HasBaseline: true, Baseline: 38}, RefusedTemporaryFailures},
 	}
 	for _, tc := range cases {

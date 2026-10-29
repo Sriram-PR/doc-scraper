@@ -4,11 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
@@ -66,4 +73,56 @@ func TestFailureTally(t *testing.T) {
 	assert.Equal(t, FailureTemporary, f.Classes[0].Class, "most frequent class first")
 	assert.NotEmpty(t, f.Classes[0].SampleURL)
 	assert.Equal(t, "boom", f.Classes[0].SampleError)
+}
+
+func TestClassify_RealFetcherErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			time.Sleep(500 * time.Millisecond)
+		}
+		code, _ := strconv.Atoi(r.URL.Query().Get("code"))
+		w.WriteHeader(code)
+	}))
+	t.Cleanup(srv.Close)
+	appCfg := &config.AppConfig{
+		MaxRetries: 1, InitialRetryDelay: 5 * time.Millisecond, MaxRetryDelay: 10 * time.Millisecond,
+		HTTPClientSettings: config.HTTPClientConfig{Timeout: 5 * time.Second, AllowPrivateNetworks: true},
+	}
+	f := fetch.NewFetcher(fetch.NewClient(appCfg.HTTPClientSettings, silentLogger()), appCfg, silentLogger())
+	fetchErr := func(ctx context.Context, rawURL string) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		require.NoError(t, err)
+		resp, err := f.FetchWithRetry(req, ctx)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		require.Error(t, err)
+		return err
+	}
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL := closed.URL
+	closed.Close()
+
+	for _, tc := range []struct {
+		name string
+		url  string
+		gone bool
+		want string
+	}{
+		{"500", srv.URL + "/?code=500", false, FailureTemporary},
+		{"503", srv.URL + "/?code=503", false, FailureTemporary},
+		{"429", srv.URL + "/?code=429", false, FailureTemporary},
+		{"404", srv.URL + "/?code=404", true, FailureGone},
+		{"403", srv.URL + "/?code=403", false, FailureOther},
+		{"connection refused", closedURL + "/", false, FailureTemporary},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, classify(fetchErr(context.Background(), tc.url), tc.gone))
+		})
+	}
+	t.Run("per-page timeout", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		assert.Equal(t, FailureTemporary, classify(fetchErr(ctx, srv.URL+"/slow?code=200"), false))
+	})
 }
