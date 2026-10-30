@@ -197,6 +197,7 @@ func (i *Index) SearchChunks(ctx context.Context, query, siteKey string, limit i
 type rawSearch func(ctx context.Context, match, siteKey string, limit int, exclude []int64) ([]SearchResult, []int64, error)
 
 func searchStaged(ctx context.Context, query, siteKey string, limit int, raw rawSearch) ([]SearchResult, error) {
+	query = dedupeTerms(query)
 	results, ids, err := raw(ctx, query, siteKey, limit, nil)
 	// FTS5 reports query mistakes as generic SQL logic errors, so any failure
 	// other than cancellation gets the quoted retry.
@@ -259,22 +260,56 @@ type ftsRewrite struct {
 // "-text:x") on the chunks_fts columns; other colons ("std::env") are text.
 var ftsColumnFilter = regexp.MustCompile(`(?i)(^|[\s{-])(title|heading_path|text|identifiers)\s*}?\s*:`)
 
+// hasFTSSyntax reports whether a query uses explicit FTS5 syntax (quotes,
+// prefixes, grouping, operators, column filters), which is taken as intentional
+// and never rewritten.
+func hasFTSSyntax(query string) bool {
+	if strings.ContainsAny(query, `"*()`) || ftsColumnFilter.MatchString(query) {
+		return true
+	}
+	return slices.ContainsFunc(strings.Fields(query), func(t string) bool {
+		switch t {
+		case "OR", "AND", "NOT", "NEAR":
+			return true
+		}
+		return false
+	})
+}
+
+// dedupeTerms drops repeated words from a plain query, keeping the first
+// spelling of each. FTS5 ANDs bare terms, so a repeat matches nothing new but
+// makes the query slower the more of them there are. Queries using explicit
+// FTS5 syntax are returned unchanged.
+func dedupeTerms(query string) string {
+	if hasFTSSyntax(query) {
+		return query
+	}
+	terms := strings.Fields(query)
+	seen := make(map[string]struct{}, len(terms))
+	unique := make([]string, 0, len(terms))
+	for _, t := range terms {
+		key := strings.ToLower(t)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, t)
+	}
+	return strings.Join(unique, " ")
+}
+
 // relaxedFTSQueries returns fallback query rewrites for a plain query, in
 // decreasing precision: content-word AND, synonym AND, then OR (with synonyms).
 // A single word gets a rewrite only when it has synonyms. Queries using
 // explicit FTS5 syntax (quotes, prefixes, grouping, operators, column filters)
 // are taken as intentional and never rewritten.
 func relaxedFTSQueries(query string) []ftsRewrite {
-	if strings.ContainsAny(query, `"*()`) || ftsColumnFilter.MatchString(query) {
+	if hasFTSSyntax(query) {
 		return nil
 	}
 	terms := strings.Fields(query)
 	var content []string
 	for _, t := range terms {
-		switch t {
-		case "OR", "AND", "NOT", "NEAR":
-			return nil
-		}
 		if !isStopword(t) {
 			content = append(content, t)
 		}

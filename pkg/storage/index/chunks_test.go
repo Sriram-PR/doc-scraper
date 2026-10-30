@@ -371,6 +371,32 @@ func TestSearchStagedSkipsFillWhenFull(t *testing.T) {
 	assert.Equal(t, 1, calls)
 }
 
+func TestSearchStagedDedupesRepeatedTerms(t *testing.T) {
+	cases := []struct{ name, query, want string }{
+		{"one word repeated many times", strings.TrimSpace(strings.Repeat("zzqx ", 146)), "zzqx"},
+		{"repeat among other words", "zzqx plugh zzqx", "zzqx plugh"},
+		{"repeat ignores case, first spelling kept", "Zzqx zzqx", "Zzqx"},
+		{"no repeats is untouched", "zzqx plugh", "zzqx plugh"},
+		{"quoted query is untouched", `"zzqx" zzqx zzqx`, `"zzqx" zzqx zzqx`},
+		{"operator query is untouched", "zzqx OR zzqx", "zzqx OR zzqx"},
+		{"column filter query is untouched", "title:zzqx zzqx zzqx", "title:zzqx zzqx zzqx"},
+	}
+	for _, tc := range cases {
+		var matches []string
+		raw := func(_ context.Context, match, _ string, _ int, _ []int64) ([]SearchResult, []int64, error) {
+			matches = append(matches, match)
+			return nil, nil, nil
+		}
+		_, err := searchStaged(context.Background(), tc.query, "", 5, raw)
+		require.NoError(t, err, tc.name)
+		require.NotEmpty(t, matches, tc.name)
+		assert.Equal(t, tc.want, matches[0], tc.name)
+		for _, m := range matches {
+			assert.LessOrEqual(t, strings.Count(m, "zzqx"), strings.Count(tc.want, "zzqx"), "%s: no stage may repeat the term more than the query allows", tc.name)
+		}
+	}
+}
+
 func TestRelaxedFTSQueriesExpandsSynonyms(t *testing.T) {
 	withSynonyms(t, [][]string{{"autocomplete", "completion"}, {"query string", "url parameters"}, {"log in", "login"}})
 	cases := map[string][]ftsRewrite{
