@@ -230,7 +230,27 @@ func searchStaged(ctx context.Context, query, siteKey string, limit int, raw raw
 		results = append(results, more...)
 		ids = append(ids, moreIDs...)
 	}
-	return results, nil
+	// A section split into several chunks can rank more than once across the
+	// stages, crowding distinct answers out of the top results. Collapse to
+	// one result per page and anchor, keeping the first and therefore
+	// best-ranked chunk: stages arrive best-first and bm25 orders each stage.
+	return dedupeSearchResults(results), nil
+}
+
+// dedupeSearchResults drops every result whose page and anchor already
+// appeared, keeping the best-ranked chunk of each page+anchor.
+func dedupeSearchResults(results []SearchResult) []SearchResult {
+	seen := make(map[[3]string]struct{}, len(results))
+	out := make([]SearchResult, 0, len(results))
+	for _, r := range results {
+		key := [3]string{r.SiteKey, r.URL, r.Anchor}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, r)
+	}
+	return out
 }
 
 func setMatch(results []SearchResult, match string) {
