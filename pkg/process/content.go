@@ -17,6 +17,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
@@ -276,7 +277,7 @@ func (cp *ContentProcessor) ProcessAndSaveContent(
 // checks. Returns the absolute output path and true if in scope, otherwise ("", false).
 func (cp *ContentProcessor) OutputPathForURL(targetURL *url.URL, siteCfg *config.SiteConfig, siteOutputDir string) (string, bool) {
 	if (targetURL.Scheme != "http" && targetURL.Scheme != "https") ||
-		targetURL.Hostname() != siteCfg.AllowedDomain {
+		!parse.SameHost(targetURL.Hostname(), siteCfg.AllowedDomain) {
 		return "", false
 	}
 	targetPath := targetURL.Path
