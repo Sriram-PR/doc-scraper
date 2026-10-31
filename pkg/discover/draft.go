@@ -42,7 +42,7 @@ func BuildDraft(r *Report, selectorOverride string) *Draft {
 
 	d.Site = config.SiteConfig{
 		StartURLs:         []string{r.FinalURL.String()},
-		AllowedDomain:     r.FinalURL.Hostname(),
+		AllowedDomain:     strings.ToLower(r.FinalURL.Hostname()),
 		AllowedPathPrefix: r.Scope.Prefix,
 		MaxDepth:          r.Scope.MaxDepth,
 	}

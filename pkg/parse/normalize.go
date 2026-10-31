@@ -39,6 +39,13 @@ func NormalizeURL(u *url.URL) string {
 	return normalized.String()
 }
 
+// SameHost reports whether two hostnames (no port) are the same. Hostnames are
+// case-insensitive, and NormalizeURL lowercases the ones it queues, so a plain
+// string comparison against a configured or scraped host is not enough.
+func SameHost(a, b string) bool {
+	return strings.EqualFold(a, b)
+}
+
 // ParseAndNormalize parses an absolute URL string and normalizes it. Uses
 // url.Parse (not url.ParseRequestURI) so the fragment separator is honored:
 // ParseRequestURI silently folds "#anchor" into the path or query, which

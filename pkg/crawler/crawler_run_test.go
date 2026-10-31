@@ -1382,3 +1382,86 @@ func TestCrawlerRun_ClassifiesTransientFailures(t *testing.T) {
 	assert.EqualValues(t, 1, p.Failures.Count(FailureTemporary), "a 500 after retries is a temporary failure")
 	assert.Equal(t, server.URL+"/docs/a.html", p.Failures.Classes[0].SampleURL)
 }
+
+// withHost returns the URL of path on server, spelling the host as given.
+func withHost(server *httptest.Server, host, path string) string {
+	return strings.Replace(server.URL, "127.0.0.1", host, 1) + path
+}
+
+// Hostnames are case-insensitive, so any mix of cases between allowed_domain
+// and the start URL must crawl the same as all-lowercase.
+func TestCrawlerRun_HostCaseDoesNotMatter(t *testing.T) {
+	cases := []struct{ name, allowedDomain, startHost string }{
+		{"lowercase everywhere", "localhost", "localhost"},
+		{"mixed case in both", "LocalHost", "LocalHost"},
+		{"mixed case in allowed_domain only", "LocalHost", "localhost"},
+		{"mixed case in start URL only", "localhost", "LocalHost"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server, _ := newDocServer(t, map[string]string{
+				"/docs/index.html": `<html><body><a href="/docs/child.html">Child</a></body></html>`,
+				"/docs/child.html": `<html><body>Child content.</body></html>`,
+			})
+			appCfg := newTestAppConfig(t)
+			siteCfg := baseSiteConfig(server, "/docs/index.html")
+			siteCfg.AllowedDomain = tc.allowedDomain
+			siteCfg.StartURLs = []string{withHost(server, tc.startHost, "/docs/index.html")}
+
+			require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+			outDir := siteOutputDir(appCfg, siteCfg)
+			assert.FileExists(t, filepath.Join(outDir, "index.md"))
+			assert.FileExists(t, filepath.Join(outDir, "child.md"))
+		})
+	}
+}
+
+func TestCrawlerRun_FollowsLinkWithUppercaseHost(t *testing.T) {
+	pages := map[string]string{
+		"/docs/a.html": `<html><body>Page A.</body></html>`,
+		"/docs/b.html": `<html><body>Page B.</body></html>`,
+	}
+	server, _ := newDocServer(t, pages)
+	pages["/docs/index.html"] = `<html><body>
+		<a href="a.html">A</a>
+		<a href="` + withHost(server, "LocalHost", "/docs/b.html") + `">B</a>
+	</body></html>`
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.AllowedDomain = "localhost"
+	siteCfg.StartURLs = []string{withHost(server, "localhost", "/docs/index.html")}
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	assert.FileExists(t, filepath.Join(outDir, "a.md"), "a link spelled in lowercase is followed")
+	assert.FileExists(t, filepath.Join(outDir, "b.md"), "a link with an uppercase host is the same site")
+}
+
+func TestCrawlerRun_SitemapHostCase(t *testing.T) {
+	cases := []struct{ name, startHost, entryHost string }{
+		{"lowercase everywhere", "localhost", "localhost"},
+		{"sitemap entry spelled with an uppercase host", "localhost", "LocalHost"},
+		{"sitemap fetched from an uppercase host", "LocalHost", "localhost"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pages := map[string]string{
+				"/docs/index.html":  `<html><body>No links.</body></html>`,
+				"/docs/orphan.html": `<html><body>Only in the sitemap.</body></html>`,
+			}
+			server, _ := newDocServer(t, pages)
+			pages["/sitemap.xml"] = `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>` +
+				withHost(server, tc.entryHost, "/docs/orphan.html") + `</loc></url></urlset>`
+			appCfg := newTestAppConfig(t)
+			siteCfg := baseSiteConfig(server, "/docs/index.html")
+			siteCfg.AllowedDomain = "localhost"
+			siteCfg.StartURLs = []string{withHost(server, tc.startHost, "/docs/index.html")}
+
+			require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+			assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "orphan.md"))
+		})
+	}
+}

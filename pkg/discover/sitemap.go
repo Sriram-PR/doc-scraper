@@ -90,7 +90,7 @@ func (d *Discoverer) streamSitemap(ctx context.Context, sitemapURL, host string,
 	if maxURLs <= 0 {
 		return sitemapDoc{truncated: true}, true
 	}
-	if u, err := url.Parse(sitemapURL); err != nil || u.Hostname() != host {
+	if u, err := url.Parse(sitemapURL); err != nil || !parse.SameHost(u.Hostname(), host) {
 		return sitemapDoc{}, false
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sitemapURL, nil)
@@ -108,7 +108,7 @@ func (d *Discoverer) streamSitemap(ctx context.Context, sitemapURL, host string,
 	if resp.StatusCode != http.StatusOK {
 		return sitemapDoc{}, false
 	}
-	if resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.Hostname() != host {
+	if resp.Request != nil && resp.Request.URL != nil && !parse.SameHost(resp.Request.URL.Hostname(), host) {
 		return sitemapDoc{}, false
 	}
 

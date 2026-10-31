@@ -117,7 +117,7 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 				return
 			}
 
-			if linkURL.Hostname() != siteCfg.AllowedDomain {
+			if !parse.SameHost(linkURL.Hostname(), siteCfg.AllowedDomain) {
 				return
 			}
 
