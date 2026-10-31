@@ -127,8 +127,8 @@ Each entry under `sites:` accepts these keys.
 | `max_depth` | Integer | Exclusive upper bound on crawl depth from start URLs. Start pages are depth 0, so `1` crawls only the start pages, `2` adds their directly-linked pages, and so on. `0` = unlimited. URLs discovered from a `sitemap.xml` are seeded at depth 1 (one hop from the site root), so they are still bounded by `max_depth`: `max_depth: 1` stays start-only and skips sitemap expansion | `0` (unlimited) |
 | `skip_images` | Boolean | Override the global image setting for this site. Images are skipped unless this (or the global `skip_images`) is set to `false` | global `skip_images` |
 | `max_image_size_bytes` | Integer | Override the global max image size for this site | global `max_image_size_bytes` |
-| `allowed_image_domains` | Array | Domains from which to download images | |
-| `disallowed_image_domains` | Array | Domains to block image downloads from | |
+| `allowed_image_domains` | Array | Domains from which to download images. Entries may be an exact host (`images.example.com`) or a subdomain wildcard (`*.example.com`, which also matches the bare `example.com` apex) | |
+| `disallowed_image_domains` | Array | Domains to block image downloads from. Same exact-host and `*.example.com` wildcard forms as `allowed_image_domains` | |
 | `enable_jsonl_output` | Boolean | Override the global JSONL output setting for this site. Search and crawl history need it on | global `enable_jsonl_output` |
 | `jsonl_output_filename` | String | Override the global JSONL output filename for this site | global `jsonl_output_filename` |
 

@@ -87,7 +87,7 @@ A later run with nothing changed on the site re-checks every page and reprocesse
 level=INFO msg="  rust_cli_book: SUCCESS - 0 pages saved, 17 unchanged, 0 failed, in 168.335008ms"
 ```
 
-Output from doc-scraper 2.13.0, 2026-10-15.
+Output from doc-scraper 2.13.0, 2026-10-15; unchanged through 2.24.0.
 
 ### Graceful Shutdown
 

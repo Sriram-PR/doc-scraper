@@ -83,6 +83,8 @@ The file mixes two record kinds, distinguished by the `record_type` field:
 | `crawled_at` | Timestamp of when the page was crawled |
 | `depth` | Crawl depth from the start URL |
 
+`headings`, `links`, and `images` are `null`, not `[]`, when the page has none of that kind: Go encodes a nil slice as JSON `null`.
+
 **`crawl_meta` record fields** (from `CrawlMetaJSONL`):
 
 | Field | Description |
