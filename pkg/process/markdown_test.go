@@ -134,3 +134,24 @@ func TestToMarkdown_LargeListAndTableAreFast(t *testing.T) {
 	assert.Contains(t, got, fmt.Sprintf("- item %d", items-1))
 	assert.Less(t, elapsed, 20*time.Second, "conversion must stay linear in input size")
 }
+
+func benchmarkPage(b *testing.B) *goquery.Selection {
+	b.Helper()
+	page := strings.Repeat(`<h2>Title</h2><p>Some <a href="/x">linked</a> text with <code>code</code>.</p><ul><li>one</li><li>two</li></ul>`, 50)
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader("<body>" + page + "</body>"))
+	require.NoError(b, err)
+	return doc.Find("body")
+}
+
+func BenchmarkToMarkdownParallel(b *testing.B) {
+	sel := benchmarkPage(b)
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, err := ToMarkdown(sel); err != nil {
+				b.Error(err)
+				return
+			}
+		}
+	})
+}

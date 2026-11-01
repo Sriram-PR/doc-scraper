@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
@@ -19,14 +20,17 @@ import (
 // next incremental crawl reconverts pages whose HTML did not change.
 const MarkdownFormatVersion = 1
 
-// The library guards a Converter with a mutex, so crawl workers share one.
-var markdownConverter = converter.NewConverter(converter.WithPlugins(
-	base.NewBasePlugin(),
-	commonmark.NewCommonmarkPlugin(commonmark.WithListEndComment(false)),
-	table.NewTablePlugin(),
-	strikethrough.NewStrikethroughPlugin(),
-	taskListPlugin{},
-))
+// A Converter is safe to share, but every call takes its mutex, and workers
+// spending their time on that mutex stops a crawl scaling past about 8 of them.
+var markdownConverters = sync.Pool{New: func() any {
+	return converter.NewConverter(converter.WithPlugins(
+		base.NewBasePlugin(),
+		commonmark.NewCommonmarkPlugin(commonmark.WithListEndComment(false)),
+		table.NewTablePlugin(),
+		strikethrough.NewStrikethroughPlugin(),
+		taskListPlugin{},
+	))
+}}
 
 // ToMarkdown converts every node in sel to GitHub-flavored Markdown. It
 // converts a copy, so sel is left as it was.
@@ -35,7 +39,9 @@ func ToMarkdown(sel *goquery.Selection) (string, error) {
 	for _, n := range sel.Clone().Nodes {
 		container.AppendChild(n)
 	}
-	out, err := markdownConverter.ConvertNode(container)
+	conv := markdownConverters.Get().(*converter.Converter)
+	defer markdownConverters.Put(conv)
+	out, err := conv.ConvertNode(container)
 	if err != nil {
 		return "", fmt.Errorf("converting HTML to Markdown: %w", err)
 	}

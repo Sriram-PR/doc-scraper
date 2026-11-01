@@ -287,18 +287,19 @@ func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte,
 	crawledAtStr := time.Now().UTC().Format(time.RFC3339)
 
 	if om.resolved.EnableJSONLOutput && markdownBytes != nil {
+		content := string(markdownBytes)
 		var contentHash string
 		if len(markdownBytes) > 0 {
-			contentHash = utils.CalculateStringSHA256(string(markdownBytes))
+			contentHash = utils.CalculateStringSHA256(content)
 		}
 		headings := process.ExtractHeadings(markdownBytes)
-		links, images := extractLinksAndImages(string(markdownBytes))
+		links, images := extractLinksAndImages(content)
 
 		pageJSONL := models.PageJSONL{
 			RecordType:  models.RecordTypePage,
 			URL:         finalURL,
 			Title:       pageTitle,
-			Content:     string(markdownBytes),
+			Content:     content,
 			Headings:    headings,
 			Links:       links,
 			Images:      images,
