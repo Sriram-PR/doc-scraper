@@ -15,6 +15,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 )
 
 const maxFetchBytes = 8 << 20
@@ -79,7 +80,7 @@ func (d *Discoverer) Run(ctx context.Context, rawURL string) (*Report, error) {
 	}
 	r.Doc = doc
 	r.FinalURL = finalURL
-	r.CrossHost = finalURL.Hostname() != seed.Hostname()
+	r.CrossHost = !parse.SameHost(finalURL.Hostname(), seed.Hostname())
 	if r.CrossHost {
 		r.Warnings = append(r.Warnings, fmt.Sprintf("%s redirected to %s; the draft is anchored on the final host", seed.Hostname(), finalURL.Hostname()))
 		r.Robots = d.fetchRobots(ctx, finalURL)

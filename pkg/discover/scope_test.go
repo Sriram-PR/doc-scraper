@@ -315,3 +315,17 @@ func TestBuildDraft_AutoEvidenceCarriesSampleNote(t *testing.T) {
 	assert.Equal(t, "auto", d.Site.ContentSelector)
 	assert.Contains(t, d.Evidence, `content_selector: vitepress recognized but no selector matched this page; "auto" will use readability extraction; checked /guide/intro: detected mkdocs there`)
 }
+
+func TestSameSite_IgnoresCase(t *testing.T) {
+	assert.True(t, sameSite("Docs.Example.com", "docs.example.com"))
+	assert.True(t, sameSite("WWW.example.com", "example.com"))
+	assert.True(t, sameSite("www.example.com", "EXAMPLE.COM"))
+	assert.False(t, sameSite("docs.example.com", "example.com"))
+}
+
+func TestHostPaths_IgnoresHostCase(t *testing.T) {
+	seed := mustURL(t, "http://LocalHost:8744/docs/")
+	urls := []string{"http://LOCALHOST:8744/docs/a/", "http://localhost:8744/docs/b/", "http://other:8744/docs/c/"}
+
+	assert.Equal(t, []string{"/docs/a/", "/docs/b/"}, hostPaths(seed, urls))
+}

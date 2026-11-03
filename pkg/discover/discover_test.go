@@ -535,3 +535,27 @@ func TestFetchSitemap_SkipsOffHostSitemaps(t *testing.T) {
 	// sitemaps on another host are never requested.
 	assert.EqualValues(t, 1, offHits.Load())
 }
+
+// A seed typed with capitals that redirects to the lowercase host, with a
+// canonical link spelled in yet another case, is still one host.
+func TestDiscoverer_HostCaseIsNotCrossHost(t *testing.T) {
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/docs/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)+"/docs/intro/", http.StatusFound)
+	})
+	mux.HandleFunc("/docs/intro/", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `<html><head><title>Intro</title><link rel="canonical" href="%s/docs/intro/"></head><body><main><h1>Intro</h1><p>Text.</p></main></body></html>`,
+			strings.Replace(srv.URL, "127.0.0.1", "LOCALHOST", 1))
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	r, err := testDiscoverer(srv).Run(context.Background(), strings.Replace(srv.URL, "127.0.0.1", "LocalHost", 1)+"/docs/")
+	require.NoError(t, err)
+
+	assert.False(t, r.CrossHost)
+	joined := strings.Join(r.Warnings, "\n")
+	assert.NotContains(t, joined, "redirected to")
+	assert.NotContains(t, joined, "canonical URL points to")
+}

@@ -8,6 +8,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 )
 
 // LocaleInfo describes locale scoping discovered from the seed URL and page.
@@ -63,7 +64,7 @@ func analyzeSeedPage(r *Report) {
 	r.Detection = detect.DetectPage(r.Doc)
 
 	if canonical, ok := r.Doc.Find(`link[rel="canonical"]`).First().Attr("href"); ok {
-		if cu, err := url.Parse(canonical); err == nil && cu.Host != "" && cu.Hostname() != r.FinalURL.Hostname() {
+		if cu, err := url.Parse(canonical); err == nil && cu.Host != "" && !parse.SameHost(cu.Hostname(), r.FinalURL.Hostname()) {
 			r.Warnings = append(r.Warnings, "canonical URL points to "+cu.Hostname()+"; consider adding that host instead")
 		}
 	}
