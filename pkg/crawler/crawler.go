@@ -469,7 +469,7 @@ func (c *Crawler) validateStartURLs(runLog *slog.Logger) ([]string, *url.URL, er
 			startValidateLog.Warn(fmt.Sprintf("Invalid format: %v. Skipping.", err))
 			continue
 		}
-		if parsed.Hostname() != c.siteCfg.AllowedDomain {
+		if !parse.SameHost(parsed.Hostname(), c.siteCfg.AllowedDomain) {
 			startValidateLog.Warn(fmt.Sprintf("Domain mismatch (%s != %s). Skipping.", parsed.Hostname(), c.siteCfg.AllowedDomain))
 			continue
 		}
@@ -1264,7 +1264,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		finalPath = "/"
 	}
 
-	if finalHost != c.siteCfg.AllowedDomain || !strings.HasPrefix(finalPath, c.siteCfg.AllowedPathPrefix) {
+	if !parse.SameHost(finalHost, c.siteCfg.AllowedDomain) || !strings.HasPrefix(finalPath, c.siteCfg.AllowedPathPrefix) {
 		err = fmt.Errorf("%w: redirected URL '%s' out of scope (Expected Domain: '%s', Path Prefix: '%s')",
 			utils.ErrScopeViolation, finalURL.String(), c.siteCfg.AllowedDomain, c.siteCfg.AllowedPathPrefix)
 		drainClose(resp)

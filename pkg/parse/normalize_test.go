@@ -335,3 +335,11 @@ func TestParseAndNormalize_EdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestSameHost(t *testing.T) {
+	assert.True(t, SameHost("docs.example.com", "docs.example.com"))
+	assert.True(t, SameHost("Docs.Example.COM", "docs.example.com"))
+	assert.True(t, SameHost("docs.example.com", "DOCS.EXAMPLE.COM"))
+	assert.False(t, SameHost("docs.example.com", "example.com"))
+	assert.False(t, SameHost("docs.example.com", ""))
+}
