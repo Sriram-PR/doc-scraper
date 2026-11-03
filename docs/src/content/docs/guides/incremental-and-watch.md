@@ -55,7 +55,7 @@ Watch mode persists state to `<state_dir>/watch_state.json`, tracking:
 - Pages saved, re-checked but unchanged, and failed in the last run
 - Error messages (if any)
 
-This allows the scheduler to resume correctly after restarts, only running sites when their interval has elapsed. A failed run (the site was unreachable, or every page failed) is retried after 15 minutes instead of a full interval, or after the interval if that is shorter.
+This allows the scheduler to resume correctly after restarts, only running sites when their interval has elapsed. A failed run (the site was unreachable, every page failed, or the run was kept back for losing pages) is retried after 15 minutes instead of a full interval, or after the interval if that is shorter.
 
 ### Example Output
 
