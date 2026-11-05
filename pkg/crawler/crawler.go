@@ -35,7 +35,7 @@ import (
 
 // Pre-compiled regexes for markdown link and image extraction.
 var (
-	mdLinkRe  = regexp.MustCompile(`(?:^|[^!])\[([^\]]*)\]\(([^)]+)\)`)
+	mdLinkRe  = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
 	mdImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 )
 
@@ -1352,13 +1352,14 @@ func parseBody(ctx context.Context, body []byte, finalURL *url.URL) (*goquery.Do
 // extractLinksAndImages extracts markdown links and image references from markdown content.
 // Returns two slices: links (from [text](url)) and images (from ![alt](url)).
 func extractLinksAndImages(markdown string) (links []string, images []string) {
-	linkMatches := mdLinkRe.FindAllStringSubmatch(markdown, -1)
+	linkMatches := mdLinkRe.FindAllStringSubmatchIndex(markdown, -1)
 	for _, match := range linkMatches {
-		if len(match) >= 3 {
-			linkURL := strings.TrimSpace(match[2])
-			if linkURL != "" {
-				links = append(links, linkURL)
-			}
+		if match[0] > 0 && markdown[match[0]-1] == '!' {
+			continue
+		}
+		linkURL := strings.TrimSpace(markdown[match[4]:match[5]])
+		if linkURL != "" {
+			links = append(links, linkURL)
 		}
 	}
 
