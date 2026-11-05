@@ -430,7 +430,6 @@ var newlineRun = regexp.MustCompile(`[ \t]*\n[ \t]*`)
 
 // renderKeptCell writes a kept table's cell on one line, its lines joined by
 // <br>, so the stock plugin never sees a newline and gives up on the table.
-// Called from renderElement.
 func renderKeptCell(ctx converter.Context, w converter.Writer, n *html.Node) converter.RenderStatus {
 	if !inKeptTable(n) {
 		return converter.RenderTryNext
