@@ -241,3 +241,11 @@ func TestToMarkdown_HugeSpansSkipLabels(t *testing.T) {
 	assert.NotContains(t, got, "**A:**")
 	assert.Contains(t, got, "x\n\n- y")
 }
+
+// Header colspans alone can name more columns than the grid budget allows.
+func TestToMarkdown_HugeHeaderColspansSkipLabels(t *testing.T) {
+	got := tableMarkdown(t, `<table><tr>`+strings.Repeat(`<th colspan="1000">A</th>`, 100)+`</tr><tr><td><ul><li>y</li></ul></td></tr></table>`)
+
+	assert.NotContains(t, got, "**A:**")
+	assert.Contains(t, got, "- y")
+}

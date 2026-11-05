@@ -519,8 +519,8 @@ func rewriteFallback(t *html.Node) {
 // before it instead of into its first cell.
 const fallbackAttr = "data-doc-scraper-fallback"
 
-// maxGridSlots bounds the rowspan bookkeeping on hostile markup; a table past
-// it just gets no labels.
+// maxGridSlots bounds the colspan and rowspan bookkeeping on hostile markup;
+// a table past it just gets no labels.
 const maxGridSlots = 1 << 16
 
 // headerLabels maps each body cell to its column's header text, or returns nil
@@ -547,6 +547,9 @@ func headerLabels(rows []*html.Node) map[*html.Node]string {
 		name := strings.Join(strings.Fields(textOf(c)), " ")
 		for i := range spanOf(c, "colspan") {
 			names[columns[c]+i] = name
+		}
+		if len(names) > maxGridSlots {
+			return nil
 		}
 	}
 	labels := make(map[*html.Node]string)
