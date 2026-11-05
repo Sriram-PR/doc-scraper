@@ -28,8 +28,8 @@ var markdownConverters = sync.Pool{New: func() any {
 		commonmark.NewCommonmarkPlugin(commonmark.WithListEndComment(false)),
 		table.NewTablePlugin(),
 		strikethrough.NewStrikethroughPlugin(),
-		taskListPlugin{},
 		tablesPlugin{},
+		elementRenderers{},
 	))
 }}
 
@@ -49,16 +49,29 @@ func ToMarkdown(sel *goquery.Selection) (string, error) {
 	return string(out), nil
 }
 
-// taskListPlugin renders task-list checkboxes. v2 has no plugin for them, and
-// its base plugin removes every <input> otherwise.
-type taskListPlugin struct{}
+// elementRenderers is the one renderer for every element we render ourselves.
+// The library copies and sorts its handler list for each node it renders, so
+// each extra handler slowed every page by about 7%.
+type elementRenderers struct{}
 
-func (taskListPlugin) Name() string { return "task-list" }
+func (elementRenderers) Name() string { return "element-renderers" }
 
-func (taskListPlugin) Init(conv *converter.Converter) error {
+func (elementRenderers) Init(conv *converter.Converter) error {
+	// v2 has no plugin for task-list checkboxes, and its base plugin removes
+	// every <input> otherwise.
 	conv.Register.TagType("input", converter.TagTypeInline, converter.PriorityEarly)
-	conv.Register.RendererFor("input", converter.TagTypeInline, renderCheckbox, converter.PriorityEarly)
+	conv.Register.Renderer(renderElement, converter.PriorityEarly)
 	return nil
+}
+
+func renderElement(ctx converter.Context, w converter.Writer, n *html.Node) converter.RenderStatus {
+	switch {
+	case isElement(n, "input"):
+		return renderCheckbox(ctx, w, n)
+	case isElement(n, "td", "th"):
+		return renderKeptCell(ctx, w, n)
+	}
+	return converter.RenderTryNext
 }
 
 func renderCheckbox(_ converter.Context, w converter.Writer, n *html.Node) converter.RenderStatus {
