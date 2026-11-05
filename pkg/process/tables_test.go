@@ -3,6 +3,7 @@ package process
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,4 +180,64 @@ func TestToMarkdown_FallbackLabels(t *testing.T) {
 			assert.Equal(t, tt.want, tableMarkdown(t, tt.html))
 		})
 	}
+}
+
+func TestToMarkdown_MalformedTables(t *testing.T) {
+	tests := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "BadSpansCountAsOne",
+			html: `<table><tr><th>A</th><th>B</th></tr><tr><td colspan="abc">x</td><td rowspan="-3">y</td><td colspan="0">z</td></tr></table>`,
+			want: "| A | B |   |\n|---|---|---|\n| x | y | z |",
+		},
+		{
+			name: "RaggedRows",
+			html: `<table><tr><th>A</th><th>B</th><th>C</th></tr><tr><td>1</td></tr><tr><td>1</td><td>2</td><td>3</td><td>4</td></tr></table>`,
+			want: "| A | B | C |   |\n|---|---|---|---|\n| 1 |   |   |   |\n| 1 | 2 | 3 | 4 |",
+		},
+		{
+			name: "EmptyTable",
+			html: `<table></table>`,
+			want: "",
+		},
+		{
+			name: "EmptyRow",
+			html: `<table><tr></tr></table>`,
+			want: "",
+		},
+		{
+			name: "HeaderCellInABodyRow",
+			html: `<table><tr><th>Key</th><th>Value</th></tr><tr><th>a</th><td><ul><li>x</li></ul></td></tr></table>`,
+			want: "**Key:** a\n\n**Value:**\n\n- x",
+		},
+		{
+			name: "RowOutsideTbody",
+			html: `<table><thead><tr><th>H</th></tr></thead><tr><td>outside tbody</td></tr></table>`,
+			want: "| H             |\n|---------------|\n| outside tbody |",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tableMarkdown(t, tt.html))
+		})
+	}
+}
+
+// 1000 rows each claiming rowspan=1000 colspan=1000 would need a billion grid
+// slots; past the budget the table is written without labels.
+func TestToMarkdown_HugeSpansSkipLabels(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<table><tr><th>A</th><th>B</th></tr>`)
+	for range 1000 {
+		b.WriteString(`<tr><td rowspan="1000" colspan="1000">x</td><td><ul><li>y</li></ul></td></tr>`)
+	}
+	b.WriteString(`</table>`)
+
+	got := tableMarkdown(t, b.String())
+
+	assert.NotContains(t, got, "**A:**")
+	assert.Contains(t, got, "x\n\n- y")
 }
