@@ -34,7 +34,7 @@ When JSONL output is enabled, the crawler also emits `llms.txt` and `llms-full.t
 Each generated Markdown file begins with a YAML frontmatter block carrying page metadata, followed by the converted content:
 
 - **YAML frontmatter** (delimited by `---`) with `title`, `url` (source URL), `crawled_at` (RFC3339 timestamp), `content_hash` (SHA-256 of the content, matching the JSONL record), and `depth`
-- Clean content converted from HTML to GitHub-Flavored Markdown. A table stays a table when each cell fits on one row; line breaks and paragraphs inside a cell become `<br>`. A table that can't (a cell holds a list, a multi-line code block, a nested table, or more than four lines) becomes one paragraph per cell, each labeled with its column header (`**Name:** value`). Line-numbered code that a highlighter laid out as a table (Pygments and MkDocs Material, Hugo, Jekyll) becomes one code block without the numbers
+- Clean content converted from HTML to GitHub-Flavored Markdown. A table stays a table when each cell fits on one row; line breaks and paragraphs inside a cell become `<br>`. A table that can't (for example, a cell holds a list, a multi-line code block, a nested table, or more than four lines) becomes one paragraph per cell, each labeled with its column header (`**Name:** value`). Line-numbered code that a highlighter laid out as a table (Pygments and MkDocs Material, Hugo, Jekyll) becomes one code block without the numbers
 - Relative links to other crawled pages (within the allowed domain and path prefix); links to pages outside that scope are made absolute
 - Local image references (if images are enabled)
 

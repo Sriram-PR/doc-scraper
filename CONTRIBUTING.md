@@ -64,7 +64,7 @@ Every change needs tests, and a bug fix needs a test that fails without the fix.
 - **No sleeping to synchronize.** Wait on a channel, a `sync.WaitGroup`, or a deadline-bounded poll instead of `time.Sleep` followed by an assertion. Sleeps that pass locally fail on a loaded CI runner.
 - **Race-clean on every OS.** CI runs `go test -race ./...` on Linux, macOS, and Windows. Windows differs most: it refuses to rename over an open file, and its coarser clock makes timestamps tie.
 - **Smoke test.** `cmd/doc-scraper/smoke_test.go` builds the real binary and checks the MCP stdio handshake. If you add, rename, or remove an MCP tool, update the tool list in `mcp-server -h` (`cmd/doc-scraper/mcp.go`) and the tool table in `docs/src/content/docs/mcp/tools.md`; the smoke test fails when the three disagree. `go test -short` skips it.
-- **Fuzzing.** Parsers of untrusted input have fuzz targets (`Fuzz*` in `pkg/chunk`, `pkg/config`, `pkg/detect`, `pkg/discover`). CI fuzzes each one weekly; to fuzz locally, `go test ./pkg/discover -run='^$' -fuzz='^FuzzParseRobotsLines$' -fuzztime=30s`.
+- **Fuzzing.** Parsers of untrusted input have fuzz targets (`Fuzz*` in `pkg/chunk`, `pkg/config`, `pkg/detect`, `pkg/discover`, `pkg/process`). CI fuzzes each one weekly; to fuzz locally, `go test ./pkg/discover -run='^$' -fuzz='^FuzzParseRobotsLines$' -fuzztime=30s`.
 
 ### Framework detection changes
 
