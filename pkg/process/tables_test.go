@@ -109,17 +109,17 @@ func TestToMarkdown_DataTables(t *testing.T) {
 		{
 			name: "ListCellFallsBackWithCellsApart",
 			html: `<table><tr><th>Element</th><th>Permitted content</th></tr><tr><td>ul</td><td><ul><li>li</li><li>script</li></ul></td></tr></table>`,
-			want: "Element\n\nPermitted content\n\nul\n\n- li\n- script",
+			want: "**Element:** ul\n\n**Permitted content:**\n\n- li\n- script",
 		},
 		{
 			name: "MultiLinePreFallsBack",
 			html: "<table><tr><th>Function</th><th>Example</th></tr><tr><td>concat</td><td><pre>select concat('a',\n  'b');</pre></td></tr></table>",
-			want: "Function\n\nExample\n\nconcat\n\n```\nselect concat('a',\n  'b');\n```",
+			want: "**Function:** concat\n\n**Example:**\n\n```\nselect concat('a',\n  'b');\n```",
 		},
 		{
 			name: "FiveLinesFallBack",
 			html: `<table><tr><th>A</th><th>B</th></tr><tr><td>x</td><td>1<br>2<br>3<br>4<br>5</td></tr></table>`,
-			want: "A\n\nB\n\nx\n\n1  \n2  \n3  \n4  \n5",
+			want: "**A:** x\n\n**B:** 1  \n2  \n3  \n4  \n5",
 		},
 		{
 			name: "PresentationTableFallsBack",
@@ -130,6 +130,48 @@ func TestToMarkdown_DataTables(t *testing.T) {
 			name: "TableInsideALinkStaysInline",
 			html: `<a href="#t"><table><tr><td>left</td><td>right</td></tr></table></a>`,
 			want: "[left right](#t)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tableMarkdown(t, tt.html))
+		})
+	}
+}
+
+func TestToMarkdown_FallbackLabels(t *testing.T) {
+	tests := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "EachBodyCellNamesItsColumn",
+			html: `<table><tr><th>Function</th><th>Description</th><th>Example</th></tr>` +
+				`<tr><td><code>concat(val1, ...)</code></td><td><p>Concatenates the arguments.</p><ul><li>NULL arguments are ignored.</li></ul></td><td><code>concat('abc', 2)</code></td></tr>` +
+				`<tr><td><code>left(s, n)</code></td><td>First n characters.</td><td><code>left('abc', 2)</code></td></tr></table>`,
+			want: "**Function:** `concat(val1, ...)`\n\n**Description:** Concatenates the arguments.\n\n- NULL arguments are ignored.\n\n**Example:** `concat('abc', 2)`\n\n" +
+				"**Function:** `left(s, n)`\n\n**Description:** First n characters.\n\n**Example:** `left('abc', 2)`",
+		},
+		{
+			name: "ColspanAndRowspanMapToTheirHeaders",
+			html: `<table><tr><th colspan="2">Name</th><th>Notes</th></tr><tr><td rowspan="2">a</td><td>a1</td><td><ul><li>x</li></ul></td></tr><tr><td>a2</td><td>y</td></tr></table>`,
+			want: "**Name:** a\n\n**Name:** a1\n\n**Notes:**\n\n- x\n\n**Name:** a2\n\n**Notes:** y",
+		},
+		{
+			name: "NestedTableStaysATableUnderItsLabel",
+			html: `<table><tr><th>Member</th><th>Details</th></tr><tr><td>size</td><td><table><tr><th>Ret</th><th>Notes</th></tr><tr><td>int</td><td>count</td></tr></table></td></tr></table>`,
+			want: "**Member:** size\n\n**Details:**\n\n| Ret | Notes |\n|-----|-------|\n| int | count |",
+		},
+		{
+			name: "NestedFallbackGetsItsOwnLabels",
+			html: `<table><tr><th>Outer</th><th>Info</th></tr><tr><td>o</td><td><table><tr><th>In</th></tr><tr><td><ul><li>deep</li></ul></td></tr></table></td></tr></table>`,
+			want: "**Outer:** o\n\n**Info:**\n\n**In:**\n\n- deep",
+		},
+		{
+			name: "EmptyCellGetsNoLabel",
+			html: `<table><tr><th>A</th><th>B</th></tr><tr><td></td><td><ul><li>x</li></ul></td></tr></table>`,
+			want: "**B:**\n\n- x",
 		},
 	}
 	for _, tt := range tests {

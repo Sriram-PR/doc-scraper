@@ -3,6 +3,7 @@ package process
 import (
 	"bytes"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
@@ -467,21 +468,16 @@ func renderKeptCell(ctx converter.Context, w converter.Writer, n *html.Node) con
 func inKeptTable(cell *html.Node) bool {
 	for p := cell.Parent; p != nil; p = p.Parent {
 		if isElement(p, "table") {
-			for _, a := range p.Attr {
-				if a.Key == keptAttr {
-					return true
-				}
-			}
-			return false
+			return hasAttr(p, keptAttr)
 		}
 	}
 	return false
 }
 
 // rewriteFallback replaces t with one block per row and one per cell, so cells
-// no longer run together when the table cannot be a GFM table. Inside a link or
-// emphasis a block would break the inline, so there the cells are spans
-// separated by spaces.
+// no longer run together when the table cannot be a GFM table, and labels each
+// body cell with its column header. Inside a link or emphasis a block would
+// break the inline, so there the cells are spans separated by spaces.
 func rewriteFallback(t *html.Node) {
 	box := func() *html.Node { return newElement("div", atom.Div) }
 	inline := insideInlineFormatting(t)
@@ -495,18 +491,155 @@ func rewriteFallback(t *html.Node) {
 		}
 		parent.AppendChild(child)
 	}
+	out.Attr = []html.Attribute{{Key: fallbackAttr}}
 	if caption := firstChildElement(t, "caption"); caption != nil {
 		add(out, moveChildren(caption, box()))
 	}
-	for _, r := range ownRows(t) {
+	rows := ownRows(t)
+	labels := headerLabels(rows)
+	if labels != nil {
+		rows = rows[1:]
+	}
+	for _, r := range rows {
 		row := box()
 		for _, cell := range ownCells(r) {
-			add(row, moveChildren(cell, box()))
+			content := moveChildren(cell, box())
+			if label := labels[cell]; label != "" {
+				insertLabel(content, label)
+			}
+			add(row, content)
 		}
 		add(out, row)
 	}
 	t.Parent.InsertBefore(out, t)
 	t.Parent.RemoveChild(t)
+}
+
+// fallbackAttr marks a rewritten table, so a label for an outer cell goes
+// before it instead of into its first cell.
+const fallbackAttr = "data-doc-scraper-fallback"
+
+// maxGridSlots bounds the rowspan bookkeeping on hostile markup; a table past
+// it just gets no labels.
+const maxGridSlots = 1 << 16
+
+// headerLabels maps each body cell to its column's header text, or returns nil
+// when the first row is not all <th> or there is no body row.
+func headerLabels(rows []*html.Node) map[*html.Node]string {
+	if len(rows) < 2 {
+		return nil
+	}
+	header := ownCells(rows[0])
+	if len(header) == 0 {
+		return nil
+	}
+	for _, c := range header {
+		if !isElement(c, "th") {
+			return nil
+		}
+	}
+	columns, ok := cellColumns(rows)
+	if !ok {
+		return nil
+	}
+	names := make(map[int]string)
+	for _, c := range header {
+		name := strings.Join(strings.Fields(textOf(c)), " ")
+		for i := range spanOf(c, "colspan") {
+			names[columns[c]+i] = name
+		}
+	}
+	labels := make(map[*html.Node]string)
+	for _, r := range rows[1:] {
+		for _, c := range ownCells(r) {
+			labels[c] = names[columns[c]]
+		}
+	}
+	return labels
+}
+
+// cellColumns gives each cell its starting column, skipping slots taken by a
+// rowspan from an earlier row.
+func cellColumns(rows []*html.Node) (map[*html.Node]int, bool) {
+	columns := make(map[*html.Node]int)
+	taken := make(map[[2]int]bool)
+	for ri, r := range rows {
+		col := 0
+		for _, c := range ownCells(r) {
+			for taken[[2]int{ri, col}] {
+				col++
+			}
+			columns[c] = col
+			colspan, rowspan := spanOf(c, "colspan"), spanOf(c, "rowspan")
+			for dr := 1; dr < rowspan && ri+dr < len(rows); dr++ {
+				for dc := range colspan {
+					taken[[2]int{ri + dr, col + dc}] = true
+				}
+				if len(taken) > maxGridSlots {
+					return nil, false
+				}
+			}
+			col += colspan
+		}
+	}
+	return columns, true
+}
+
+func spanOf(cell *html.Node, key string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(attr(cell, key)))
+	if err != nil || n < 1 || n > 1000 {
+		return 1
+	}
+	return n
+}
+
+// insertLabel puts "**label:**" in front of the cell's first paragraph, or on
+// its own line when the cell starts with a block such as a list or code.
+func insertLabel(cell *html.Node, label string) {
+	if strings.TrimSpace(textOf(cell)) == "" && firstElement(cell, "img") == nil {
+		return
+	}
+	strong := newElement("strong", atom.Strong)
+	strong.AppendChild(&html.Node{Type: html.TextNode, Data: label + ":"})
+	target := cell
+	for {
+		first := firstContentChild(target)
+		switch {
+		case isElement(first, "p", "div", "span") && !hasAttr(first, fallbackAttr):
+			target = first
+			continue
+		case isElement(first, "ul", "ol", "dl", "pre", "table", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "figure", "details") ||
+			hasAttr(first, fallbackAttr):
+			p := newElement("p", atom.P)
+			p.AppendChild(strong)
+			target.InsertBefore(p, first)
+		default:
+			target.InsertBefore(strong, first)
+			target.InsertBefore(&html.Node{Type: html.TextNode, Data: " "}, first)
+		}
+		return
+	}
+}
+
+func firstContentChild(n *html.Node) *html.Node {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode || (c.Type == html.TextNode && strings.TrimSpace(c.Data) != "") {
+			return c
+		}
+	}
+	return nil
+}
+
+func hasAttr(n *html.Node, key string) bool {
+	if n == nil {
+		return false
+	}
+	for _, a := range n.Attr {
+		if a.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 func newElement(name string, a atom.Atom) *html.Node {
