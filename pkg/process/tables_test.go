@@ -128,6 +128,16 @@ func TestToMarkdown_DataTables(t *testing.T) {
 			want: "left\n\nright",
 		},
 		{
+			name: "OneCellTableIsLayout",
+			html: `<table width="100%"><tr><td align="right">written by Igor Sysoev<br>edited by Brian Mercer<br></td></tr></table>`,
+			want: "written by Igor Sysoev  \nedited by Brian Mercer",
+		},
+		{
+			name: "OneLineOneCellTableIsLayout",
+			html: `<table><tr><td><a href="#a">Converting rules</a></td></tr></table>`,
+			want: "[Converting rules](#a)",
+		},
+		{
 			name: "TableInsideALinkStaysInline",
 			html: `<a href="#t"><table><tr><td>left</td><td>right</td></tr></table></a>`,
 			want: "[left right](#t)",

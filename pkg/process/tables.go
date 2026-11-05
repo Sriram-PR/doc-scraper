@@ -296,7 +296,8 @@ func keepAsTable(t *html.Node) bool {
 		return false
 	}
 	rows := ownRows(t)
-	if len(rows) == 0 {
+	// One row of one cell is layout (a byline, a page TOC), not data.
+	if len(rows) == 0 || (len(rows) == 1 && len(ownCells(rows[0])) == 1) {
 		return false
 	}
 	for _, r := range rows {
