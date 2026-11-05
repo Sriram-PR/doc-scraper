@@ -155,3 +155,14 @@ func BenchmarkToMarkdownParallel(b *testing.B) {
 		}
 	})
 }
+
+// The converter uses BEL as its escape marker, so a BEL in the page used to be
+// read as one: a "|" after it was left bare and broke the table row.
+func TestToMarkdown_BellInPageIsDropped(t *testing.T) {
+	const page = "<table><tr><th>H</th><th>I</th></tr><tr><td>a\a|b</td><td>c</td></tr></table>"
+	got, err := ToMarkdown(selectionOf(t, "<main>"+page+"</main>", "main"))
+	require.NoError(t, err)
+	want, err := ToMarkdown(selectionOf(t, "<main>"+strings.ReplaceAll(page, "\a", "")+"</main>", "main"))
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}

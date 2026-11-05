@@ -38,6 +38,7 @@ var markdownConverters = sync.Pool{New: func() any {
 func ToMarkdown(sel *goquery.Selection) (string, error) {
 	container := &html.Node{Type: html.ElementNode, Data: "div", DataAtom: atom.Div}
 	for _, n := range sel.Clone().Nodes {
+		dropBells(n)
 		container.AppendChild(n)
 	}
 	conv := markdownConverters.Get().(*converter.Converter)
@@ -47,6 +48,17 @@ func ToMarkdown(sel *goquery.Selection) (string, error) {
 		return "", fmt.Errorf("converting HTML to Markdown: %w", err)
 	}
 	return string(out), nil
+}
+
+// dropBells removes BEL from text: the converter uses it as its escape marker,
+// so a BEL before a "|" in a table cell left the pipe bare and broke the row.
+func dropBells(n *html.Node) {
+	if n.Type == html.TextNode && strings.ContainsRune(n.Data, '\a') {
+		n.Data = strings.ReplaceAll(n.Data, "\a", "")
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		dropBells(c)
+	}
 }
 
 // elementRenderers is the one renderer for every element we render ourselves.
