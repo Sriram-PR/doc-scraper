@@ -49,6 +49,24 @@ For more info, visit [our site](https://docs.example.com).
 			expectedImages: []string{"./images/arch.svg"},
 		},
 		{
+			name:           "adjacent links",
+			markdown:       "[a](x)[b](y)",
+			expectedLinks:  []string{"x", "y"},
+			expectedImages: nil,
+		},
+		{
+			name:           "link immediately after image",
+			markdown:       "![img](i)[b](y)",
+			expectedLinks:  []string{"y"},
+			expectedImages: []string{"i"},
+		},
+		{
+			name:           "mixed adjacent link and image",
+			markdown:       "[a](x)![img](i)[b](y)",
+			expectedLinks:  []string{"x", "y"},
+			expectedImages: []string{"i"},
+		},
+		{
 			name:           "empty markdown",
 			markdown:       "",
 			expectedLinks:  nil,
