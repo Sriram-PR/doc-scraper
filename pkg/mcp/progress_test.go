@@ -144,3 +144,51 @@ func TestGetJobStatus_NoProgressWithoutToken(t *testing.T) {
 	require.True(t, ok, "no get_job_status response; output:\n%s", out.String())
 	assert.Empty(t, progressNotifications(t, out.Bytes()))
 }
+
+func draftSiteCall(args map[string]any, meta map[string]any) string {
+	params := map[string]any{"name": "draft_site", "arguments": args}
+	if meta != nil {
+		params["_meta"] = meta
+	}
+	b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": params})
+	return string(b)
+}
+
+// A 2026-07-28 request initializes the session as it is handled, so the first
+// stage's notification can't race a piped initialize, which mcp-go drops
+// notifications before.
+func TestDraftSite_SendsStageProgress(t *testing.T) {
+	s := slowChainServer(t, 50*time.Millisecond)
+	docs, _ := s.site("docs")
+	cases := []struct {
+		name string
+		args map[string]any
+		want []string
+	}{
+		{"new url", map[string]any{"url": docs.StartURLs[0], "site_key": "fresh"}, []string{"probing"}},
+		{"configured site", map[string]any{"site_key": "docs"}, []string{"fetching the preview page"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			in := stdioLines(draftSiteCall(tc.args, map[string]any{
+				"progressToken": 7,
+				"io.modelcontextprotocol/protocolVersion":    "2026-07-28",
+				"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+			}))
+			require.NoError(t, s.serve(context.Background(), in, &out))
+			r, ok := responsesByID(t, out.Bytes())["9"]
+			require.True(t, ok, "no draft_site response; output:\n%s", out.String())
+			require.NotNil(t, r.Result)
+			require.False(t, r.Result.IsError, "draft_site: %s", r.Result.Content[0].Text)
+
+			got := progressNotifications(t, out.Bytes())
+			require.Len(t, got, len(tc.want), "output:\n%s", out.String())
+			for i, p := range got {
+				assert.EqualValues(t, 7, p.ProgressToken)
+				assert.InDelta(t, float64(i+1), p.Progress, 0)
+				assert.Contains(t, p.Message, tc.want[i])
+			}
+		})
+	}
+}

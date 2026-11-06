@@ -23,6 +23,14 @@ type DraftRequest struct {
 	Overrides  map[string]any
 	PreviewURL string
 	Selector   string
+	// OnStage, if set, is told before each stage that makes network requests.
+	OnStage func(message string)
+}
+
+func (r *DraftRequest) stage(message string) {
+	if r.OnStage != nil {
+		r.OnStage(message)
+	}
 }
 
 // DraftResult is a drafted entry and how one page extracts with it.
@@ -48,6 +56,7 @@ func (d *Discoverer) DraftSite(ctx context.Context, req DraftRequest) (*DraftRes
 	sampled := false
 	switch {
 	case req.URL != "":
+		req.stage("probing the site: robots.txt, the start page, llms.txt and sitemaps")
 		report, err := d.Run(ctx, req.URL)
 		if err != nil {
 			return nil, err
@@ -88,6 +97,7 @@ func (d *Discoverer) DraftSite(ctx context.Context, req DraftRequest) (*DraftRes
 		if err != nil {
 			return nil, err
 		}
+		req.stage("fetching the preview page " + u.String())
 		if doc, pageURL, err = d.fetchPage(ctx, u); err != nil {
 			return nil, err
 		}

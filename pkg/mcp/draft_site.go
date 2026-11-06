@@ -65,6 +65,13 @@ func (s *Server) handleDraftSite(ctx context.Context, request mcp.CallToolReques
 	if o, ok := request.GetArguments()["overrides"].(map[string]any); ok {
 		req.Overrides = o
 	}
+	if progress := newProgressReporter(ctx, request, 0); progress != nil {
+		stages := 0
+		req.OnStage = func(message string) {
+			stages++
+			progress.report(float64(stages), 0, message)
+		}
+	}
 	switch {
 	case req.URL == "" && req.SiteKey == "":
 		return mcp.NewToolResultError("draft_site needs url (a new site) or site_key (a configured site)"), nil
