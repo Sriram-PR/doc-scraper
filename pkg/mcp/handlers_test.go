@@ -340,10 +340,10 @@ func TestHandleListPages_ClampsMaxResults(t *testing.T) {
 		models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://docs.example.com/a"},
 	})
 
-	// Negative max_results falls back to default (100).
+	// 0 means the default (100).
 	got := callListPages(t, s, map[string]any{
 		"site_key":    "docs",
-		"max_results": float64(-5),
+		"max_results": float64(0),
 	})
 	assert.EqualValues(t, 100, got["max_results"])
 
