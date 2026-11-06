@@ -207,7 +207,7 @@ func TestHandleListPages_NoCrawlYet(t *testing.T) {
 	pages, ok := got["pages"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, pages)
-	assert.Contains(t, got["message"], "No crawl output found")
+	assert.Equal(t, "Site 'docs' has not been crawled yet. Run crawl_site first.", got["message"])
 }
 
 func TestHandleDescribeServer_BasicShape(t *testing.T) {
@@ -851,8 +851,7 @@ func TestHandleReadPage_NoCrawlYet(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 
 	text := readPageError(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
-	assert.Contains(t, text, "no crawl output found")
-	assert.Contains(t, text, "crawl_site")
+	assert.Equal(t, "Site 'docs' has not been crawled yet. Run crawl_site first.", text)
 }
 
 func TestHandleReadPage_MissingParams(t *testing.T) {

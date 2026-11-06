@@ -154,6 +154,10 @@ func (s *Server) siteJSONLPath(siteKey string, siteCfg *config.SiteConfig) (stri
 	), true
 }
 
+// notCrawledHint is the same for list_pages (a result) and read_page (an
+// error: the page asked for doesn't exist yet).
+const notCrawledHint = "Site '%s' has not been crawled yet. Run crawl_site first."
+
 const jsonlDisabledHint = "JSONL output is disabled for site '%s', so no stored corpus is available to read. " +
 	"Remove enable_jsonl_output: false (it defaults to true) and re-run crawl_site."
 
@@ -218,7 +222,7 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 				Pages:      []pageListEntry{},
 				Offset:     offset,
 				MaxResults: maxResults,
-				Message:    "No crawl output found for this site. Run crawl_site first.",
+				Message:    fmt.Sprintf(notCrawledHint, siteKey),
 			}), nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("failed to open JSONL for site '%s': %v", siteKey, err)), nil
@@ -963,8 +967,7 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 	record, err := findPageRecord(jsonlPath, urlStr)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return mcp.NewToolResultError(fmt.Sprintf(
-				"no crawl output found for site '%s'. Run crawl_site first.", siteKey)), nil
+			return mcp.NewToolResultError(fmt.Sprintf(notCrawledHint, siteKey)), nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("failed to read crawl output for site '%s': %v", siteKey, err)), nil
 	}
