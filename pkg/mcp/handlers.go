@@ -259,9 +259,8 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 	sort.Slice(pages, func(i, j int) bool { return pages[i].URL < pages[j].URL })
 
 	total := len(pages)
-	offset = min(offset, total)
 	var pageSlice []pageListEntry
-	if offset == total {
+	if offset >= total {
 		pageSlice = []pageListEntry{}
 	} else {
 		end := offset + maxResults
@@ -775,7 +774,7 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 		UnchangedCount: res.UnchangedCount,
 		Total:          res.Total,
 		Returned:       len(res.Entries),
-		Offset:         min(offset, res.Total),
+		Offset:         offset,
 		MaxResults:     maxResults,
 		CurrentCrawl:   summarizeCrawl(res.CurrentCrawl),
 		BaselineCrawl:  summarizeCrawl(res.BaselineCrawl),

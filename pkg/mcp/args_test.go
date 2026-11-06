@@ -194,12 +194,15 @@ func TestHandleSearchDocs_EchoesEffectiveLimit(t *testing.T) {
 	}
 }
 
-func TestOffsetPastEndEchoesTotal(t *testing.T) {
+func TestOffsetPastEndIsEchoedAsGiven(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
 	seedCorpus(t, jsonlPath)
 	idx := attachIndex(t, s)
 	got := callListPages(t, s, map[string]any{"site_key": "docs", "offset": 100.0})
-	assert.EqualValues(t, 2, got["offset"])
+	assert.EqualValues(t, 100, got["offset"])
+	assert.EqualValues(t, 2, got["total"])
+	assert.EqualValues(t, 0, got["returned"])
+	assert.Empty(t, got["pages"])
 
 	base := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
 	for i, hash := range []string{"h0", "h1"} {
@@ -211,5 +214,6 @@ func TestOffsetPastEndEchoesTotal(t *testing.T) {
 	}
 	_, got = callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs", "offset": 50.0})
 	assert.EqualValues(t, 1, got["total"])
-	assert.EqualValues(t, 1, got["offset"])
+	assert.EqualValues(t, 50, got["offset"])
+	assert.EqualValues(t, 0, got["returned"])
 }
