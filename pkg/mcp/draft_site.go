@@ -94,6 +94,11 @@ func (s *Server) handleDraftSite(ctx context.Context, request mcp.CallToolReques
 	_, exists := s.site(draft.SiteKey)
 	preview := res.Preview
 	preview.Markdown = discover.FirstLines(preview.Markdown, 40)
+	warnings := nonNilStrings(draft.Warnings)
+	if preview.Err != "" {
+		warnings = append(warnings, "the preview page could not be extracted: "+preview.Err+
+			". Check content_selector with overrides, or pick another page with preview_url.")
+	}
 
 	next := "If the preview looks wrong, call draft_site again with overrides. To keep this entry, call save_site with site_key and entry"
 	if exists {
@@ -111,7 +116,7 @@ func (s *Server) handleDraftSite(ctx context.Context, request mcp.CallToolReques
 		SitemapPageCount: draft.PageCount,
 		Generator:        draft.Version,
 		Evidence:         nonNilStrings(draft.Evidence),
-		Warnings:         nonNilStrings(draft.Warnings),
+		Warnings:         warnings,
 		Preview:          preview,
 		ConfigWrites:     s.configWrites(),
 		NextActions:      next,

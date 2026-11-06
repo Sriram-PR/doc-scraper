@@ -79,6 +79,18 @@ func TestDraftSite_ConfiguredSiteWithOverrides(t *testing.T) {
 	assert.Contains(t, preview["markdown"], "DRAFT FIXTURE TEXT")
 }
 
+func TestDraftSite_FailedPreviewIsAWarning(t *testing.T) {
+	s, _ := newDraftSiteServer(t)
+	_, got := callJSON(t, s.handleDraftSite, map[string]any{
+		"site_key":  "docs",
+		"overrides": map[string]any{"content_selector": "#nowhere"},
+	})
+	require.NotNil(t, got)
+	warnings := got["warnings"].([]any)
+	require.NotEmpty(t, warnings)
+	assert.Contains(t, warnings[len(warnings)-1], "the preview page could not be extracted: content selector not found")
+}
+
 func TestDraftSite_Errors(t *testing.T) {
 	s, _ := newDraftSiteServer(t)
 	cases := []struct {
