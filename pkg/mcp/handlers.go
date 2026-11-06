@@ -1072,6 +1072,9 @@ func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolReque
 	}
 	if len(results) == 0 {
 		hint := "No matches. Broaden the query, or check the corpus with list_sites and list_pages."
+		if strings.Count(query, `"`)%2 == 1 {
+			hint = `No matches. The query has an unmatched double quote ("); close it to search for a phrase, or remove it.`
+		}
 		if siteKey == "" {
 			if !s.anySiteIndexed(ctx) {
 				hint = "No site has indexed content yet. Run crawl_site for one of: " +
