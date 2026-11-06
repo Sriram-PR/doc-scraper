@@ -76,6 +76,7 @@ type stdioResponse struct {
 		} `json:"content"`
 	} `json:"result"`
 	Error *struct {
+		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
 }
@@ -211,5 +212,38 @@ func TestStdioDrain_ResponseReleasesEOF(t *testing.T) {
 		require.ErrorIs(t, err, io.EOF)
 	case <-time.After(5 * time.Second):
 		t.Fatal("EOF still held after the response was written")
+	}
+}
+
+const legacyToolsList = `{"jsonrpc":"2.0","id":5,"method":"tools/list","params":{}}`
+
+// Protocol 2026-07-28 notes that a legacy server which serves tools/call
+// without a handshake misleads clients probing for the protocol version.
+func TestServe_RejectsLegacyRequestsBeforeInitialize(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      []string
+		wantErr bool
+	}{
+		{"legacy request first", []string{legacyToolsList}, true},
+		{"after a piped initialize", []string{stdioInitialize, stdioInitialized, legacyToolsList}, false},
+		{"ping before initialize", []string{`{"jsonrpc":"2.0","id":5,"method":"ping"}`}, false},
+		{"modern request without initialize", []string{`{"jsonrpc":"2.0","id":5,"method":"tools/list","params":{` +
+			`"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStdioTestServer(t)
+			out := serveReturnsWithin(t, s, context.Background(), stdioLines(tc.in...), 5*time.Second)
+			r, ok := responsesByID(t, out.Bytes())["5"]
+			require.True(t, ok, "no response; output:\n%s", out.String())
+			if !tc.wantErr {
+				assert.Nil(t, r.Error, "output:\n%s", out.String())
+				return
+			}
+			require.NotNil(t, r.Error, "output:\n%s", out.String())
+			assert.Equal(t, -32600, r.Error.Code)
+			assert.Contains(t, r.Error.Message, "send initialize first")
+		})
 	}
 }

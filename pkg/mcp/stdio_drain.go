@@ -28,6 +28,8 @@ type stdioDrain struct {
 	mu      sync.Mutex
 	pending map[string]struct{}
 	idle    chan struct{} // closed when pending empties while EOF waits
+
+	onInitialize func()
 }
 
 func newStdioDrain(ctx context.Context, timeout time.Duration, log *slog.Logger) *stdioDrain {
@@ -72,6 +74,9 @@ func (d *stdioDrain) observeInput(line []byte) {
 	env, ok := parseEnvelope(line)
 	if !ok {
 		return
+	}
+	if env.Method == "initialize" && d.onInitialize != nil {
+		d.onInitialize()
 	}
 	switch {
 	case env.Method == "notifications/cancelled":

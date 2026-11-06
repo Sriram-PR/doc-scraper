@@ -2,12 +2,15 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -52,6 +55,12 @@ type Server struct {
 	idx        *index.Index
 	sitesMu    sync.RWMutex
 	saveMu     sync.Mutex
+
+	// stdioServing turns on the handshake check; initializeRead is set when
+	// stdin delivers an initialize line, in read order, so a client piping
+	// initialize and its first call together is never refused.
+	stdioServing   atomic.Bool
+	initializeRead atomic.Bool
 }
 
 func NewServer(cfg *ServerConfig) (*Server, error) {
@@ -62,12 +71,18 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		cfg.Logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
 
+	var s *Server
+	hooks := &server.Hooks{}
+	hooks.AddOnRequestInitialization(func(_ context.Context, _ any, message any) error {
+		return s.checkHandshake(message)
+	})
 	mcpServer := server.NewMCPServer(
 		serverName,
 		serverVersion,
 		server.WithMethodCacheHints(mcp.MethodToolsList, toolsListCacheTTL.Milliseconds(), mcp.CacheScopePrivate),
 		server.WithToolCapabilities(false),
 		server.WithInstructions(serverInstructions),
+		server.WithHooks(hooks),
 	)
 
 	if cfg.AppConfig.Sites == nil {
@@ -85,7 +100,7 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open crawl-history index: %w", err)
 	}
-	s := &Server{
+	s = &Server{
 		mcpServer:  mcpServer,
 		cfg:        cfg,
 		log:        logEntry,
@@ -414,7 +429,42 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	d := newStdioDrain(ctx, stdinEOFDrainTimeout, s.log)
+	d.onInitialize = func() { s.initializeRead.Store(true) }
+	s.stdioServing.Store(true)
 	return server.NewStdioServer(s.mcpServer).Listen(ctx, d.reader(in), d.writer(out))
+}
+
+// checkHandshake refuses a legacy-era request (no 2026-07-28 _meta) that
+// arrives before any initialize. Protocol 2026-07-28 warns that a server which
+// serves such requests misleads clients probing for the protocol version.
+func (s *Server) checkHandshake(message any) error {
+	if !s.stdioServing.Load() || s.initializeRead.Load() {
+		return nil
+	}
+	raw, ok := message.(json.RawMessage)
+	if !ok {
+		return nil
+	}
+	var req struct {
+		Method string          `json:"method"`
+		ID     json.RawMessage `json:"id"`
+		Params struct {
+			Meta map[string]any `json:"_meta"`
+		} `json:"params"`
+	}
+	// A message that doesn't decode is left to mcp-go, which reports it.
+	_ = json.Unmarshal(raw, &req)
+	if rpcIDKey(req.ID) == "" {
+		return nil
+	}
+	switch mcp.MCPMethod(req.Method) {
+	case mcp.MethodInitialize, mcp.MethodPing, mcp.MethodServerDiscover:
+		return nil
+	}
+	if version, _ := req.Params.Meta[mcp.MetaKeyProtocolVersion].(string); mcp.IsModernProtocol(version) {
+		return nil
+	}
+	return errors.New("server not initialized: send initialize first, or put the protocol version in _meta (protocol 2026-07-28)")
 }
 
 // backfillChunks indexes existing crawl output for sites that predate the
