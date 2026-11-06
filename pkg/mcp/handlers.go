@@ -490,6 +490,7 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 		defer deadline.Stop()
 		tick := time.NewTicker(jobWaitPoll)
 		defer tick.Stop()
+		progress := newProgressReporter(ctx, request, jobProgressInterval)
 	wait:
 		for !isTerminalStatus(job.Status) {
 			select {
@@ -501,6 +502,13 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 				if j := s.jobManager.GetJob(jobID); j != nil {
 					job = j
 				}
+				// Nothing once the job has ended: the result follows right away,
+				// and Claude Code drops progress written just before a result.
+				if !isTerminalStatus(job.Status) {
+					done := job.PagesProcessed + job.PagesUnchanged
+					// No total: a crawl finds more pages as it goes.
+					progress.report(float64(done), 0, fmt.Sprintf("%d pages crawled, %d queued", done, job.PagesQueued))
+				}
 			}
 		}
 	}
@@ -510,8 +518,9 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 
 const (
 	// Short enough for MCP clients' tool-call timeouts.
-	maxJobWaitSeconds = 60
-	jobWaitPoll       = 250 * time.Millisecond
+	maxJobWaitSeconds   = 60
+	jobWaitPoll         = 250 * time.Millisecond
+	jobProgressInterval = time.Second
 )
 
 // crawlRestartWait bounds how long crawl_site waits for a cancelled crawl of
