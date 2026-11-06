@@ -994,3 +994,17 @@ func TestClipInput_KeepsBothEndsOnRuneBoundaries(t *testing.T) {
 	assert.True(t, strings.HasPrefix(got, "xé"))
 	assert.True(t, strings.HasSuffix(got, ": no such host."))
 }
+
+func TestGetPage_HTTPErrorNamesStatusOnce(t *testing.T) {
+	s, _ := newDraftSiteServer(t)
+	docs, _ := s.site("docs")
+	missing := strings.Replace(docs.StartURLs[0], "index.html", "missing.html", 1)
+	r, _ := callJSON(t, s.handleGetPage, map[string]any{"url": missing})
+	assert.Equal(t, "HTTP 404 Not Found", errText(t, r))
+}
+
+func TestUnknownSiteListsAvailableSitesAsText(t *testing.T) {
+	s, _ := newDraftSiteServer(t)
+	r, _ := callJSON(t, s.handleListPages, map[string]any{"site_key": "nope"})
+	assert.Equal(t, "site 'nope' not found. Available sites: docs", errText(t, r))
+}

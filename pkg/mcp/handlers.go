@@ -322,7 +322,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return mcp.NewToolResultError(fmt.Sprintf("HTTP error: %d %s", resp.StatusCode, resp.Status)), nil
+		return mcp.NewToolResultError("HTTP " + resp.Status), nil
 	}
 
 	body := bufio.NewReader(resp.Body)
@@ -653,7 +653,7 @@ func (s *Server) resolveSiteOrError(siteKey string) (*config.SiteConfig, *mcp.Ca
 	if exists {
 		return siteCfg, nil
 	}
-	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", clipInput(siteKey), s.siteKeys()))
+	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %s", clipInput(siteKey), strings.Join(s.siteKeys(), ", ")))
 }
 
 // handleGetFreshness answers "is the local crawl recent enough to query, or

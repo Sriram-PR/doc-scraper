@@ -50,7 +50,7 @@ func TestValidateSiteKeys(t *testing.T) {
 		cfg := makeAppConfig("zeta", "alpha", "mu")
 		err := ValidateSiteKeys(cfg, []string{"missing"})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "[alpha mu zeta]")
+		assert.Equal(t, "site 'missing' not found. Available sites: alpha, mu, zeta", err.Error())
 	})
 }
 

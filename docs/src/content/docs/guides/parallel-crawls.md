@@ -53,7 +53,7 @@ The failing site here is one whose start URL host does not resolve. Each site re
 Unknown or misspelled site keys are rejected **before** the crawl starts, so they never appear as a `FAILED` row in this summary. For example, `crawl -sites pytorch_docs,typo_key` exits immediately (non-zero) with:
 
 ```
-Invalid site keys: site 'typo_key' not found. Available sites: [pytorch_docs tensorflow_docs langchain_docs]
+Invalid site keys: site 'typo_key' not found. Available sites: langchain_docs, pytorch_docs, tensorflow_docs
 ```
 
 The `FAILED` rows in the summary are for sites that exist in the config but errored during the crawl itself.
