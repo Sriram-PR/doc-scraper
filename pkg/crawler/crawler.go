@@ -1245,9 +1245,11 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	resp, fetchErr := c.fetcher.FetchWithRetry(req, c.crawlCtx)
 
 	if fetchErr != nil {
-		// Fetcher component already logged details of fetch/retry failures.
-		// It also ensures resp.Body is closed if resp is not nil and an error occurred.
-		return nil, resp, fetchErr // Propagate error; resp might be non-nil if an HTTP error occurred (e.g., 404)
+		// A 4xx comes back with its body open; the caller still reads the status code.
+		if resp != nil {
+			drainClose(resp)
+		}
+		return nil, resp, fetchErr
 	}
 	// If fetchErr is nil, we have a successful 2xx response, and resp.Body is open.
 

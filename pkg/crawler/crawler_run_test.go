@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -172,6 +173,41 @@ func runCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig
 	require.NoError(t, err, "NewCrawlerWithOptions")
 
 	return c.Run(false)
+}
+
+// A 404 left unread holds its connection until the client timeout and keeps
+// keep-alive from reusing it, so every dead link would open a new connection.
+func TestCrawlerRun_DeadLinksReuseOneConnection(t *testing.T) {
+	const deadLinks = 30
+	var links strings.Builder
+	for i := range deadLinks {
+		fmt.Fprintf(&links, `<a href="/docs/missing%d.html">m</a>`, i)
+	}
+	index := "<html><body><p>Index</p>" + links.String() + "</body></html>"
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/docs/index.html" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, index)
+	}))
+	var conns atomic.Int64
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	server.Start()
+	t.Cleanup(server.Close)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.NumWorkers = 1
+	appCfg.MaxRequests = 1
+	appCfg.MaxRequestsPerHost = 1
+	_ = runCrawl(t, appCfg, baseSiteConfig(server, "/docs/index.html"))
+
+	assert.LessOrEqual(t, conns.Load(), int64(3), "connections opened for %d dead links", deadLinks)
 }
 
 func TestCrawlerRun_HappyPath(t *testing.T) {
