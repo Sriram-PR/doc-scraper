@@ -94,7 +94,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 		if lastErr != nil {
 			if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
 				reqLog.Warn(fmt.Sprintf("Context cancelled/timed out during HTTP request execution: %v", lastErr))
-				drainAndClose(currentResp)
+				DrainAndClose(currentResp)
 				return nil, lastErr
 			}
 
@@ -102,7 +102,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 			// of burning the whole retry/backoff schedule on it.
 			if errors.Is(lastErr, utils.ErrBlockedAddress) {
 				reqLog.Warn(fmt.Sprintf("Address blocked by SSRF guard, not retrying: %v", lastErr))
-				drainAndClose(currentResp)
+				DrainAndClose(currentResp)
 				return nil, lastErr
 			}
 
@@ -111,12 +111,12 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 			var dnsErr *net.DNSError
 			if errors.As(lastErr, &dnsErr) && dnsErr.IsNotFound && !dnsErr.IsTemporary && !dnsErr.IsTimeout {
 				reqLog.Warn(fmt.Sprintf("Host does not resolve, not retrying: %v", lastErr))
-				drainAndClose(currentResp)
+				DrainAndClose(currentResp)
 				return nil, lastErr
 			}
 
 			reqLog.Error(fmt.Sprintf("Network error: %v", lastErr), "attempt", attempt)
-			drainAndClose(currentResp)
+			DrainAndClose(currentResp)
 			continue
 		}
 
@@ -131,13 +131,13 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 		case statusCode >= 500:
 			resLog.Warn("Server error, retrying...")
 			lastErr = fmt.Errorf("%w: status %d %s", utils.ErrServerHTTPError, statusCode, currentResp.Status)
-			drainAndClose(currentResp)
+			DrainAndClose(currentResp)
 			continue
 
 		case statusCode == http.StatusTooManyRequests:
 			resLog.Warn("Received 429 Too Many Requests, retrying...")
 			lastErr = fmt.Errorf("%w: status %d %s", utils.ErrClientHTTPError, statusCode, currentResp.Status)
-			drainAndClose(currentResp)
+			DrainAndClose(currentResp)
 			continue
 
 		case statusCode >= 400 && statusCode < 500:
@@ -156,7 +156,7 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 	}
 
 	reqLog.Error(fmt.Sprintf("All %d fetch retries failed. Last error: %v", maxRetries+1, lastErr))
-	drainAndClose(currentResp)
+	DrainAndClose(currentResp)
 
 	if lastErr != nil {
 		if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
@@ -168,11 +168,23 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 	return nil, utils.ErrRetryFailed
 }
 
-// drainAndClose drains and closes a response body so the connection can be
-// reused. Safe to call with a nil response.
-func drainAndClose(resp *http.Response) {
+// maxDrainBytes caps how much of a discarded body is read so its connection
+// can be reused; past it, closing the body drops the connection instead.
+const maxDrainBytes = 64 << 10
+
+// Drain reads and discards at most maxDrainBytes of r.
+func Drain(r io.Reader) error {
+	_, err := io.CopyN(io.Discard, r, maxDrainBytes)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
+}
+
+// DrainAndClose drains and closes a response body. Safe to call with a nil response.
+func DrainAndClose(resp *http.Response) {
 	if resp != nil {
-		io.Copy(io.Discard, resp.Body)
+		_ = Drain(resp.Body)
 		resp.Body.Close()
 	}
 }

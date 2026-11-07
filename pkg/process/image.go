@@ -415,10 +415,7 @@ func (ip *ImageProcessor) fetchImageData(task ImageDownloadTask, userAgent strin
 	imgResp, imgFetchErr := ip.fetcher.FetchWithRetry(imgReq, ctx)
 
 	if imgFetchErr != nil {
-		if imgResp != nil {
-			io.Copy(io.Discard, imgResp.Body)
-			imgResp.Body.Close()
-		}
+		fetch.DrainAndClose(imgResp)
 		return nil, fmt.Errorf("fetch failed for img '%s': %w", task.AbsImgURL, imgFetchErr)
 	}
 
@@ -426,8 +423,7 @@ func (ip *ImageProcessor) fetchImageData(task ImageDownloadTask, userAgent strin
 	if headerSizeStr != "" {
 		if headerSize, parseHdrErr := strconv.ParseInt(headerSizeStr, 10, 64); parseHdrErr == nil {
 			if effectiveMaxBytes > 0 && headerSize > effectiveMaxBytes {
-				io.Copy(io.Discard, imgResp.Body)
-				imgResp.Body.Close()
+				fetch.DrainAndClose(imgResp)
 				return nil, fmt.Errorf("image '%s' exceeds max size based on header (%d > %d bytes)", task.AbsImgURL, headerSize, effectiveMaxBytes)
 			}
 		} else {
@@ -446,12 +442,12 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 
 	localFilename, fileExtErr := generateLocalFilename(task.BaseImgURL, task.AbsImgURL, imgResp.Header.Get("Content-Type"), imgLogEntry)
 	if fileExtErr != nil {
-		io.Copy(io.Discard, imgResp.Body)
+		_ = fetch.Drain(imgResp.Body)
 		return "", 0, fileExtErr
 	}
 	localFilePath := filepath.Join(localImageDir, localFilename)
 	if !utils.IsWithinDir(localImageDir, localFilePath) {
-		io.Copy(io.Discard, imgResp.Body)
+		_ = fetch.Drain(imgResp.Body)
 		return "", 0, fmt.Errorf("%w: image path '%s' escapes '%s'", utils.ErrFilesystem, localFilePath, localImageDir)
 	}
 
@@ -464,13 +460,13 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 	imgLogEntry.Debug(fmt.Sprintf("Final image save path: %s (Relative: %s)", localFilePath, relativeFilePath))
 
 	if mkDirErr := os.MkdirAll(localImageDir, 0755); mkDirErr != nil {
-		io.Copy(io.Discard, imgResp.Body)
+		_ = fetch.Drain(imgResp.Body)
 		return "", 0, fmt.Errorf("%w: ensuring image directory '%s' exists: %w", utils.ErrFilesystem, localImageDir, mkDirErr)
 	}
 
 	outFile, createErr := os.Create(localFilePath)
 	if createErr != nil {
-		io.Copy(io.Discard, imgResp.Body)
+		_ = fetch.Drain(imgResp.Body)
 		return "", 0, fmt.Errorf("%w: creating image file '%s': %w", utils.ErrFilesystem, localFilePath, createErr)
 	}
 
@@ -483,7 +479,7 @@ func (ip *ImageProcessor) saveImageToDisk(task ImageDownloadTask, imgResp *http.
 	copiedBytes, copyErr := io.Copy(outFile, reader)
 
 	// Drain any remaining body bytes to allow connection reuse.
-	_, drainErr := io.Copy(io.Discard, imgResp.Body)
+	drainErr := fetch.Drain(imgResp.Body)
 	if drainErr != nil {
 		imgLogEntry.Warn(fmt.Sprintf("Error draining response body after copy: %v", drainErr))
 	}

@@ -1222,13 +1222,6 @@ func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFu
 	return cleanupFunc, nil
 }
 
-// drainClose drains and closes an HTTP response body so the keep-alive
-// connection can be reused before the caller returns a nil response.
-func drainClose(resp *http.Response) {
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-}
-
 // fetchAndValidatePage performs the HTTP GET request with retries and validates the response.
 // It handles redirects and ensures the final URL is within scope and allowed by robots.txt.
 // If successful, returns the final URL and an open http.Response (caller must close Body).
@@ -1247,7 +1240,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	if fetchErr != nil {
 		// A 4xx comes back with its body open; the caller still reads the status code.
 		if resp != nil {
-			drainClose(resp)
+			fetch.DrainAndClose(resp)
 		}
 		return nil, resp, fetchErr
 	}
@@ -1269,7 +1262,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	if !parse.SameHost(finalHost, c.siteCfg.AllowedDomain) || !strings.HasPrefix(finalPath, c.siteCfg.AllowedPathPrefix) {
 		err = fmt.Errorf("%w: redirected URL '%s' out of scope (Expected Domain: '%s', Path Prefix: '%s')",
 			utils.ErrScopeViolation, finalURL.String(), c.siteCfg.AllowedDomain, c.siteCfg.AllowedPathPrefix)
-		drainClose(resp)
+		fetch.DrainAndClose(resp)
 		return finalURL, nil, err // resp body is now closed; return a nil response
 	}
 
@@ -1277,7 +1270,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		if pattern.MatchString(finalURL.Path) {
 			err = fmt.Errorf("%w: redirected URL '%s' matches disallowed pattern '%s'",
 				utils.ErrScopeViolation, finalURL.String(), pattern.String())
-			drainClose(resp)
+			fetch.DrainAndClose(resp)
 			return finalURL, nil, err
 		}
 	}
@@ -1289,7 +1282,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		if !c.robotsHandler.TestAgent(finalURL, c.resolved.UserAgent, c.crawlCtx) {
 			err = fmt.Errorf("%w: redirected URL '%s' disallowed by robots.txt on new host",
 				utils.ErrRobotsDisallowed, finalURL.String())
-			drainClose(resp)
+			fetch.DrainAndClose(resp)
 			return finalURL, nil, err
 		}
 	}
@@ -1306,7 +1299,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 			strings.HasPrefix(ctLower, "application/gzip") ||
 			strings.HasPrefix(ctLower, "application/pdf") ||
 			strings.HasPrefix(ctLower, "application/octet-stream") {
-			drainClose(resp)
+			fetch.DrainAndClose(resp)
 			return finalURL, nil, fmt.Errorf("%w: '%s' for '%s'", utils.ErrNonHTMLContent, contentType, finalURL.String())
 		}
 		// Ambiguous types (text/plain, etc.) -- warn but proceed

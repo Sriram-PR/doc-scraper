@@ -393,10 +393,7 @@ func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, site
 
 	resp, err := sp.fetcher.FetchWithRetry(req, ctx)
 	if err != nil {
-		if resp != nil {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-		}
+		fetch.DrainAndClose(resp)
 		return nil, err
 	}
 	defer resp.Body.Close()
