@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"runtime"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -732,9 +731,6 @@ func validateSiteConfigs(appCfg *config.AppConfig, siteKeys []string, log *slog.
 }
 
 func executeParallelCrawl(configFile string, siteKeys []string, allSites bool, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode, allowShrink bool) int {
-	runtime.SetBlockProfileRate(1000)
-	runtime.SetMutexProfileFraction(1000)
-
 	log := setupLogger(logLevelStr, logFormat)
 	appCfg := loadAndValidateConfig(configFile, log)
 	applyIncrementalOverride(appCfg, incrementalMode, fullMode, log)
@@ -806,9 +802,6 @@ func parallelExitCode(results []orchestrate.SiteResult, interrupted bool) int {
 }
 
 func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string, isResume, incrementalMode, fullMode, allowShrink bool) int {
-	runtime.SetBlockProfileRate(1000)
-	runtime.SetMutexProfileFraction(1000)
-
 	log := setupLogger(logLevelStr, logFormat)
 	appCfg := loadAndValidateConfig(configFile, log)
 	logAppConfig(appCfg, log)
