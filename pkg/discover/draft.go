@@ -98,12 +98,16 @@ func BuildDraft(r *Report, selectorOverride string) *Draft {
 	return d
 }
 
-const versionTreeBody = `v?\d+(?:\.\d+)*(?:\.x)?/`
+// treeEnd also matches a tree's root page: sitemaps list it without the
+// trailing slash, and the crawler checks normalized paths, which drop it.
+const treeEnd = `(?:/|$)`
+
+const versionTreeBody = `v?\d+(?:\.\d+)*(?:\.x)?` + treeEnd
 
 // localeTreeBody matches the segments isLocaleSegment accepts. It is built on
 // call because iso639 is filled in init.
 func localeTreeBody() string {
-	return "(?:" + strings.Join(slices.Sorted(maps.Keys(iso639)), "|") + `)(?:[-_][a-zA-Z]{2,4})?/`
+	return "(?:" + strings.Join(slices.Sorted(maps.Keys(iso639)), "|") + `)(?:[-_][a-zA-Z]{2,4})?` + treeEnd
 }
 
 // disallowPatterns excludes sibling version and locale trees, including those
@@ -128,7 +132,7 @@ func disallowPatterns(r *Report) (patterns, evidence []string) {
 			parent, _ := splitTree(tree)
 			g, ok := groups[parent]
 			if !ok || !slices.Contains(g.members, tree) {
-				patterns = append(patterns, "^"+regexp.QuoteMeta(tree))
+				patterns = append(patterns, "^"+regexp.QuoteMeta(strings.TrimSuffix(tree, "/"))+treeEnd)
 				continue
 			}
 			if !emitted[parent] {
@@ -161,7 +165,7 @@ func keptPaths(r *Report, excluded []string) []string {
 		return kept
 	}
 	for _, p := range hostPaths(r.FinalURL, r.Sitemap.URLs) {
-		if !slices.ContainsFunc(excluded, func(tree string) bool { return strings.HasPrefix(p, tree) }) {
+		if !slices.ContainsFunc(excluded, func(tree string) bool { return strings.HasPrefix(p+"/", tree) }) {
 			kept = append(kept, p)
 		}
 	}

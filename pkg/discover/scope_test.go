@@ -2,6 +2,7 @@ package discover
 
 import (
 	"net/url"
+	"regexp"
 	"slices"
 	"testing"
 
@@ -133,13 +134,13 @@ func TestClusterScope_ShapedDirsWithTheirOwnPagesAreKept(t *testing.T) {
 func TestDisallowPatterns_ExcludeNestedTrees(t *testing.T) {
 	r := &Report{Scope: ScopeInfo{Prefix: "/docs/", SiblingVersions: []string{"/docs/next/", "/docs/2.x/"}, SiblingLocales: []string{"/docs/"}}}
 	got, evidence := disallowPatterns(r)
-	assert.Equal(t, []string{`^/docs/next/`, `^/docs/2\.x/`}, got, "never excludes the prefix itself")
+	assert.Equal(t, []string{`^/docs/next(?:/|$)`, `^/docs/2\.x(?:/|$)`}, got, "never excludes the prefix itself")
 	assert.Empty(t, evidence)
 }
 
 const (
-	docsVersionPattern = `^/docs/v?\d+(?:\.\d+)*(?:\.x)?/`
-	rootLocalePattern  = `^/(?:ar|bn|cs|da|de|el|en|es|fa|fi|fr|he|hi|hu|id|it|ja|ko|nl|no|pl|pt|ro|ru|sk|sv|th|tr|uk|vi|zh)(?:[-_][a-zA-Z]{2,4})?/`
+	docsVersionPattern = `^/docs/v?\d+(?:\.\d+)*(?:\.x)?(?:/|$)`
+	rootLocalePattern  = `^/(?:ar|bn|cs|da|de|el|en|es|fa|fi|fr|he|hi|hu|id|it|ja|ko|nl|no|pl|pt|ro|ru|sk|sv|th|tr|uk|vi|zh)(?:[-_][a-zA-Z]{2,4})?(?:/|$)`
 )
 
 func TestDisallowPatterns_Generalize(t *testing.T) {
@@ -157,7 +158,7 @@ func TestDisallowPatterns_Generalize(t *testing.T) {
 			prefix:       "/docs/",
 			versions:     []string{"/docs/next/", "/docs/2.x/", "/docs/3.0.1/", "/docs/3.9.2/"},
 			sitemap:      []string{"/docs/intro", "/docs/2.x/intro", "/docs/3.0.1/intro"},
-			wantPatterns: []string{`^/docs/next/`, docsVersionPattern},
+			wantPatterns: []string{`^/docs/next(?:/|$)`, docsVersionPattern},
 			wantEvidence: []string{"disallowed_path_patterns: 3 version trees under /docs/ generalized; the pattern matches none of the 1 kept sitemap URLs"},
 		},
 		{
@@ -173,27 +174,27 @@ func TestDisallowPatterns_Generalize(t *testing.T) {
 			prefix:       "/docs/",
 			versions:     []string{"/docs/1.0/", "/docs/1.1/"},
 			sitemap:      []string{"/docs/intro", "/docs/0.11/a"},
-			wantPatterns: []string{`^/docs/1\.0/`, `^/docs/1\.1/`},
+			wantPatterns: []string{`^/docs/1\.0(?:/|$)`, `^/docs/1\.1(?:/|$)`},
 		},
 		{
 			name:         "a prefix the pattern matches keeps literals",
 			prefix:       "/en/5.1/",
 			versions:     []string{"/en/4.2/", "/en/5.0/"},
-			wantPatterns: []string{`^/en/4\.2/`, `^/en/5\.0/`},
+			wantPatterns: []string{`^/en/4\.2(?:/|$)`, `^/en/5\.0(?:/|$)`},
 		},
 		{
 			name:         "a single tree stays literal",
 			prefix:       "/docs/",
 			versions:     []string{"/docs/15/"},
 			sitemap:      []string{"/docs/intro"},
-			wantPatterns: []string{`^/docs/15/`},
+			wantPatterns: []string{`^/docs/15(?:/|$)`},
 		},
 		{
 			name:         "trees the pattern does not match stay literal",
 			prefix:       "/docs/",
 			versions:     []string{"/docs/V1/", "/docs/V2/"},
 			sitemap:      []string{"/docs/intro"},
-			wantPatterns: []string{`^/docs/V1/`, `^/docs/V2/`},
+			wantPatterns: []string{`^/docs/V1(?:/|$)`, `^/docs/V2(?:/|$)`},
 		},
 		{
 			name:     "each kind and parent is checked on its own",
@@ -202,7 +203,7 @@ func TestDisallowPatterns_Generalize(t *testing.T) {
 			locales:  []string{"/de/", "/fr/"},
 			sitemap:  []string{"/en/stable/a"},
 			// /en/stable/a is locale-shaped under /, so only the version group generalizes.
-			wantPatterns: []string{`^/en/v?\d+(?:\.\d+)*(?:\.x)?/`, `^/de/`, `^/fr/`},
+			wantPatterns: []string{`^/en/v?\d+(?:\.\d+)*(?:\.x)?(?:/|$)`, `^/de(?:/|$)`, `^/fr(?:/|$)`},
 			wantEvidence: []string{"disallowed_path_patterns: 2 version trees under /en/ generalized; the pattern matches none of the 1 kept sitemap URLs"},
 		},
 		{
@@ -228,6 +229,55 @@ func TestDisallowPatterns_Generalize(t *testing.T) {
 			patterns, evidence := disallowPatterns(r)
 			assert.Equal(t, tc.wantPatterns, patterns)
 			assert.Equal(t, tc.wantEvidence, evidence)
+		})
+	}
+}
+
+// The crawler checks normalized paths, which drop the trailing slash, and
+// sitemaps list version and locale roots without one.
+func TestDisallowPatterns_ExcludeTreeRoots(t *testing.T) {
+	cases := []struct {
+		name         string
+		versions     []string
+		locales      []string
+		sitemap      []string
+		wantPatterns int
+	}{
+		{
+			name:         "generalized",
+			wantPatterns: 3,
+			versions:     []string{"/docs/next/", "/docs/2.x/", "/docs/3.0.1/"},
+			locales:      []string{"/de/", "/fr/"},
+			sitemap:      []string{"/docs/intro", "/docs/next-steps", "/docs/2.x", "/docs/2.x/intro", "/docs/3.0.1", "/de", "/fr/docs/intro"},
+		},
+		{
+			name:         "literal",
+			wantPatterns: 3,
+			versions:     []string{"/docs/next/", "/docs/2.x/"},
+			locales:      []string{"/de/"},
+			sitemap:      []string{"/docs/intro", "/docs/next-steps", "/docs/2.x", "/de"},
+		},
+	}
+	excluded := []string{"/docs/next", "/docs/next/intro", "/docs/2.x", "/docs/2.x/intro", "/de", "/de/docs/intro"}
+	kept := []string{"/docs/intro", "/docs/next-steps", "/docs/2.xyz", "/deploy"}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &Report{
+				FinalURL: mustURL(t, "https://d.io/docs/"),
+				Sitemap:  SitemapInfo{Found: true, URLs: withHost("d.io", tc.sitemap)},
+				Scope:    ScopeInfo{Prefix: "/docs/", SiblingVersions: tc.versions, SiblingLocales: tc.locales},
+			}
+			patterns, _ := disallowPatterns(r)
+			matches := func(path string) bool {
+				return slices.ContainsFunc(patterns, func(p string) bool { return regexp.MustCompile(p).MatchString(path) })
+			}
+			assert.Len(t, patterns, tc.wantPatterns)
+			for _, path := range excluded {
+				assert.True(t, matches(path), "%s should be excluded by %q", path, patterns)
+			}
+			for _, path := range kept {
+				assert.False(t, matches(path), "%s should be kept, patterns %q", path, patterns)
+			}
 		})
 	}
 }
@@ -279,7 +329,7 @@ func TestBuildDraft_EvidenceCountsExcludedTrees(t *testing.T) {
 	}
 	d := BuildDraft(r, "")
 	assert.Contains(t, d.Evidence, "allowed_path_prefix: /docs/ covers 40 of 200 sitemap URLs, not counting 86 in excluded version/locale trees")
-	assert.Equal(t, []string{"^/docs/next/"}, d.Site.DisallowedPathPatterns)
+	assert.Equal(t, []string{"^/docs/next(?:/|$)"}, d.Site.DisallowedPathPatterns)
 }
 
 func TestBuildDraft_EvidenceNamesSamplePage(t *testing.T) {
