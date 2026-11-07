@@ -489,7 +489,9 @@ func (s *Server) backfillChunks(ctx context.Context) {
 			s.log.Warn("chunk backfill: check failed", "site", key, "err", err)
 			continue
 		}
-		if has {
+		// A site with chunks is refreshed only when its JSONL is gone, which
+		// clears them.
+		if _, statErr := os.Stat(jsonlPath); has && statErr == nil {
 			continue
 		}
 		if err := crawler.IndexChunksFromJSONL(ctx, s.idx, key, jsonlPath, s.log); err != nil {

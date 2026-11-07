@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
@@ -97,4 +98,30 @@ func TestIndexChunksFromJSONLNilIndexAndMissingFile(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = idx.Close() }()
 	assert.NoError(t, IndexChunksFromJSONL(context.Background(), idx, "docs", filepath.Join(dir, "missing.jsonl"), log))
+}
+
+func TestIndexChunksFromJSONLDeletedFileClearsTheSite(t *testing.T) {
+	dir := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	idx, err := index.Open(filepath.Join(dir, "index.db"), 5, log)
+	require.NoError(t, err)
+	defer func() { _ = idx.Close() }()
+	ctx := context.Background()
+	jsonlPath := filepath.Join(dir, "pages.jsonl")
+	writeChunkTestJSONL(t, jsonlPath, []models.PageJSONL{
+		{URL: "https://d.example/install", Title: "Install", ContentHash: "i1",
+			Content: "# Install\n\nDownload the walrus binary. " + strings.Repeat("filler ", 40)},
+	})
+	require.NoError(t, IndexChunksFromJSONL(ctx, idx, "docs", jsonlPath, log))
+	require.NoError(t, idx.ReplaceChunks(ctx, "other", "https://o.example/a", "A", "a1", chunk.Split("# A\n\nAnother walrus. "+strings.Repeat("filler ", 40))))
+
+	require.NoError(t, os.Remove(jsonlPath))
+	require.NoError(t, IndexChunksFromJSONL(ctx, idx, "docs", jsonlPath, log))
+
+	results, err := idx.SearchChunks(ctx, "walrus", "docs", 5)
+	require.NoError(t, err)
+	assert.Empty(t, results, "chunks of a site whose JSONL was deleted are still searchable")
+	results, err = idx.SearchChunks(ctx, "walrus", "other", 5)
+	require.NoError(t, err)
+	assert.Len(t, results, 1, "another site's chunks must stay")
 }

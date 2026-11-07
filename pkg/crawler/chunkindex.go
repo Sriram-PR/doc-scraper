@@ -32,7 +32,10 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 	f, err := os.Open(jsonlPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+			if len(existing) == 0 {
+				return nil
+			}
+			return idx.DeleteSiteChunks(ctx, siteKey)
 		}
 		return err
 	}

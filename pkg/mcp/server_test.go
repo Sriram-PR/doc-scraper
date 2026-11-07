@@ -68,6 +68,21 @@ func TestBackfillChunks(t *testing.T) {
 	assert.False(t, has, "a site with JSONL output disabled is skipped")
 }
 
+// Deleting a site's output to start over must not leave its old pages searchable.
+func TestBackfillChunks_ClearsASiteWhoseJSONLIsGone(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestServer(t, "gone", "gone.example.com")
+	idx := attachIndex(t, s)
+	require.NoError(t, idx.ReplaceChunks(ctx, "gone", "https://gone.example.com/a", "A", "h-a",
+		chunk.Split("# A\n\nDeleted walrus text. "+strings.Repeat("filler ", 40))))
+
+	s.backfillChunks(ctx)
+
+	has, err := idx.SiteHasChunks(ctx, "gone")
+	require.NoError(t, err)
+	assert.False(t, has)
+}
+
 func TestBackfillChunks_StopsOnCancelledContext(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "legacy", "legacy.example.com")
 	idx := attachIndex(t, s)
