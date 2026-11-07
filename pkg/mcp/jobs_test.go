@@ -402,9 +402,10 @@ func TestPersistence_AtomicWrite(t *testing.T) {
 
 	createTestJob(t, jm, "docs", false)
 
-	// The tmp file must never be left behind after a successful flush.
-	_, err := os.Stat(filepath.Join(dir, jobsFilename+".tmp"))
-	assert.True(t, os.IsNotExist(err), "tmp file should not exist after flush")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "a temp file was left behind after the flush")
+	assert.Equal(t, jobsFilename, entries[0].Name())
 
 	// And the canonical file must exist with valid JSON.
 	data, err := os.ReadFile(filepath.Join(dir, jobsFilename))

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 // RenderSiteEntry renders one site entry as YAML (2-space indent, no leading
@@ -255,26 +257,7 @@ func writeValidated(path string, content []byte, key string, perm os.FileMode) e
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".config-*.yaml")
-	if err != nil {
-		return fmt.Errorf("write config: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(content); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("write config: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("write config: %w", err)
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("write config: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
+	if err := utils.WriteFileAtomic(path, content, perm); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil

@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 type JobStatus string
@@ -297,18 +298,10 @@ func (m *JobManager) flush() {
 		}
 		return
 	}
-	tmp := m.persistPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := utils.WriteFileAtomic(m.persistPath, data, 0o644); err != nil {
 		if m.log != nil {
-			m.log.Warn("failed to write jobs tmp file", "err", err)
+			m.log.Warn("failed to write jobs file", "err", err)
 		}
-		return
-	}
-	if err := os.Rename(tmp, m.persistPath); err != nil {
-		if m.log != nil {
-			m.log.Warn("failed to rename jobs tmp file", "err", err)
-		}
-		_ = os.Remove(tmp)
 		return
 	}
 	m.dirty.Store(false)
