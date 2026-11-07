@@ -389,7 +389,7 @@ func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, site
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("User-Agent", sp.appCfg.DefaultUserAgent)
+	req.Header.Set("User-Agent", config.GetEffectiveDefaultUserAgent(sp.appCfg))
 
 	resp, err := sp.fetcher.FetchWithRetry(req, ctx)
 	if err != nil {

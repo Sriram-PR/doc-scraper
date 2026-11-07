@@ -30,6 +30,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/version"
 )
 
 // These tests characterize the CURRENT end-to-end behavior of Crawler.Run
@@ -404,6 +405,42 @@ func newSitemapDocServer(t *testing.T, sitemapPath, robots string) (*httptest.Se
 	}))
 	t.Cleanup(server.Close)
 	return server, rec
+}
+
+func TestCrawlerRun_UnsetUserAgentFallsBackToTheDefault(t *testing.T) {
+	var mu sync.Mutex
+	agents := map[string]string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		agents[r.URL.Path] = r.UserAgent()
+		mu.Unlock()
+		origin := "http://" + r.Host
+		switch r.URL.Path {
+		case "/robots.txt":
+			_, _ = io.WriteString(w, "User-agent: *\nAllow: /\nSitemap: "+origin+"/docs/sitemap.xml\n")
+		case "/docs/sitemap.xml":
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>`+
+				origin+`/docs/orphan.html</loc></url></urlset>`)
+		case "/docs/index.html", "/docs/orphan.html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<html><head><title>T</title></head><body>Text.</body></html>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	appCfg := newTestAppConfig(t)
+	appCfg.DefaultUserAgent = ""
+
+	require.NoError(t, runCrawl(t, appCfg, baseSiteConfig(server, "/docs/index.html")))
+
+	want := "github.com/Sriram-PR/doc-scraper/" + version.Version
+	mu.Lock()
+	defer mu.Unlock()
+	for _, path := range []string{"/robots.txt", "/docs/sitemap.xml", "/docs/index.html", "/docs/orphan.html"} {
+		assert.Equal(t, want, agents[path], "User-Agent for %s", path)
+	}
 }
 
 func TestCrawlerRun_ProbesProjectPathSitemapWithoutRobots(t *testing.T) {

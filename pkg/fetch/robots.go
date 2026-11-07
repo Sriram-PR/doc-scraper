@@ -194,7 +194,7 @@ func (rh *RobotsHandler) fetchAndCacheRobots(targetURL *url.URL, host string, ho
 		rh.cacheFailure(host)
 		return nil
 	}
-	req.Header.Set("User-Agent", rh.cfg.DefaultUserAgent)
+	req.Header.Set("User-Agent", config.GetEffectiveDefaultUserAgent(rh.cfg))
 
 	resp, fetchErr := rh.fetcher.FetchWithRetry(req, ctx)
 

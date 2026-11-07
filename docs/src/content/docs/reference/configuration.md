@@ -75,7 +75,7 @@ sites:
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `default_user_agent` | String | Default User-Agent header for requests | `""` (Go default) |
+| `default_user_agent` | String | User-Agent header for requests, including robots.txt and sitemaps | `github.com/Sriram-PR/doc-scraper/<version>` |
 | `default_delay_per_host` | Duration | Time to wait between requests to the same host | `0s` (no delay) |
 | `num_workers` | Integer | Number of concurrent crawl workers | `4` |
 | `num_image_workers` | Integer | Number of concurrent image download workers | same as `num_workers` |

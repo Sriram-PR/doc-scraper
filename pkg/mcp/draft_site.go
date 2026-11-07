@@ -40,10 +40,7 @@ func (s *Server) configWrites() string {
 }
 
 func (s *Server) discoverer() *discover.Discoverer {
-	ua := s.cfg.AppConfig.DefaultUserAgent
-	if ua == "" {
-		ua = fetch.DefaultUserAgent()
-	}
+	ua := config.GetEffectiveDefaultUserAgent(s.cfg.AppConfig)
 	return &discover.Discoverer{
 		Client:    fetch.NewClient(s.cfg.AppConfig.HTTPClientSettings, s.log),
 		UserAgent: ua,

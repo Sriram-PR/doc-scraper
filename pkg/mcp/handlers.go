@@ -312,11 +312,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create request: %s", clipInput(err.Error()))), nil
 	}
 
-	userAgent := s.cfg.AppConfig.DefaultUserAgent
-	if userAgent == "" {
-		userAgent = fetch.DefaultUserAgent()
-	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", config.GetEffectiveDefaultUserAgent(s.cfg.AppConfig))
 
 	resp, err := client.Do(req)
 	if err != nil {
