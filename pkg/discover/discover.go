@@ -4,6 +4,7 @@
 package discover
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 )
@@ -154,7 +156,12 @@ func (d *Discoverer) fetchPage(ctx context.Context, seed *url.URL) (*goquery.Doc
 	case resp.StatusCode != http.StatusOK:
 		return nil, nil, fmt.Errorf("%s returned HTTP %d", seed, resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
+	br := bufio.NewReader(resp.Body)
+	head, _ := br.Peek(512)
+	if ct := fetch.NonHTMLContentType(resp.Header.Get("Content-Type"), head); ct != "" {
+		return nil, nil, fmt.Errorf("%s is %s, not an HTML page", seed, ct)
+	}
+	body, err := io.ReadAll(io.LimitReader(br, maxFetchBytes))
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading %s: %w", seed, err)
 	}

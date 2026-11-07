@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"mime"
 	"net"
 	"net/http"
 	"time"
@@ -166,6 +167,20 @@ func (f *Fetcher) FetchWithRetry(req *http.Request, ctx context.Context) (*http.
 	}
 
 	return nil, utils.ErrRetryFailed
+}
+
+// NonHTMLContentType returns "" for an HTML response, or else the content type
+// to report, sniffing head when the server sent none.
+func NonHTMLContentType(header string, head []byte) string {
+	ct := header
+	if ct == "" {
+		ct = http.DetectContentType(head)
+	}
+	mediaType, _, err := mime.ParseMediaType(ct)
+	if err == nil && (mediaType == "text/html" || mediaType == "application/xhtml+xml") {
+		return ""
+	}
+	return ct
 }
 
 // maxDrainBytes caps how much of a discarded body is read so its connection

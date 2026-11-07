@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -331,7 +330,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 
 	body := bufio.NewReader(resp.Body)
 	head, _ := body.Peek(512)
-	if ct := htmlContentType(resp.Header.Get("Content-Type"), head); ct != "" {
+	if ct := fetch.NonHTMLContentType(resp.Header.Get("Content-Type"), head); ct != "" {
 		return mcp.NewToolResultError(fmt.Sprintf("%s is not an HTML page (Content-Type %s); get_page only converts HTML", clipInput(urlStr), clipInput(ct))), nil
 	}
 
@@ -400,20 +399,6 @@ func pageWindow(request mcp.CallToolRequest) (maxBytes, offset int) {
 		maxBytes = maxReadPageBytes
 	}
 	return maxBytes, request.GetInt("offset", 0)
-}
-
-// htmlContentType returns "" for an HTML response, or else the content type
-// to report, sniffing the body when the server sent none.
-func htmlContentType(header string, body []byte) string {
-	ct := header
-	if ct == "" {
-		ct = http.DetectContentType(body)
-	}
-	mediaType, _, err := mime.ParseMediaType(ct)
-	if err == nil && (mediaType == "text/html" || mediaType == "application/xhtml+xml") {
-		return ""
-	}
-	return ct
 }
 
 func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

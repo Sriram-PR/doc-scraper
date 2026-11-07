@@ -141,6 +141,33 @@ func TestDiscoverer_BotBlockIsDiagnosed(t *testing.T) {
 	assert.Contains(t, err.Error(), "bot protection")
 }
 
+func TestDiscoverer_RefusesANonHTMLSeed(t *testing.T) {
+	png := "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+	for _, tc := range []struct{ name, contentType, want string }{
+		{"declared", "image/png", "is image/png, not an HTML page"},
+		{"sniffed", "", "is image/png, not an HTML page"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/robots.txt" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header()["Content-Type"] = nil
+				if tc.contentType != "" {
+					w.Header().Set("Content-Type", tc.contentType)
+				}
+				_, _ = io.WriteString(w, png)
+			}))
+			t.Cleanup(srv.Close)
+
+			_, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/static/logo.png")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
 func TestDiscoverer_GzipSitemap(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/sitemap.xml", func(w http.ResponseWriter, _ *http.Request) {
