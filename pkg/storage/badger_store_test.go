@@ -3,9 +3,12 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -147,6 +150,56 @@ func TestMarkPageVisited(t *testing.T) {
 		count, err := store.GetVisitedCount()
 		require.NoError(t, err)
 		assert.Equal(t, 2, count)
+	})
+}
+
+// Concurrent writers to one key make Badger retry the losing transactions;
+// a retry must not inherit "new key" from an attempt that conflicted.
+func TestConcurrentWritesToOneKeyCountItOnce(t *testing.T) {
+	const rounds, writers = 200, 8
+
+	race := func(t *testing.T, write func(store *BadgerStore, key string) bool) {
+		store := newTestStore(t)
+		for round := range rounds {
+			key := fmt.Sprintf("https://example.com/p%d", round)
+			var added atomic.Int64
+			var wg sync.WaitGroup
+			start := make(chan struct{})
+			for range writers {
+				wg.Go(func() {
+					<-start
+					if write(store, key) {
+						added.Add(1)
+					}
+				})
+			}
+			close(start)
+			wg.Wait()
+			require.LessOrEqual(t, added.Load(), int64(1), "round %d: more than one writer saw the key as new", round)
+		}
+		count, err := store.GetVisitedCount()
+		require.NoError(t, err)
+		assert.Equal(t, rounds, count)
+	}
+
+	t.Run("MarkPageVisited", func(t *testing.T) {
+		race(t, func(store *BadgerStore, key string) bool {
+			added, err := store.MarkPageVisited(key, 1)
+			assert.NoError(t, err)
+			return added
+		})
+	})
+	t.Run("UpdatePageStatus", func(t *testing.T) {
+		race(t, func(store *BadgerStore, key string) bool {
+			assert.NoError(t, store.UpdatePageStatus(key, &models.PageDBEntry{Status: models.PageStatusSuccess}))
+			return false
+		})
+	})
+	t.Run("UpdateImageStatus", func(t *testing.T) {
+		race(t, func(store *BadgerStore, key string) bool {
+			assert.NoError(t, store.UpdateImageStatus(key, &models.ImageDBEntry{Status: models.ImageStatusSuccess}))
+			return false
+		})
 	})
 }
 

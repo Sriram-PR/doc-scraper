@@ -148,6 +148,7 @@ func (s *BadgerStore) MarkPageVisited(normalizedPageURL string, depth int) (bool
 	}
 
 	err := s.dbUpdate(func(txn *badger.Txn) error {
+		added = false
 		_, errGet := txn.Get(key)
 		if errors.Is(errGet, badger.ErrKeyNotFound) {
 			e := badger.NewEntry(key, pending)
@@ -228,12 +229,10 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 		return wrappedErr
 	}
 
-	isNew := false
+	var isNew bool
 	err := s.dbUpdate(func(txn *badger.Txn) error {
 		_, errGet := txn.Get(key)
-		if errors.Is(errGet, badger.ErrKeyNotFound) {
-			isNew = true
-		}
+		isNew = errors.Is(errGet, badger.ErrKeyNotFound)
 		e := badger.NewEntry(key, entryBytes)
 		return txn.SetEntry(e)
 	})
@@ -321,12 +320,10 @@ func (s *BadgerStore) UpdateImageStatus(normalizedImgURL string, entry *models.I
 		return wrappedErr
 	}
 
-	isNew := false
+	var isNew bool
 	err := s.dbUpdate(func(txn *badger.Txn) error {
 		_, errGet := txn.Get(key)
-		if errors.Is(errGet, badger.ErrKeyNotFound) {
-			isNew = true
-		}
+		isNew = errors.Is(errGet, badger.ErrKeyNotFound)
 		e := badger.NewEntry(key, entryBytes)
 		return txn.SetEntry(e)
 	})
