@@ -102,6 +102,11 @@ func (c *AppConfig) validateHTTPClientSettings() {
 // Validate checks SiteConfig fields, applies defaults, and returns warnings and any fatal error.
 // Modifies receiver in place (e.g., path prefix normalization).
 func (c *SiteConfig) Validate() (warnings []string, err error) {
+	// A site key with nothing under it in the YAML (`b:` or `b: null`) parses to a nil pointer.
+	if c == nil {
+		return nil, fmt.Errorf("%w: site has no settings", utils.ErrConfigValidation)
+	}
+
 	if len(c.StartURLs) == 0 {
 		return nil, fmt.Errorf("%w: site has no start_urls", utils.ErrConfigValidation)
 	}

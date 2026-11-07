@@ -478,3 +478,40 @@ sites:
 		})
 	}
 }
+
+// A site key with nothing under it parses to a nil *SiteConfig.
+const siteWithNoFieldsConfig = `
+sites:
+  good:
+    start_urls: ["http://good.com"]
+    allowed_domain: "good.com"
+    content_selector: "main"
+  empty:
+`
+
+func TestDoValidate_SiteWithNoFields(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(siteWithNoFieldsConfig), 0644))
+
+	for _, siteKey := range []string{"", "empty"} {
+		var stdout, stderr bytes.Buffer
+		exitCode := doValidate(cfgPath, siteKey, false, &stdout, &stderr)
+
+		assert.Equal(t, 1, exitCode, "site %q", siteKey)
+		assert.Contains(t, stderr.String(), "no settings", "site %q", siteKey)
+	}
+}
+
+func TestDoListSites_SiteWithNoFields(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(siteWithNoFieldsConfig), 0644))
+
+	for _, jsonOut := range []bool{false, true} {
+		var stdout, stderr bytes.Buffer
+		exitCode := doListSites(cfgPath, jsonOut, &stdout, &stderr)
+
+		assert.Equal(t, 0, exitCode, "json=%v", jsonOut)
+		assert.Contains(t, stdout.String(), "empty", "json=%v", jsonOut)
+		assert.Contains(t, stdout.String(), "good.com", "json=%v", jsonOut)
+	}
+}
