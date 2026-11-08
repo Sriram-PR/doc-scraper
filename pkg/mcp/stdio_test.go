@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,9 +120,32 @@ func TestServe_AnswersRequestsSentBeforeStdinCloses(t *testing.T) {
 	}
 }
 
-func serveReturnsWithin(t *testing.T, s *Server, ctx context.Context, in io.Reader, limit time.Duration) *bytes.Buffer {
+// lockedBuffer collects serve's output. mcp-go's Listen returns without
+// waiting for its notification goroutine, and the stdio session is a package
+// global, so a notification queued by an earlier test can still be written
+// after serve returns.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return bytes.Clone(b.buf.Bytes())
+}
+
+func (b *lockedBuffer) String() string { return string(b.Bytes()) }
+
+func serveReturnsWithin(t *testing.T, s *Server, ctx context.Context, in io.Reader, limit time.Duration) *lockedBuffer {
 	t.Helper()
-	var out bytes.Buffer
+	var out lockedBuffer
 	errc := make(chan error, 1)
 	go func() { errc <- s.serve(ctx, in, &out) }()
 	select {
