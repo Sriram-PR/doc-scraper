@@ -476,8 +476,10 @@ func inKeptTable(cell *html.Node) bool {
 
 // rewriteFallback replaces t with one block per row and one per cell, so cells
 // no longer run together when the table cannot be a GFM table, and labels each
-// body cell with its column header. Inside a link or emphasis a block would
-// break the inline, so there the cells are spans separated by spaces.
+// body cell with its column header, or with its row header in a key/value
+// table. A header row of one cell spanning every column is a title, written
+// once before the cells. Inside a link or emphasis a block would break the
+// inline, so there the cells are spans separated by spaces.
 func rewriteFallback(t *html.Node) {
 	box := func() *html.Node { return newElement("div", atom.Div) }
 	inline := insideInlineFormatting(t)
@@ -496,13 +498,27 @@ func rewriteFallback(t *html.Node) {
 		add(out, moveChildren(caption, box()))
 	}
 	rows := ownRows(t)
+	if title, ok := titleRow(rows); ok {
+		strong := newElement("strong", atom.Strong)
+		strong.AppendChild(&html.Node{Type: html.TextNode, Data: title})
+		heading := box()
+		heading.AppendChild(strong)
+		add(out, heading)
+		rows = rows[1:]
+	}
 	labels := headerLabels(rows)
+	rowHeaders := false
 	if labels != nil {
 		rows = rows[1:]
+	} else if labels = rowHeaderLabels(rows); labels != nil {
+		rowHeaders = true
 	}
 	for _, r := range rows {
 		row := box()
-		for _, cell := range ownCells(r) {
+		for i, cell := range ownCells(r) {
+			if rowHeaders && i == 0 {
+				continue
+			}
 			content := moveChildren(cell, box())
 			if label := labels[cell]; label != "" {
 				insertLabel(content, label)
@@ -544,7 +560,7 @@ func headerLabels(rows []*html.Node) map[*html.Node]string {
 	}
 	names := make(map[int]string)
 	for _, c := range header {
-		name := strings.Join(strings.Fields(textOf(c)), " ")
+		name := labelText(c)
 		for i := range spanOf(c, "colspan") {
 			names[columns[c]+i] = name
 		}
@@ -559,6 +575,60 @@ func headerLabels(rows []*html.Node) map[*html.Node]string {
 		}
 	}
 	return labels
+}
+
+// titleRow reports the text of a first row that is a single <th> spanning
+// every column of a table at least two columns wide, followed by more rows.
+func titleRow(rows []*html.Node) (string, bool) {
+	if len(rows) < 2 {
+		return "", false
+	}
+	cells := ownCells(rows[0])
+	if len(cells) != 1 || !isElement(cells[0], "th") {
+		return "", false
+	}
+	columns, ok := cellColumns(rows)
+	if !ok {
+		return "", false
+	}
+	width := 0
+	for _, r := range rows {
+		for _, c := range ownCells(r) {
+			width = max(width, columns[c]+spanOf(c, "colspan"))
+		}
+	}
+	title := strings.Join(strings.Fields(textOf(cells[0])), " ")
+	if width < 2 || spanOf(cells[0], "colspan") < width || title == "" {
+		return "", false
+	}
+	return title, true
+}
+
+// rowHeaderLabels maps each row's value cell to its row header when every row
+// is one <th> followed by one <td>, as in a key/value table, or returns nil.
+func rowHeaderLabels(rows []*html.Node) map[*html.Node]string {
+	if len(rows) == 0 {
+		return nil
+	}
+	labels := make(map[*html.Node]string)
+	for _, r := range rows {
+		cells := ownCells(r)
+		if len(cells) != 2 || !isElement(cells[0], "th") || !isElement(cells[1], "td") {
+			return nil
+		}
+		for _, c := range cells {
+			if spanOf(c, "colspan") != 1 || spanOf(c, "rowspan") != 1 {
+				return nil
+			}
+		}
+		labels[cells[1]] = labelText(cells[0])
+	}
+	return labels
+}
+
+// labelText is a header cell's text as a label; insertLabel adds the colon.
+func labelText(c *html.Node) string {
+	return strings.TrimSpace(strings.TrimRight(strings.Join(strings.Fields(textOf(c)), " "), ":："))
 }
 
 // cellColumns gives each cell its starting column, skipping slots taken by a

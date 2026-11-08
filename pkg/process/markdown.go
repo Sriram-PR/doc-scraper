@@ -18,7 +18,7 @@ import (
 // MarkdownFormatVersion is part of the crawler's incremental content hash.
 // Bump it whenever a change here alters the Markdown for the same HTML, so the
 // next incremental crawl reconverts pages whose HTML did not change.
-const MarkdownFormatVersion = 2
+const MarkdownFormatVersion = 3
 
 // A Converter is safe to share, but every call takes its mutex, and workers
 // spending their time on that mutex stops a crawl scaling past about 8 of them.

@@ -53,7 +53,7 @@ func TestToMarkdown_TwoPreCellsThatAreNotLineNumbersStayData(t *testing.T) {
 }
 
 func TestMarkdownFormatVersion(t *testing.T) {
-	assert.Equal(t, 2, MarkdownFormatVersion)
+	assert.Equal(t, 3, MarkdownFormatVersion)
 }
 
 func TestToMarkdown_DataTables(t *testing.T) {
@@ -183,6 +183,60 @@ func TestToMarkdown_FallbackLabels(t *testing.T) {
 			name: "EmptyCellGetsNoLabel",
 			html: `<table><tr><th>A</th><th>B</th></tr><tr><td></td><td><ul><li>x</li></ul></td></tr></table>`,
 			want: "**B:**\n\n- x",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tableMarkdown(t, tt.html))
+		})
+	}
+}
+
+func TestToMarkdown_FallbackTitleRowAndRowHeaders(t *testing.T) {
+	t.Run("PythonBuiltinsTitleIsWrittenOnce", func(t *testing.T) {
+		want := "**Built-in Functions**\n\n" +
+			"**A**\n\n[`abs()`](#abs \"abs\")\n\n[`aiter()`](#aiter \"aiter\")\n\n[`all()`](#all \"all\")\n\n[`anext()`](#anext \"anext\")\n\n[`any()`](#any \"any\")\n\n" +
+			"**E**\n\n[`enumerate()`](#enumerate \"enumerate\")\n\n[`eval()`](#eval \"eval\")\n\n[`exec()`](#exec \"exec\")\n\n**F**\n\n" +
+			"**L**\n\n[`len()`](#len \"len\")\n\n[`list()`](#func-list)\n\n[`locals()`](#locals \"locals\")\n\n**M**\n\n" +
+			"**R**\n\n[`range()`](#func-range)\n\n[`repr()`](#repr \"repr\")\n\n[`reversed()`](#reversed \"reversed\")\n\n[`round()`](#round \"round\")"
+		assert.Equal(t, want, fixtureMarkdown(t, "python-builtins-title-row.html"))
+	})
+	t.Run("NginxDirectiveKeysLabelTheirValues", func(t *testing.T) {
+		want := "**Syntax:** `charset_types mime-type ...;`\n\n" +
+			"**Default:**\n\n```\ncharset_types text/html text/xml text/plain text/vnd.wap.wml\napplication/javascript application/rss+xml;\n```\n\n" +
+			"**Context:** `http`, `server`, `location`"
+		assert.Equal(t, want, fixtureMarkdown(t, "nginx-directive-row-headers.html"))
+	})
+
+	tests := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "TitleRowThenColumnHeaders",
+			html: `<table><tr><th colspan="2">Options</th></tr><tr><th>Name</th><th>Notes</th></tr><tr><td>a</td><td><ul><li>x</li></ul></td></tr></table>`,
+			want: "**Options**\n\n**Name:** a\n\n**Notes:**\n\n- x",
+		},
+		{
+			name: "HeaderThatSpansOnlySomeColumnsIsStillALabel",
+			html: `<table><tr><th colspan="2">Name</th><th>Notes</th></tr><tr><td>a</td><td>b</td><td><ul><li>x</li></ul></td></tr></table>`,
+			want: "**Name:** a\n\n**Name:** b\n\n**Notes:**\n\n- x",
+		},
+		{
+			name: "RowWithTwoValuesGetsNoRowLabels",
+			html: `<table><tr><th>k</th><td>v1</td><td><ul><li>v2</li></ul></td></tr><tr><th>j</th><td>w</td><td>z</td></tr></table>`,
+			want: "k\n\nv1\n\n- v2\n\nj\n\nw\n\nz",
+		},
+		{
+			name: "ARowWithoutAHeaderCellGetsNoRowLabels",
+			html: `<table><tr><th>k</th><td><ul><li>v</li></ul></td></tr><tr><td>j</td><td>w</td></tr></table>`,
+			want: "k\n\n- v\n\nj\n\nw",
+		},
+		{
+			name: "ColumnHeaderColonIsNotDoubled",
+			html: `<table><tr><th>Name:</th></tr><tr><td><ul><li>x</li></ul></td></tr></table>`,
+			want: "**Name:**\n\n- x",
 		},
 	}
 	for _, tt := range tests {
