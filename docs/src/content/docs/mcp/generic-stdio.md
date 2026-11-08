@@ -47,3 +47,5 @@ printf '%s\n' \
 Output from doc-scraper 2.25.0, 2026-11-06. Each tool result carries the data twice: as structuredContent, which matches the tool's outputSchema, and as the same JSON value in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
 
 Send `initialize` before anything else. A request that comes before it is refused with JSON-RPC error `-32600` ("server not initialized"), except `ping`, `server/discover`, and requests that carry protocol 2026-07-28 `_meta` (`io.modelcontextprotocol/protocolVersion` and `io.modelcontextprotocol/clientCapabilities`), which need no handshake. Writing `initialize` and the first call together, as above, is fine: the order on stdin is what counts.
+
+Each message must fit on one line of at most 4 MiB. A longer line is discarded without being read into memory: if its `id` appears in the first 4 MiB, the request gets JSON-RPC error `-32600` ("request too large"); otherwise it gets no reply and the server logs a warning.

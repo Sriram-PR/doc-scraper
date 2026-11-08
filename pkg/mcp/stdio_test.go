@@ -271,3 +271,61 @@ func TestServe_RejectsLegacyRequestsBeforeInitialize(t *testing.T) {
 		})
 	}
 }
+
+// A buggy client must not make the server buffer whatever it sends: a line past
+// the cap is discarded, answered with -32600 when its id can be read in time,
+// and the session carries on.
+func TestServe_OversizedRequestLine(t *testing.T) {
+	huge := strings.Repeat("x", 5<<20)
+	idFirst := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"search_docs","arguments":{"query":"` + huge + `"}}}`
+	idLast := `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"search_docs","arguments":{"query":"` + huge + `"}},"id":9}`
+	ping := `{"jsonrpc":"2.0","id":8,"method":"ping"}`
+
+	t.Run("id before the cap is answered", func(t *testing.T) {
+		s := newStdioTestServer(t)
+		out := serveReturnsWithin(t, s, context.Background(), stdioLines(stdioInitialize, stdioInitialized, idFirst, ping), 10*time.Second)
+		got := responsesByID(t, out.Bytes())
+		r, ok := got["7"]
+		require.True(t, ok, "no response for the oversized request")
+		require.NotNil(t, r.Error)
+		assert.Equal(t, -32600, r.Error.Code)
+		assert.Contains(t, r.Error.Message, "too large")
+		assert.Nil(t, got["8"].Error, "the next request still works")
+		assert.Contains(t, got, "8")
+	})
+	t.Run("id past the cap is dropped", func(t *testing.T) {
+		s := newStdioTestServer(t)
+		out := serveReturnsWithin(t, s, context.Background(), stdioLines(stdioInitialize, stdioInitialized, idLast, ping), 10*time.Second)
+		got := responsesByID(t, out.Bytes())
+		assert.NotContains(t, got, "9")
+		assert.Contains(t, got, "8", "the next request still works")
+		assert.Less(t, out.Len(), 1<<20, "the oversized line must not be echoed back")
+	})
+}
+
+func (b *lockedBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+func TestLeadingID(t *testing.T) {
+	for _, tc := range []struct {
+		name, prefix, want string
+	}{
+		{"number", `{"jsonrpc":"2.0","id":7,"params":{"q":"xxx`, "7"},
+		{"string", `{"id":"a-1","method":"tools/call","params":{"q":"xx`, `"a-1"`},
+		{"null", `{"id":null,"method":"x","params":{"q":"xx`, ""},
+		{"nested id is not the request id", `{"method":"x","params":{"id":3,"q":"xxx`, ""},
+		{"cut before the id", `{"method":"x","params":{"q":"xxxx`, ""},
+		{"not an object", `["id",1`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id, ok := leadingID([]byte(tc.prefix))
+			assert.Equal(t, tc.want != "", ok)
+			if ok {
+				assert.Equal(t, tc.want, string(id))
+			}
+		})
+	}
+}

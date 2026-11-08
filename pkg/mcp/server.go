@@ -74,6 +74,9 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 	var s *Server
 	hooks := &server.Hooks{}
 	hooks.AddOnRequestInitialization(func(_ context.Context, _ any, message any) error {
+		if err := refuseOversized(message); err != nil {
+			return err
+		}
 		return s.checkHandshake(message)
 	})
 	mcpServer := server.NewMCPServer(
@@ -432,6 +435,22 @@ func (s *Server) serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	d.onInitialize = func() { s.initializeRead.Store(true) }
 	s.stdioServing.Store(true)
 	return server.NewStdioServer(s.mcpServer).Listen(ctx, d.reader(in), d.writer(out))
+}
+
+// refuseOversized answers the stand-in for a request drainReader discarded.
+func refuseOversized(message any) error {
+	raw, ok := message.(json.RawMessage)
+	if !ok {
+		return nil
+	}
+	var req struct {
+		Method string `json:"method"`
+	}
+	_ = json.Unmarshal(raw, &req)
+	if req.Method != oversizedMethod {
+		return nil
+	}
+	return fmt.Errorf("request too large: messages over %d MiB are discarded", maxStdinLine>>20)
 }
 
 // checkHandshake refuses a legacy-era request (no 2026-07-28 _meta) that

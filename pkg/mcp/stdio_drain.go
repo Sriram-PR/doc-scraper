@@ -12,6 +12,14 @@ import (
 	"time"
 )
 
+// maxStdinLine caps one JSON-RPC message on stdin, far above any real request,
+// so a buggy client can't make the server buffer whatever it sends.
+const maxStdinLine = 4 << 20
+
+// oversizedMethod stands in for a discarded oversized request, so mcp-go
+// answers it in order with the error refuseOversized gives.
+const oversizedMethod = "doc-scraper/request-too-large"
+
 // stdinEOFDrainTimeout bounds how long a closed stdin waits for requests
 // already read to be answered, so a stuck handler cannot keep the process up.
 const stdinEOFDrainTimeout = 60 * time.Second
@@ -152,7 +160,7 @@ func (r *drainReader) Read(p []byte) (int, error) {
 			}
 			return 0, r.err
 		}
-		line, err := r.r.ReadBytes('\n')
+		line, err := r.readLine()
 		r.d.observeInput(line)
 		r.buf, r.err = line, err
 	}
@@ -182,4 +190,59 @@ func (w *drainWriter) Write(p []byte) (int, error) {
 		w.partial = w.partial[i+1:]
 	}
 	return n, err
+}
+
+// readLine returns the next line. A line longer than maxStdinLine is discarded
+// up to its newline and replaced by a short oversizedMethod request with the
+// same id, or dropped with a warning when the id isn't within the first
+// maxStdinLine bytes.
+func (r *drainReader) readLine() ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := r.r.ReadSlice('\n')
+		if len(line)+len(chunk) > maxStdinLine {
+			line = append(line, chunk[:maxStdinLine-len(line)]...)
+			for errors.Is(err, bufio.ErrBufferFull) {
+				_, err = r.r.ReadSlice('\n')
+			}
+			return r.oversized(line), err
+		}
+		line = append(line, chunk...)
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return line, err
+		}
+	}
+}
+
+func (r *drainReader) oversized(prefix []byte) []byte {
+	id, ok := leadingID(prefix)
+	if !ok {
+		r.d.log.Warn("Discarded a JSON-RPC message over the stdin size limit; it has no id within the limit, so it gets no reply", "limit_bytes", maxStdinLine)
+		return nil
+	}
+	r.d.log.Warn("Discarded a JSON-RPC message over the stdin size limit", "limit_bytes", maxStdinLine, "id", string(id))
+	return []byte(`{"jsonrpc":"2.0","id":` + string(id) + `,"method":"` + oversizedMethod + `"}` + "\n")
+}
+
+// leadingID finds the top-level "id" of a JSON object that may be cut off,
+// reporting false when the cut comes before it or the id is null.
+func leadingID(prefix []byte) (json.RawMessage, bool) {
+	dec := json.NewDecoder(bytes.NewReader(prefix))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, false
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return nil, false
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, false
+		}
+		if key == "id" {
+			return value, rpcIDKey(value) != ""
+		}
+	}
+	return nil, false
 }
