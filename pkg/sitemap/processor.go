@@ -492,7 +492,6 @@ func (sp *SitemapProcessor) handleURLSet(urlSet parse.XMLURLSet, sitemapLog *slo
 			continue
 		}
 		if added {
-			sp.wg.Add(1)
 			sp.pq.Add(&models.WorkItem{URL: normalizedPageURL, Depth: sitemapURLDepth})
 			queuedCount++
 		}

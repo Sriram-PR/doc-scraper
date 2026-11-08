@@ -407,6 +407,56 @@ func newSitemapDocServer(t *testing.T, sitemapPath, robots string) (*httptest.Se
 	return server, rec
 }
 
+// awaitTasks waits on the task WaitGroup in a goroutine; a token left behind
+// by a cancelled crawl parks that goroutine, and the Crawler it holds, forever.
+func TestCrawlerRun_CancelledCrawlReleasesEveryTaskToken(t *testing.T) {
+	var links strings.Builder
+	for i := range 50 {
+		fmt.Fprintf(&links, `<a href="/docs/p%d.html">p</a>`, i)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var served atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if r.URL.Path == "/docs/index.html" {
+			_, _ = io.WriteString(w, "<html><body><p>Index</p>"+links.String()+"</body></html>")
+			return
+		}
+		if served.Add(1) == 3 {
+			cancel()
+		}
+		_, _ = io.WriteString(w, `<html><body><p>Child</p></body></html>`)
+	}))
+	t.Cleanup(server.Close)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.NumWorkers = 1
+	appCfg.MaxRequestsPerHost = 1
+	logger := newCrawlLog(t).logger()
+	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, false, logger)
+	require.NoError(t, err)
+	defer store.Close()
+	fetcher := fetch.NewFetcher(fetch.NewClient(appCfg.HTTPClientSettings, logger), appCfg, logger)
+	c, err := NewCrawlerWithOptions(appCfg, baseSiteConfig(server, "/docs/index.html"), testSiteKey, logger, store, fetcher,
+		fetch.NewRateLimiter(0, logger), ctx, cancel, false, nil)
+	require.NoError(t, err)
+
+	require.Error(t, c.Run(false))
+
+	released := make(chan struct{})
+	go func() { c.wg.Wait(); close(released) }()
+	select {
+	case <-released:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("task WaitGroup never reached zero after the cancelled crawl returned (%d pages served)", served.Load())
+	}
+}
+
 func TestCrawlerRun_UnsetUserAgentFallsBackToTheDefault(t *testing.T) {
 	var mu sync.Mutex
 	agents := map[string]string{}

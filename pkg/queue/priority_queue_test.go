@@ -19,13 +19,13 @@ func testLogger() *slog.Logger {
 }
 
 func TestNewThreadSafePriorityQueue(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 	require.NotNil(t, pq)
 	assert.Equal(t, 0, pq.Len())
 }
 
 func TestThreadSafePriorityQueue_AddAndPop(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	item := &models.WorkItem{URL: "http://example.com", Depth: 0}
 	pq.Add(item)
@@ -39,7 +39,7 @@ func TestThreadSafePriorityQueue_AddAndPop(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_PriorityOrdering(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	// Add items with different depths (priorities)
 	// Lower depth = higher priority (should be popped first)
@@ -57,7 +57,7 @@ func TestThreadSafePriorityQueue_PriorityOrdering(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_SamePriority(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	// Add multiple items with same depth
 	pq.Add(&models.WorkItem{URL: "a", Depth: 1})
@@ -76,7 +76,7 @@ func TestThreadSafePriorityQueue_SamePriority(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_Close(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 	pq.Close()
 
 	// Pop on closed empty queue should return false
@@ -86,7 +86,7 @@ func TestThreadSafePriorityQueue_Close(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_CloseWithItems(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	pq.Add(&models.WorkItem{URL: "a", Depth: 0})
 	pq.Add(&models.WorkItem{URL: "b", Depth: 1})
@@ -106,7 +106,7 @@ func TestThreadSafePriorityQueue_CloseWithItems(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_AddAfterClose(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 	pq.Close()
 
 	// Add after close should be a no-op (with warning log)
@@ -116,7 +116,7 @@ func TestThreadSafePriorityQueue_AddAfterClose(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_DoubleClose(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	// Double close should not panic
 	pq.Close()
@@ -124,7 +124,7 @@ func TestThreadSafePriorityQueue_DoubleClose(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_PopBlocks(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	resultChan := make(chan *models.WorkItem, 1)
 	go func() {
@@ -161,7 +161,7 @@ func TestThreadSafePriorityQueue_PopBlocks(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_CloseUnblocksWaiters(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	var wg sync.WaitGroup
 	results := make(chan bool, 3)
@@ -204,7 +204,7 @@ func TestThreadSafePriorityQueue_CloseUnblocksWaiters(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_ConcurrentAdd(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	var wg sync.WaitGroup
 	numItems := 100
@@ -224,7 +224,7 @@ func TestThreadSafePriorityQueue_ConcurrentAdd(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_ConcurrentAddPop(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	var wg sync.WaitGroup
 	numProducers := 5
@@ -292,7 +292,7 @@ func TestThreadSafePriorityQueue_ConcurrentAddPop(t *testing.T) {
 }
 
 func TestThreadSafePriorityQueue_LenAccuracy(t *testing.T) {
-	pq := NewThreadSafePriorityQueue(testLogger())
+	pq := NewThreadSafePriorityQueue(testLogger(), nil)
 
 	for i := range 10 {
 		pq.Add(&models.WorkItem{URL: "url", Depth: i})
@@ -303,4 +303,30 @@ func TestThreadSafePriorityQueue_LenAccuracy(t *testing.T) {
 		pq.Pop()
 		assert.Equal(t, i-1, pq.Len(), "after Pop")
 	}
+}
+
+func TestThreadSafePriorityQueue_HoldsATokenPerQueuedItem(t *testing.T) {
+	var tasks sync.WaitGroup
+	pq := NewThreadSafePriorityQueue(testLogger(), &tasks)
+
+	pq.Add(&models.WorkItem{URL: "a", Depth: 0})
+	pq.Add(&models.WorkItem{URL: "b", Depth: 1})
+	pq.Add(&models.WorkItem{URL: "c", Depth: 2})
+	_, ok := pq.Pop()
+	require.True(t, ok)
+	tasks.Done() // the popped item's task finishes
+
+	pq.Drain()
+	pq.Add(&models.WorkItem{URL: "late", Depth: 0})
+
+	done := make(chan struct{})
+	go func() { tasks.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("tokens left after Drain")
+	}
+	assert.Zero(t, pq.Len())
+	_, ok = pq.Pop()
+	assert.False(t, ok, "Pop after Drain")
 }

@@ -133,11 +133,11 @@ func newTestProcessor(
 ) (*SitemapProcessor, chan string, *queue.ThreadSafePriorityQueue, *sync.WaitGroup) {
 	t.Helper()
 	log := discardLogger()
-	pq := queue.NewThreadSafePriorityQueue(log)
+	var wg sync.WaitGroup
+	pq := queue.NewThreadSafePriorityQueue(log, &wg)
 	rl := fetch.NewRateLimiter(0, log)
 	sem := semaphore.NewWeighted(10)
 	sitemapQueue := make(chan string, 10)
-	var wg sync.WaitGroup
 
 	sp := NewSitemapProcessor(
 		sitemapQueue, pq, store, f, rl, sem, fetch.NewHostSemaphorePool(10, log),
@@ -439,11 +439,11 @@ func TestProcessSitemapIndexFanOut(t *testing.T) {
 
 	store := newMockPageStore()
 	log := discardLogger()
-	pq := queue.NewThreadSafePriorityQueue(log)
+	var wg sync.WaitGroup
+	pq := queue.NewThreadSafePriorityQueue(log, &wg)
 	rl := fetch.NewRateLimiter(0, log)
 	sem := semaphore.NewWeighted(8)
 	sitemapQueue := make(chan string, 8)
-	var wg sync.WaitGroup
 	appCfg := defaultAppCfg()
 	appCfg.MaxRequests = 8 // exercise the bounded worker pool
 	sp := NewSitemapProcessor(sitemapQueue, pq, store, &routeFetcher{routes}, rl, sem, fetch.NewHostSemaphorePool(8, log), nil, defaultSiteCfg(), appCfg, log, &wg)
@@ -540,10 +540,10 @@ func sitemapIndexOver(hosts []string, perHost int) (map[string]string, []string)
 func startConcurrencyProcessor(t *testing.T, f fetch.HTTPFetcher, workers, perHost int) (*queue.ThreadSafePriorityQueue, chan string, *sync.WaitGroup, context.CancelFunc) {
 	t.Helper()
 	log := discardLogger()
-	pq := queue.NewThreadSafePriorityQueue(log)
+	var wg sync.WaitGroup
+	pq := queue.NewThreadSafePriorityQueue(log, &wg)
 	rl := fetch.NewRateLimiter(0, log)
 	sitemapQueue := make(chan string, 8)
-	var wg sync.WaitGroup
 	appCfg := defaultAppCfg()
 	appCfg.MaxRequests = workers
 

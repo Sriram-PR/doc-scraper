@@ -175,7 +175,6 @@ func NewCrawlerWithOptions(
 		siteOutputDir:              siteOutputDir,
 		compiledDisallowedPatterns: compiledDisallowedPatterns,
 		store:                      store,
-		pq:                         queue.NewThreadSafePriorityQueue(logger),
 		fetcher:                    fetcher,
 		rateLimiter:                rateLimiter,
 		globalSemaphore:            globalSem,
@@ -193,6 +192,7 @@ func NewCrawlerWithOptions(
 	}
 
 	c.output = NewOutputManager(logger, resolved, siteCfg, siteKey, siteOutputDir)
+	c.pq = queue.NewThreadSafePriorityQueue(logger, &c.wg)
 
 	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c.hostSemPool, c, appCfg, logger)
 	c.sitemapProcessor = sitemap.NewSitemapProcessor(c.sitemapQueue, c.pq, c.store, c.fetcher, c.rateLimiter, c.globalSemaphore, c.hostSemPool, c.compiledDisallowedPatterns, c.siteCfg, c.appCfg, logger, &c.wg)
@@ -337,6 +337,7 @@ func (c *Crawler) Run(resume bool) (err error) {
 	// saving a page; finalizing before it exits would drop that page's JSONL
 	// record while the visited DB already marks it done.
 	c.workersWg.Wait()
+	c.pq.Drain()
 
 	c.logRunSummary(overallStart, runLog)
 	return c.crawlCtx.Err()
@@ -525,7 +526,6 @@ func (c *Crawler) requeueIncomplete(resume bool, runLog *slog.Logger) (int, erro
 	go func() {
 		defer requeueWg.Done()
 		for item := range requeueChan {
-			c.wg.Add(1)
 			c.pq.Add(&item)
 			initialTasksFromDB++
 		}
@@ -740,7 +740,6 @@ func (c *Crawler) seedStartURLs(validStartURLs []string, runLog *slog.Logger) in
 			continue
 		}
 		runLog.Info(fmt.Sprintf("Adding start URL '%s' to queue (Depth 0).", normalizedSeed))
-		c.wg.Add(1)
 		c.pq.Add(&models.WorkItem{URL: normalizedSeed, Depth: 0})
 		initialURLsAddedFromSeed++
 	}
@@ -1168,7 +1167,7 @@ func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *slog.L
 }
 
 func (c *Crawler) followLinks(doc *goquery.Document, pageURL *url.URL, depth int, taskLog *slog.Logger) {
-	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(doc, pageURL, depth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
+	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(doc, pageURL, depth, c.siteCfg, taskLog); linkErr != nil {
 		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
 	}
 }

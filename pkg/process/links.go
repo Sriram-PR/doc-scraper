@@ -7,7 +7,6 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/PuerkitoBio/goquery"
 
@@ -64,7 +63,6 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 	finalURL *url.URL,
 	currentDepth int,
 	siteCfg *config.SiteConfig,
-	wg *sync.WaitGroup,
 	taskLog *slog.Logger,
 ) (queuedCount int, err error) {
 
@@ -165,7 +163,6 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 			}
 
 			if added {
-				wg.Add(1)
 				// Enqueue the normalized URL: the DB key and WorkItem.URL then
 				// agree, which closes a dedup-escape race where a same-page
 				// anchor (e.g. index.html#foo) could be enqueued and later
