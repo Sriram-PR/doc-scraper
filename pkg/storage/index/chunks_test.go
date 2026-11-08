@@ -308,6 +308,44 @@ func TestSearchChunksDedupeKeepsBestChunk(t *testing.T) {
 	assert.Equal(t, "options", results[2].Anchor)
 }
 
+func TestSearchStagedStrictStageDuplicatesStillFillLimit(t *testing.T) {
+	// The pool is everything the strict stage can return, best first: three
+	// chunks of one section, then two other sections. Like the SQL stage,
+	// the fake honors limit and skips excluded chunk ids.
+	pool := []SearchResult{
+		{SiteKey: "s", URL: "https://e/a", Anchor: "x", Rank: -9},
+		{SiteKey: "s", URL: "https://e/a", Anchor: "x", Rank: -8},
+		{SiteKey: "s", URL: "https://e/a", Anchor: "x", Rank: -7},
+		{SiteKey: "s", URL: "https://e/b", Anchor: "y", Rank: -6},
+		{SiteKey: "s", URL: "https://e/c", Anchor: "z", Rank: -5},
+	}
+	poolIDs := []int64{1, 2, 3, 4, 5}
+	raw := func(_ context.Context, _, _ string, limit int, exclude []int64) ([]SearchResult, []int64, error) {
+		skip := make(map[int64]struct{}, len(exclude))
+		for _, id := range exclude {
+			skip[id] = struct{}{}
+		}
+		var results []SearchResult
+		var ids []int64
+		for j, r := range pool {
+			if len(results) >= limit {
+				break
+			}
+			if _, ok := skip[poolIDs[j]]; ok {
+				continue
+			}
+			results = append(results, r)
+			ids = append(ids, poolIDs[j])
+		}
+		return results, ids, nil
+	}
+	results, err := searchStaged(context.Background(), "oneword", "", 3, raw)
+	require.NoError(t, err)
+	require.Len(t, results, 3, "the strict stage keeps fetching until limit distinct sections are held")
+	assert.Equal(t, []string{"https://e/a", "https://e/b", "https://e/c"}, resultURLs(results))
+	assert.Equal(t, []string{"x", "y", "z"}, []string{results[0].Anchor, results[1].Anchor, results[2].Anchor})
+}
+
 func TestSearchChunksNoFillForExplicitSyntaxOrOneWord(t *testing.T) {
 	idx := newTestIndex(t, 5)
 	seedFillCorpus(t, idx)
