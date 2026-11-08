@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -277,17 +278,72 @@ func TestSearchChunksPrefixIsStableAcrossLimits(t *testing.T) {
 	}
 }
 
-func TestSearchChunksFillKeepsEveryChunkOfASplitSection(t *testing.T) {
+func TestSearchChunksDedupesSplitSection(t *testing.T) {
 	idx := newTestIndex(t, 5)
 	filler := strings.Repeat("filler ", 190)
 	seedPage(t, idx, "s", "https://e/long", "Long", "h", "# Long\n\nalpha beta "+filler+"\n\nalpha gamma "+filler)
 
 	results, err := idx.SearchChunks(context.Background(), "alpha beta", "", 10)
 	require.NoError(t, err)
-	require.Len(t, results, 2, "both chunks of the section, once each")
-	assert.Equal(t, results[0].Anchor, results[1].Anchor, "fixture: one section split in two")
-	assert.Equal(t, MatchAll, results[0].Match)
-	assert.Equal(t, MatchPartial, results[1].Match)
+	require.Len(t, results, 1, "one result per page and anchor, even when the section is split across chunks")
+	assert.Equal(t, MatchAll, results[0].Match, "the best-ranked chunk is kept")
+	assert.Contains(t, results[0].Snippet, "[alpha] [beta]")
+}
+
+func TestSearchChunksDedupeKeepsBestChunk(t *testing.T) {
+	raw := func(_ context.Context, _, _ string, _ int, _ []int64) ([]SearchResult, []int64, error) {
+		results := []SearchResult{
+			{SiteKey: "s", URL: "https://e/api", Anchor: "decorators", Rank: -5.0},
+			{SiteKey: "s", URL: "https://e/guide", Anchor: "install", Rank: -4.0},
+			{SiteKey: "s", URL: "https://e/api", Anchor: "decorators", Rank: -2.0},
+			{SiteKey: "s", URL: "https://e/api", Anchor: "options", Rank: -1.0},
+		}
+		return results, []int64{1, 2, 3, 4}, nil
+	}
+	results, err := searchStaged(context.Background(), "two words", "", 10, raw)
+	require.NoError(t, err)
+	require.Len(t, results, 3, "the duplicate page+anchor collapses to one result")
+	assert.InDelta(t, -5.0, results[0].Rank, 0, "the best-ranked chunk survives")
+	assert.Equal(t, "install", results[1].Anchor)
+	assert.Equal(t, "options", results[2].Anchor)
+}
+
+func TestSearchStagedStrictStageDuplicatesStillFillLimit(t *testing.T) {
+	// The pool is everything the strict stage can return, best first: three
+	// chunks of one section, then two other sections. Like the SQL stage,
+	// the fake honors limit and skips excluded chunk ids.
+	pool := []SearchResult{
+		{SiteKey: "s", URL: "https://e/a", Anchor: "x", Rank: -9},
+		{SiteKey: "s", URL: "https://e/a", Anchor: "x", Rank: -8},
+		{SiteKey: "s", URL: "https://e/a", Anchor: "x", Rank: -7},
+		{SiteKey: "s", URL: "https://e/b", Anchor: "y", Rank: -6},
+		{SiteKey: "s", URL: "https://e/c", Anchor: "z", Rank: -5},
+	}
+	poolIDs := []int64{1, 2, 3, 4, 5}
+	raw := func(_ context.Context, _, _ string, limit int, exclude []int64) ([]SearchResult, []int64, error) {
+		skip := make(map[int64]struct{}, len(exclude))
+		for _, id := range exclude {
+			skip[id] = struct{}{}
+		}
+		var results []SearchResult
+		var ids []int64
+		for j, r := range pool {
+			if len(results) >= limit {
+				break
+			}
+			if _, ok := skip[poolIDs[j]]; ok {
+				continue
+			}
+			results = append(results, r)
+			ids = append(ids, poolIDs[j])
+		}
+		return results, ids, nil
+	}
+	results, err := searchStaged(context.Background(), "oneword", "", 3, raw)
+	require.NoError(t, err)
+	require.Len(t, results, 3, "the strict stage keeps fetching until limit distinct sections are held")
+	assert.Equal(t, []string{"https://e/a", "https://e/b", "https://e/c"}, resultURLs(results))
+	assert.Equal(t, []string{"x", "y", "z"}, []string{results[0].Anchor, results[1].Anchor, results[2].Anchor})
 }
 
 func TestSearchChunksNoFillForExplicitSyntaxOrOneWord(t *testing.T) {
@@ -361,9 +417,17 @@ func TestSearchChunksFillExcludesEveryEarlierStage(t *testing.T) {
 
 func TestSearchStagedSkipsFillWhenFull(t *testing.T) {
 	calls := 0
+	// Dedup keys on URL, so the fake stage returns distinct pages like real
+	// chunk rows do.
 	raw := func(_ context.Context, _, _ string, limit int, _ []int64) ([]SearchResult, []int64, error) {
 		calls++
-		return make([]SearchResult, limit), make([]int64, limit), nil
+		results := make([]SearchResult, limit)
+		ids := make([]int64, limit)
+		for i := range results {
+			results[i].URL = fmt.Sprintf("https://e/%d", i)
+			ids[i] = int64(i + 1)
+		}
+		return results, ids, nil
 	}
 	results, err := searchStaged(context.Background(), "two words", "", 3, raw)
 	require.NoError(t, err)

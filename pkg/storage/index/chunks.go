@@ -198,16 +198,33 @@ type rawSearch func(ctx context.Context, match, siteKey string, limit int, exclu
 
 func searchStaged(ctx context.Context, query, siteKey string, limit int, raw rawSearch) ([]SearchResult, error) {
 	query = dedupeTerms(query)
-	results, ids, err := raw(ctx, query, siteKey, limit, nil)
+	// Results collapse to one per page and anchor while they are collected,
+	// not after: a section split into several chunks can rank more than once,
+	// and dropping its extra chunks only at the end would leave the list
+	// short of limit even when more distinct sections exist.
+	seen := make(map[[3]string]struct{})
+	results := []SearchResult{}
+	var ids []int64
+
 	// FTS5 reports query mistakes as generic SQL logic errors, so any failure
-	// other than cancellation gets the quoted retry.
-	if err != nil && ctx.Err() == nil {
-		results, ids, err = raw(ctx, quoteFTSTerms(query), siteKey, limit, nil)
+	// of the strict stage's first fetch other than cancellation gets the
+	// quoted retry; once the quoted form has succeeded, later fetches of the
+	// stage use it too.
+	retried := false
+	strictRaw := func(ctx context.Context, match, siteKey string, lim int, exclude []int64) ([]SearchResult, []int64, error) {
+		if retried {
+			match = quoteFTSTerms(match)
+		}
+		batch, batchIDs, err := raw(ctx, match, siteKey, lim, exclude)
+		if err != nil && !retried && ctx.Err() == nil {
+			retried = true
+			return raw(ctx, quoteFTSTerms(match), siteKey, lim, exclude)
+		}
+		return batch, batchIDs, err
 	}
-	if err != nil {
+	if err := collectStage(ctx, strictRaw, query, siteKey, limit, MatchAll, seen, &results, &ids); err != nil {
 		return nil, err
 	}
-	setMatch(results, MatchAll)
 	// FTS5 ANDs plain terms, so a natural-language query ("how do I group
 	// commands") often matches little or nothing even when its meaningful
 	// words are all over the corpus, and a strict match on a table-of-contents
@@ -219,19 +236,57 @@ func searchStaged(ctx context.Context, query, siteKey string, limit int, raw raw
 		if len(results) >= limit {
 			break
 		}
-		more, moreIDs, err := raw(ctx, rw.match, siteKey, limit-len(results), ids)
-		if err != nil {
+		match := MatchAll
+		if rw.partial {
+			match = MatchPartial
+		}
+		if err := collectStage(ctx, raw, rw.match, siteKey, limit, match, seen, &results, &ids); err != nil {
 			return nil, err
 		}
-		if rw.partial {
-			setMatch(more, MatchPartial)
-		} else {
-			setMatch(more, MatchAll)
-		}
-		results = append(results, more...)
-		ids = append(ids, moreIDs...)
 	}
 	return results, nil
+}
+
+// collectStage fetches from one stage until results holds limit distinct
+// page+anchor entries or the stage runs dry, appending kept results to
+// *results. Every chunk id the stage returns, kept or dropped as a duplicate
+// of a section already taken, is added to *ids, so the next fetch of any
+// stage excludes those chunks and a refetch of this stage moves past them
+// to the sections ranked below. A stage is dry when a fetch returns fewer
+// rows than asked for, or no chunk id it has not returned before (a stage
+// that ignores the exclusion set); fetching past that would only repeat it.
+func collectStage(ctx context.Context, raw rawSearch, match, siteKey string, limit int, matchLabel string, seen map[[3]string]struct{}, results *[]SearchResult, ids *[]int64) error {
+	returned := make(map[int64]struct{})
+	for len(*results) < limit {
+		want := limit - len(*results)
+		batch, batchIDs, err := raw(ctx, match, siteKey, want, *ids)
+		if err != nil {
+			return err
+		}
+		setMatch(batch, matchLabel)
+		fresh := 0
+		for j, r := range batch {
+			if j < len(batchIDs) {
+				if _, ok := returned[batchIDs[j]]; !ok {
+					returned[batchIDs[j]] = struct{}{}
+					*ids = append(*ids, batchIDs[j])
+					fresh++
+				}
+			}
+			key := [3]string{r.SiteKey, r.URL, r.Anchor}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			if len(*results) < limit {
+				*results = append(*results, r)
+			}
+		}
+		if len(batch) < want || fresh == 0 {
+			break
+		}
+	}
+	return nil
 }
 
 func setMatch(results []SearchResult, match string) {
