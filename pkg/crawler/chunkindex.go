@@ -43,7 +43,7 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 
 	current := make(map[string]struct{}, len(existing))
 	var indexed, skipped int
-	scanner := newJSONLScanner(f)
+	scanner := NewJSONLScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if !bytes.Contains(line, pageRecordMarker) {

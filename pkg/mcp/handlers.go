@@ -229,8 +229,7 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 	defer file.Close()
 
 	pages := make([]pageListEntry, 0, 256)
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	scanner := crawler.NewJSONLScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -619,8 +618,7 @@ func (s *Server) getLastCrawledTime(siteKey string, siteCfg *config.SiteConfig) 
 	defer file.Close()
 
 	var lastEnded time.Time
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	scanner := crawler.NewJSONLScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || !strings.Contains(line, models.RecordTypeCrawlMeta) {
@@ -828,8 +826,7 @@ func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
 
 	wantNorm, _, normErr := parse.ParseAndNormalize(wantURL)
 
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	scanner := crawler.NewJSONLScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || !strings.Contains(line, `"record_type":"page"`) {

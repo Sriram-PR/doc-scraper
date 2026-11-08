@@ -28,19 +28,63 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
-const (
-	jsonlScannerInitBuf = 64 * 1024
-	jsonlScannerMaxLine = 10 * 1024 * 1024 // page records are single lines and can be large
-)
-
 var pageRecordMarker = []byte(`"record_type":"page"`)
 
-// newJSONLScanner returns a scanner sized for the long single-line JSON records
-// the crawler writes, so a big page does not trip bufio's default line cap.
-func newJSONLScanner(r io.Reader) *bufio.Scanner {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, jsonlScannerInitBuf), jsonlScannerMaxLine)
-	return scanner
+const jsonlReadBuf = 64 * 1024
+
+// JSONLScanner reads JSONL one record per line, like bufio.Scanner but with no
+// line length cap: a page record is as long as the page, which can exceed any
+// fixed buffer.
+type JSONLScanner struct {
+	r    *bufio.Reader
+	line []byte
+	err  error
+}
+
+// NewJSONLScanner returns a JSONLScanner reading from r.
+func NewJSONLScanner(r io.Reader) *JSONLScanner {
+	return &JSONLScanner{r: bufio.NewReaderSize(r, jsonlReadBuf)}
+}
+
+// Scan advances to the next line, reporting false at the end or on an error.
+func (s *JSONLScanner) Scan() bool {
+	if s.err != nil {
+		return false
+	}
+	s.line = s.line[:0]
+	for {
+		chunk, err := s.r.ReadSlice('\n')
+		s.line = append(s.line, chunk...)
+		switch {
+		case err == nil:
+			s.line = bytes.TrimSuffix(bytes.TrimSuffix(s.line, []byte("\n")), []byte("\r"))
+			return true
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			s.err = io.EOF
+			s.line = bytes.TrimSuffix(s.line, []byte("\r"))
+			return len(s.line) > 0
+		default:
+			s.err = err
+			return false
+		}
+	}
+}
+
+// Bytes returns the current line without its line ending. It is overwritten by
+// the next Scan.
+func (s *JSONLScanner) Bytes() []byte { return s.line }
+
+// Text returns the current line as a string.
+func (s *JSONLScanner) Text() string { return string(s.line) }
+
+// Err returns the first read error, or nil at a clean end of input.
+func (s *JSONLScanner) Err() error {
+	if errors.Is(s.err, io.EOF) {
+		return nil
+	}
+	return s.err
 }
 
 // OutputManager owns the JSONL output file and the crawl_meta summary.
@@ -142,7 +186,7 @@ func countPriorPageRecords(path string) (int64, error) {
 	defer in.Close()
 
 	var pages int64
-	scanner := newJSONLScanner(in)
+	scanner := NewJSONLScanner(in)
 	for scanner.Scan() {
 		if bytes.Contains(scanner.Bytes(), pageRecordMarker) {
 			pages++
@@ -249,7 +293,7 @@ func readJSONLPagesForIndex(path string) ([]index.PageRecord, error) {
 	}
 	defer f.Close()
 	out := make([]index.PageRecord, 0, 256)
-	scanner := newJSONLScanner(f)
+	scanner := NewJSONLScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if !bytes.Contains(line, pageRecordMarker) {
@@ -496,7 +540,7 @@ func indexLastPageOffsets(path string) (map[string]pageSpan, error) {
 	defer f.Close()
 
 	spans := make(map[string]pageSpan)
-	reader := bufio.NewReaderSize(f, jsonlScannerInitBuf)
+	reader := bufio.NewReaderSize(f, jsonlReadBuf)
 	var offset int64
 	for {
 		line, readErr := reader.ReadBytes('\n')
@@ -558,7 +602,7 @@ func (om *OutputManager) rewriteFinalizedJSONL(spans map[string]pageSpan) error 
 	}
 	sort.Strings(urls)
 
-	buf := make([]byte, 0, jsonlScannerInitBuf)
+	buf := make([]byte, 0, jsonlReadBuf)
 	for _, u := range urls {
 		s := spans[u]
 		if cap(buf) < s.length {
