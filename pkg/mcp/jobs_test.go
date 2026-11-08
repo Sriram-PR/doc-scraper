@@ -225,6 +225,37 @@ func TestUpdateStatus(t *testing.T) {
 	})
 }
 
+// A cancel_crawl that lands before the job's own Running update, or a crawl
+// error reported after a cancel, must not change a job that already ended.
+func TestUpdateStatus_EndedJobKeepsItsStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		end   func(jm *JobManager, id string)
+		want  JobStatus
+		later []JobStatus
+	}{
+		{"cancelled", func(jm *JobManager, id string) { jm.CancelJob(id) }, JobStatusCancelled, []JobStatus{JobStatusRunning, JobStatusFailed, JobStatusCompleted}},
+		{"completed", func(jm *JobManager, id string) { jm.UpdateStatus(id, JobStatusCompleted, "") }, JobStatusCompleted, []JobStatus{JobStatusRunning, JobStatusFailed}},
+		{"failed", func(jm *JobManager, id string) { jm.UpdateStatus(id, JobStatusFailed, "first error") }, JobStatusFailed, []JobStatus{JobStatusRunning, JobStatusCompleted}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			jm := NewJobManager("", nil)
+			job := createTestJob(t, jm, "docs", false)
+			tc.end(jm, job.ID)
+			before := jm.GetJob(job.ID)
+
+			for _, s := range tc.later {
+				jm.UpdateStatus(job.ID, s, "late error")
+			}
+
+			got := jm.GetJob(job.ID)
+			assert.Equal(t, tc.want, got.Status)
+			assert.Equal(t, before.ErrorMessage, got.ErrorMessage)
+			assert.Equal(t, before.CompletedAt, got.CompletedAt)
+		})
+	}
+}
+
 func TestUpdateProgress(t *testing.T) {
 	t.Run("sets counters", func(t *testing.T) {
 		jm := NewJobManager("", nil)

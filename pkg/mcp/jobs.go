@@ -526,9 +526,9 @@ func (m *JobManager) releaseSiteLocked(job *Job) {
 func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg string) {
 	m.mu.Lock()
 	changed := false
-	if job, exists := m.jobs[jobID]; exists {
+	if job, exists := m.jobs[jobID]; exists && !isTerminalStatus(job.Status) {
 		job.Status = status
-		if status == JobStatusCompleted || status == JobStatusFailed || status == JobStatusCancelled {
+		if isTerminalStatus(status) {
 			job.CompletedAt = time.Now().UTC()
 			m.releaseSiteLocked(job)
 		}
