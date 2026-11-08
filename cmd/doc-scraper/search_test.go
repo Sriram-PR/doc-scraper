@@ -45,6 +45,15 @@ sites:
 	return cfgPath
 }
 
+func openFixtureIndex(t *testing.T, cfgPath string) *index.Index {
+	t.Helper()
+	appCfg, err := loadConfig(cfgPath)
+	require.NoError(t, err)
+	idx, err := index.OpenAt(appCfg.StateDir, 5, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
+	return idx
+}
+
 func TestDoSearch_HumanOutput(t *testing.T) {
 	cfgPath := writeSearchFixture(t)
 	var stdout, stderr bytes.Buffer
@@ -172,6 +181,33 @@ func TestDoSearch_NothingIndexedSaysSo(t *testing.T) {
 	require.Equal(t, 0, doSearch(cfgPath, "anything", "", 5, false, &stdout, &stderr), stderr.String())
 	assert.Contains(t, stdout.String(), "No site is indexed yet")
 	assert.Contains(t, stdout.String(), "doc-scraper crawl")
+	assert.NoDirExists(t, filepath.Join(tmpDir, "state"), "search created the state dir and an empty index")
+
+	stdout.Reset()
+	require.Equal(t, 0, doSearch(cfgPath, "anything", "fresh", 5, true, &stdout, &stderr), stderr.String())
+	assert.JSONEq(t, "[]", stdout.String())
+	assert.NoDirExists(t, filepath.Join(tmpDir, "state"))
+}
+
+func TestDoSearch_SnippetOnOneLine(t *testing.T) {
+	cfgPath := writeSearchFixture(t)
+	idx := openFixtureIndex(t, cfgPath)
+	md := "# Lines\n\nfirst line\nsecond pangolin line\n\n- third\n- fourth\n"
+	require.NoError(t, idx.ReplaceChunks(context.Background(), "demo", "https://demo.example.com/docs/lines", "Lines", "h2", chunk.Split(md)))
+	require.NoError(t, idx.Close())
+
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, doSearch(cfgPath, "pangolin", "", 5, false, &stdout, &stderr), stderr.String())
+	lines := strings.Split(strings.TrimRight(stdout.String(), "\n"), "\n")
+	require.Len(t, lines, 3, "one result is title, link and snippet:\n%s", stdout.String())
+	assert.Contains(t, lines[2], "first line second [pangolin] line")
+}
+
+func TestDoSearch_UnmatchedQuoteHint(t *testing.T) {
+	cfgPath := writeSearchFixture(t)
+	var stdout, stderr bytes.Buffer
+	require.Equal(t, 0, doSearch(cfgPath, `"wombatless burrow`, "demo", 5, false, &stdout, &stderr), stderr.String())
+	assert.Contains(t, stdout.String(), "unmatched double quote")
 }
 
 // Chunks indexed before a site opted out stay searchable, so an empty result

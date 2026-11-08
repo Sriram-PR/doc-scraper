@@ -188,5 +188,10 @@ func OpenAt(stateDir string, retention int, log *slog.Logger) (*Index, error) {
 		log.Warn("state_dir is empty; crawl-history index disabled")
 		return nil, nil
 	}
-	return Open(filepath.Join(stateDir, "index.db"), retention, log)
+	return Open(PathAt(stateDir), retention, log)
+}
+
+// PathAt is the index database's path under stateDir.
+func PathAt(stateDir string) string {
+	return filepath.Join(stateDir, "index.db")
 }

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"strings"
@@ -98,6 +99,17 @@ func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout
 		}
 	}
 
+	if appCfg.StateDir != "" {
+		if _, err := os.Stat(index.PathAt(appCfg.StateDir)); errors.Is(err, fs.ErrNotExist) {
+			if jsonOut {
+				fmt.Fprintln(stdout, "[]")
+			} else {
+				explainNoMatches(stdout, func(string) bool { return false }, appCfg, query, siteKey)
+			}
+			return 0
+		}
+	}
+
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	idx, err := index.OpenAt(appCfg.StateDir, appCfg.CrawlHistoryRetention, log)
 	if err != nil {
@@ -130,7 +142,10 @@ func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout
 	}
 
 	if len(results) == 0 {
-		explainNoMatches(stdout, idx, appCfg, query, siteKey)
+		explainNoMatches(stdout, func(key string) bool {
+			has, err := idx.SiteHasChunks(context.Background(), key)
+			return err != nil || has
+		}, appCfg, query, siteKey)
 		return 0
 	}
 	for i, r := range results {
@@ -145,7 +160,7 @@ func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout
 		if r.Anchor != "" {
 			link += "#" + r.Anchor
 		}
-		fmt.Fprintf(stdout, "%2d. %s  (%s)\n    %s\n    %s\n", i+1, title, r.SiteKey, link, r.Snippet)
+		fmt.Fprintf(stdout, "%2d. %s  (%s)\n    %s\n    %s\n", i+1, title, r.SiteKey, link, strings.Join(strings.Fields(r.Snippet), " "))
 	}
 	return 0
 }
@@ -153,14 +168,14 @@ func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout
 // explainNoMatches separates "the query matched nothing" from "there was nothing
 // to search": a site without chunks either opted out of JSONL, which is never
 // indexed, or has not been crawled yet.
-func explainNoMatches(w io.Writer, idx *index.Index, appCfg *config.AppConfig, query, siteKey string) {
+func explainNoMatches(w io.Writer, indexed func(siteKey string) bool, appCfg *config.AppConfig, query, siteKey string) {
 	keys := []string{siteKey}
 	if siteKey == "" {
 		keys = config.GetAllSiteKeys(appCfg)
 	}
 	var off, uncrawled []string
 	for _, key := range keys {
-		if has, err := idx.SiteHasChunks(context.Background(), key); err != nil || has {
+		if indexed(key) {
 			continue
 		}
 		if config.GetEffectiveEnableJSONLOutput(appCfg.Sites[key], appCfg) {
@@ -178,7 +193,7 @@ func explainNoMatches(w io.Writer, idx *index.Index, appCfg *config.AppConfig, q
 		case len(uncrawled) > 0:
 			fmt.Fprintf(w, "Site '%s' has no indexed pages. Run doc-scraper crawl -site %s first.\n", siteKey, siteKey)
 		default:
-			fmt.Fprintf(w, "No matches for %q in %s. Broaden the query.\n", query, siteKey)
+			fmt.Fprintf(w, "No matches for %q in %s. %s\n", query, siteKey, noMatchAdvice(query))
 		}
 		return
 	}
@@ -186,7 +201,7 @@ func explainNoMatches(w io.Writer, idx *index.Index, appCfg *config.AppConfig, q
 	if len(off)+len(uncrawled) == len(keys) {
 		fmt.Fprintln(w, "No site is indexed yet. Run doc-scraper crawl first.")
 	} else {
-		fmt.Fprintf(w, "No matches for %q. Broaden the query.\n", query)
+		fmt.Fprintf(w, "No matches for %q. %s\n", query, noMatchAdvice(query))
 	}
 	if len(off) > 0 {
 		fmt.Fprintf(w, "Not searched, enable_jsonl_output is false: %s. Remove the setting (it defaults to true) and re-crawl them.\n", strings.Join(off, ", "))
@@ -194,4 +209,11 @@ func explainNoMatches(w io.Writer, idx *index.Index, appCfg *config.AppConfig, q
 	if len(uncrawled) > 0 {
 		fmt.Fprintf(w, "Not searched, not crawled yet: %s.\n", strings.Join(uncrawled, ", "))
 	}
+}
+
+func noMatchAdvice(query string) string {
+	if strings.Count(query, `"`)%2 == 1 {
+		return `The query has an unmatched double quote ("); close it to search for a phrase, or remove it.`
+	}
+	return "Broaden the query."
 }

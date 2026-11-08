@@ -89,6 +89,8 @@ Searches the crawled corpus offline, with no network access. The non-flag argume
 
 Results are ranked best first. Plain words must all appear in a result; when fewer than `-limit` results contain every word, the rest are filled with results that contain only some of them, or built-in synonyms in their place (common words such as "how" or "the" are ignored), listed after the full matches and marked `(partial match)`. With `-json`, each result's `match` is `all` or `partial`. Queries using FTS5 syntax (quotes, `*`, parentheses, `AND`, `OR`, `NOT`, `NEAR`, column filters such as `title:`) are never relaxed. A query made only of common words, unless quoted, is rejected as having no searchable terms. `rank` is the raw BM25 score and compares only results with the same `match`; use the array order.
 
+In text output each snippet is printed on one line; `-json` keeps its line breaks. Before anything has been crawled, `search` says so and creates nothing in `state_dir`.
+
 | Flag | Type | Description | Default |
 |------|------|-------------|---------|
 | `-config` | string | Path to config file | `config.yaml` |
