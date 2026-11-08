@@ -40,10 +40,7 @@ func (s *Server) configWrites() string {
 }
 
 func (s *Server) discoverer() *discover.Discoverer {
-	ua := s.cfg.AppConfig.DefaultUserAgent
-	if ua == "" {
-		ua = fetch.DefaultUserAgent()
-	}
+	ua := config.GetEffectiveDefaultUserAgent(s.cfg.AppConfig)
 	return &discover.Discoverer{
 		Client:    fetch.NewClient(s.cfg.AppConfig.HTTPClientSettings, s.log),
 		UserAgent: ua,
@@ -64,6 +61,13 @@ func (s *Server) handleDraftSite(ctx context.Context, request mcp.CallToolReques
 	}
 	if o, ok := request.GetArguments()["overrides"].(map[string]any); ok {
 		req.Overrides = o
+	}
+	if progress := newProgressReporter(ctx, request, 0); progress != nil {
+		stages := 0
+		req.OnStage = func(message string) {
+			stages++
+			progress.report(float64(stages), 0, message)
+		}
 	}
 	switch {
 	case req.URL == "" && req.SiteKey == "":
@@ -94,6 +98,11 @@ func (s *Server) handleDraftSite(ctx context.Context, request mcp.CallToolReques
 	_, exists := s.site(draft.SiteKey)
 	preview := res.Preview
 	preview.Markdown = discover.FirstLines(preview.Markdown, 40)
+	warnings := nonNilStrings(draft.Warnings)
+	if preview.Err != "" {
+		warnings = append(warnings, "the preview page could not be extracted: "+preview.Err+
+			". Check content_selector with overrides, or pick another page with preview_url.")
+	}
 
 	next := "If the preview looks wrong, call draft_site again with overrides. To keep this entry, call save_site with site_key and entry"
 	if exists {
@@ -111,7 +120,7 @@ func (s *Server) handleDraftSite(ctx context.Context, request mcp.CallToolReques
 		SitemapPageCount: draft.PageCount,
 		Generator:        draft.Version,
 		Evidence:         nonNilStrings(draft.Evidence),
-		Warnings:         nonNilStrings(draft.Warnings),
+		Warnings:         warnings,
 		Preview:          preview,
 		ConfigWrites:     s.configWrites(),
 		NextActions:      next,

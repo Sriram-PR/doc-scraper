@@ -100,10 +100,7 @@ func doAdd(opts addOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-	ua := cfg.DefaultUserAgent
-	if ua == "" {
-		ua = fetch.DefaultUserAgent()
-	}
+	ua := config.GetEffectiveDefaultUserAgent(cfg)
 	d := &discover.Discoverer{
 		Client:    fetch.NewClient(cfg.HTTPClientSettings, log),
 		UserAgent: ua,

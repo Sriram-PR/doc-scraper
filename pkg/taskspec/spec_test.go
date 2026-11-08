@@ -204,3 +204,14 @@ func TestSiteKeys_TrimsSite(t *testing.T) {
 	require.NoError(t, spec.Validate())
 	assert.Equal(t, []string{"a"}, spec.SiteKeys())
 }
+
+func TestParseAndValidate_AllowShrink(t *testing.T) {
+	spec, err := Parse(strings.NewReader(`{"command":"crawl","site":"a","resume":true,"allow_shrink":true}`))
+	require.NoError(t, err)
+	require.NoError(t, spec.Validate())
+	assert.True(t, spec.AllowShrink)
+
+	watch, err := Parse(strings.NewReader(`{"command":"watch","site":"a","allow_shrink":true}`))
+	require.NoError(t, err)
+	assert.Error(t, watch.Validate(), "allow_shrink is a one-shot crawl option")
+}

@@ -207,7 +207,7 @@ func TestHandleListPages_NoCrawlYet(t *testing.T) {
 	pages, ok := got["pages"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, pages)
-	assert.Contains(t, got["message"], "No crawl output found")
+	assert.Equal(t, "Site 'docs' has not been crawled yet. Run crawl_site first.", got["message"])
 }
 
 func TestHandleDescribeServer_BasicShape(t *testing.T) {
@@ -340,10 +340,10 @@ func TestHandleListPages_ClampsMaxResults(t *testing.T) {
 		models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://docs.example.com/a"},
 	})
 
-	// Negative max_results falls back to default (100).
+	// 0 means the default (100).
 	got := callListPages(t, s, map[string]any{
 		"site_key":    "docs",
-		"max_results": float64(-5),
+		"max_results": float64(0),
 	})
 	assert.EqualValues(t, 100, got["max_results"])
 
@@ -851,8 +851,7 @@ func TestHandleReadPage_NoCrawlYet(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 
 	text := readPageError(t, s, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
-	assert.Contains(t, text, "no crawl output found")
-	assert.Contains(t, text, "crawl_site")
+	assert.Equal(t, "Site 'docs' has not been crawled yet. Run crawl_site first.", text)
 }
 
 func TestHandleReadPage_MissingParams(t *testing.T) {
@@ -993,4 +992,18 @@ func TestClipInput_KeepsBothEndsOnRuneBoundaries(t *testing.T) {
 	assert.Contains(t, got, "[616 bytes]")
 	assert.True(t, strings.HasPrefix(got, "xé"))
 	assert.True(t, strings.HasSuffix(got, ": no such host."))
+}
+
+func TestGetPage_HTTPErrorNamesStatusOnce(t *testing.T) {
+	s, _ := newDraftSiteServer(t)
+	docs, _ := s.site("docs")
+	missing := strings.Replace(docs.StartURLs[0], "index.html", "missing.html", 1)
+	r, _ := callJSON(t, s.handleGetPage, map[string]any{"url": missing})
+	assert.Equal(t, "HTTP 404 Not Found", errText(t, r))
+}
+
+func TestUnknownSiteListsAvailableSitesAsText(t *testing.T) {
+	s, _ := newDraftSiteServer(t)
+	r, _ := callJSON(t, s.handleListPages, map[string]any{"site_key": "nope"})
+	assert.Equal(t, "site 'nope' not found. Available sites: docs", errText(t, r))
 }

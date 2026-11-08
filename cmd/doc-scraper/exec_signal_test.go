@@ -52,12 +52,12 @@ func TestExecuteCrawl_InterruptedExitsNonzeroAndKeepsCorpus(t *testing.T) {
 	srv, arm := signalServer(t)
 	cfgPath, outDir, stateDir := writeCrawlConfig(t, srv.URL, "")
 
-	require.Equal(t, 0, executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false))
+	require.Equal(t, 0, executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false, false))
 	before := liveCorpusFiles(t, outDir)
 	require.GreaterOrEqual(t, before, 3)
 
 	arm()
-	code := executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false)
+	code := executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false, false)
 	assert.Equal(t, 130, code)
 	assert.Equal(t, before, liveCorpusFiles(t, outDir), "interrupted fresh re-crawl keeps the live corpus")
 	assert.DirExists(t, filepath.Join(outDir, "fixture.staging"))
@@ -75,11 +75,11 @@ func TestExecuteParallelCrawl_InterruptedExitsNonzeroAndKeepsCorpus(t *testing.T
 	cfgPath, outDir, _ := writeCrawlConfig(t, srv.URL, extra)
 
 	keys := []string{"fixture", "second"}
-	require.Equal(t, 0, executeParallelCrawl(cfgPath, keys, false, "error", pkglog.FormatText, "", false, false, false))
+	require.Equal(t, 0, executeParallelCrawl(cfgPath, keys, false, "error", pkglog.FormatText, "", false, false, false, false))
 	before := liveCorpusFiles(t, outDir)
 
 	arm()
-	code := executeParallelCrawl(cfgPath, keys, false, "error", pkglog.FormatText, "", false, false, false)
+	code := executeParallelCrawl(cfgPath, keys, false, "error", pkglog.FormatText, "", false, false, false, false)
 	assert.Equal(t, 130, code)
 	assert.Equal(t, before, liveCorpusFiles(t, outDir))
 }
@@ -94,7 +94,7 @@ func TestExecuteCrawl_NoForcedExitAfterInterruptedCrawlReturns(t *testing.T) {
 	t.Cleanup(func() { shutdownGrace, forceExit = origGrace, origExit })
 
 	arm()
-	require.Equal(t, 130, executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false))
+	require.Equal(t, 130, executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false, false))
 
 	time.Sleep(1500 * time.Millisecond)
 	assert.Zero(t, exits.Load(), "grace-period watchdog must not outlive the crawl")

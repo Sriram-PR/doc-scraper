@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,6 +21,8 @@ type SiteResult struct {
 	SiteKey        string
 	Success        bool
 	Error          error
+	Refused        bool // finished but kept back; Error is a *crawler.LossyCrawlError
+	Failures       crawler.Failures
 	PagesSaved     int64
 	PagesUnchanged int64
 	PagesFailed    int64
@@ -40,12 +43,19 @@ type Orchestrator struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	idx             *index.Index
+	allowShrink     bool
 }
 
 // WithIndex attaches a crawl-history index shared across every per-site
 // crawler this orchestrator runs. nil is safe and disables history capture.
 func (o *Orchestrator) WithIndex(idx *index.Index) *Orchestrator {
 	o.idx = idx
+	return o
+}
+
+// WithAllowShrink publishes crawls that would otherwise be kept back for losing pages.
+func (o *Orchestrator) WithAllowShrink(allow bool) *Orchestrator {
+	o.allowShrink = allow
 	return o
 }
 
@@ -129,6 +139,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 		SharedSemaphore: o.globalSemaphore,
 		Index:           o.idx,
 		Stage:           stage,
+		AllowShrink:     o.allowShrink,
 	}
 
 	c, err := crawler.NewCrawlerWithOptions(
@@ -155,7 +166,13 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	if err := c.Run(o.resume); err != nil {
 		result.Error = err
 		result.Success = false
-		o.log.Error(fmt.Sprintf("Crawl failed for site '%s': %v", siteKey, err))
+		var lossy *crawler.LossyCrawlError
+		if errors.As(err, &lossy) {
+			result.Refused = true
+			o.log.Error(fmt.Sprintf("Crawl kept back for site '%s': %v. %s", siteKey, err, lossy.Hint("cli")))
+		} else {
+			o.log.Error(fmt.Sprintf("Crawl failed for site '%s': %v", siteKey, err))
+		}
 	} else {
 		result.Success = true
 		o.log.Info(fmt.Sprintf("Crawl completed for site '%s'", siteKey))
@@ -165,6 +182,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	result.PagesSaved = progress.PagesSaved
 	result.PagesUnchanged = progress.PagesUnchanged
 	result.PagesFailed = progress.PagesFailed
+	result.Failures = progress.Failures
 	result.Duration = time.Since(startTime)
 
 	return result
@@ -188,6 +206,9 @@ func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 		status := "SUCCESS"
 		if !r.Success {
 			status = "FAILED"
+			if r.Refused {
+				status = "KEPT BACK"
+			}
 			failCount++
 		} else {
 			successCount++

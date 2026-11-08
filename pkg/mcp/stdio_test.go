@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,6 +77,7 @@ type stdioResponse struct {
 		} `json:"content"`
 	} `json:"result"`
 	Error *struct {
+		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
 }
@@ -118,9 +120,32 @@ func TestServe_AnswersRequestsSentBeforeStdinCloses(t *testing.T) {
 	}
 }
 
-func serveReturnsWithin(t *testing.T, s *Server, ctx context.Context, in io.Reader, limit time.Duration) *bytes.Buffer {
+// lockedBuffer collects serve's output. mcp-go's Listen returns without
+// waiting for its notification goroutine, and the stdio session is a package
+// global, so a notification queued by an earlier test can still be written
+// after serve returns.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return bytes.Clone(b.buf.Bytes())
+}
+
+func (b *lockedBuffer) String() string { return string(b.Bytes()) }
+
+func serveReturnsWithin(t *testing.T, s *Server, ctx context.Context, in io.Reader, limit time.Duration) *lockedBuffer {
 	t.Helper()
-	var out bytes.Buffer
+	var out lockedBuffer
 	errc := make(chan error, 1)
 	go func() { errc <- s.serve(ctx, in, &out) }()
 	select {
@@ -211,5 +236,96 @@ func TestStdioDrain_ResponseReleasesEOF(t *testing.T) {
 		require.ErrorIs(t, err, io.EOF)
 	case <-time.After(5 * time.Second):
 		t.Fatal("EOF still held after the response was written")
+	}
+}
+
+const legacyToolsList = `{"jsonrpc":"2.0","id":5,"method":"tools/list","params":{}}`
+
+// Protocol 2026-07-28 notes that a legacy server which serves tools/call
+// without a handshake misleads clients probing for the protocol version.
+func TestServe_RejectsLegacyRequestsBeforeInitialize(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      []string
+		wantErr bool
+	}{
+		{"legacy request first", []string{legacyToolsList}, true},
+		{"after a piped initialize", []string{stdioInitialize, stdioInitialized, legacyToolsList}, false},
+		{"ping before initialize", []string{`{"jsonrpc":"2.0","id":5,"method":"ping"}`}, false},
+		{"modern request without initialize", []string{`{"jsonrpc":"2.0","id":5,"method":"tools/list","params":{` +
+			`"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStdioTestServer(t)
+			out := serveReturnsWithin(t, s, context.Background(), stdioLines(tc.in...), 5*time.Second)
+			r, ok := responsesByID(t, out.Bytes())["5"]
+			require.True(t, ok, "no response; output:\n%s", out.String())
+			if !tc.wantErr {
+				assert.Nil(t, r.Error, "output:\n%s", out.String())
+				return
+			}
+			require.NotNil(t, r.Error, "output:\n%s", out.String())
+			assert.Equal(t, -32600, r.Error.Code)
+			assert.Contains(t, r.Error.Message, "send initialize first")
+		})
+	}
+}
+
+// A buggy client must not make the server buffer whatever it sends: a line past
+// the cap is discarded, answered with -32600 when its id can be read in time,
+// and the session carries on.
+func TestServe_OversizedRequestLine(t *testing.T) {
+	huge := strings.Repeat("x", 5<<20)
+	idFirst := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"search_docs","arguments":{"query":"` + huge + `"}}}`
+	idLast := `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"search_docs","arguments":{"query":"` + huge + `"}},"id":9}`
+	ping := `{"jsonrpc":"2.0","id":8,"method":"ping"}`
+
+	t.Run("id before the cap is answered", func(t *testing.T) {
+		s := newStdioTestServer(t)
+		out := serveReturnsWithin(t, s, context.Background(), stdioLines(stdioInitialize, stdioInitialized, idFirst, ping), 10*time.Second)
+		got := responsesByID(t, out.Bytes())
+		r, ok := got["7"]
+		require.True(t, ok, "no response for the oversized request")
+		require.NotNil(t, r.Error)
+		assert.Equal(t, -32600, r.Error.Code)
+		assert.Contains(t, r.Error.Message, "too large")
+		assert.Nil(t, got["8"].Error, "the next request still works")
+		assert.Contains(t, got, "8")
+	})
+	t.Run("id past the cap is dropped", func(t *testing.T) {
+		s := newStdioTestServer(t)
+		out := serveReturnsWithin(t, s, context.Background(), stdioLines(stdioInitialize, stdioInitialized, idLast, ping), 10*time.Second)
+		got := responsesByID(t, out.Bytes())
+		assert.NotContains(t, got, "9")
+		assert.Contains(t, got, "8", "the next request still works")
+		assert.Less(t, out.Len(), 1<<20, "the oversized line must not be echoed back")
+	})
+}
+
+func (b *lockedBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+func TestLeadingID(t *testing.T) {
+	for _, tc := range []struct {
+		name, prefix, want string
+	}{
+		{"number", `{"jsonrpc":"2.0","id":7,"params":{"q":"xxx`, "7"},
+		{"string", `{"id":"a-1","method":"tools/call","params":{"q":"xx`, `"a-1"`},
+		{"null", `{"id":null,"method":"x","params":{"q":"xx`, ""},
+		{"nested id is not the request id", `{"method":"x","params":{"id":3,"q":"xxx`, ""},
+		{"cut before the id", `{"method":"x","params":{"q":"xxxx`, ""},
+		{"not an object", `["id",1`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id, ok := leadingID([]byte(tc.prefix))
+			assert.Equal(t, tc.want != "", ok)
+			if ok {
+				assert.Equal(t, tc.want, string(id))
+			}
+		})
 	}
 }

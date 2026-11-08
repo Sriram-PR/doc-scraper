@@ -363,7 +363,7 @@ func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, site
 		return nil, fmt.Errorf("parse URL: %w", err)
 	}
 	sitemapHost := parsedSitemapURL.Hostname()
-	if sitemapHost != sp.siteCfg.AllowedDomain {
+	if !parse.SameHost(sitemapHost, sp.siteCfg.AllowedDomain) {
 		sitemapLog.Warn(fmt.Sprintf("Skipping sitemap on %s: only sitemaps on %s are fetched", sitemapHost, sp.siteCfg.AllowedDomain))
 		return nil, errOffHost
 	}
@@ -389,18 +389,15 @@ func (sp *SitemapProcessor) fetchSitemap(ctx context.Context, smURL string, site
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("User-Agent", sp.appCfg.DefaultUserAgent)
+	req.Header.Set("User-Agent", config.GetEffectiveDefaultUserAgent(sp.appCfg))
 
 	resp, err := sp.fetcher.FetchWithRetry(req, ctx)
 	if err != nil {
-		if resp != nil {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-		}
+		fetch.DrainAndClose(resp)
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.Hostname() != sp.siteCfg.AllowedDomain {
+	if resp.Request != nil && resp.Request.URL != nil && !parse.SameHost(resp.Request.URL.Hostname(), sp.siteCfg.AllowedDomain) {
 		sitemapLog.Warn(fmt.Sprintf("Skipping sitemap redirected to %s: only sitemaps on %s are fetched", resp.Request.URL.Hostname(), sp.siteCfg.AllowedDomain))
 		return nil, errOffHost
 	}
@@ -495,7 +492,6 @@ func (sp *SitemapProcessor) handleURLSet(urlSet parse.XMLURLSet, sitemapLog *slo
 			continue
 		}
 		if added {
-			sp.wg.Add(1)
 			sp.pq.Add(&models.WorkItem{URL: normalizedPageURL, Depth: sitemapURLDepth})
 			queuedCount++
 		}
@@ -521,7 +517,7 @@ func (sp *SitemapProcessor) normalizeInScopeURL(pageURL string, sitemapLog *slog
 	if parsedPageURL.Scheme != "http" && parsedPageURL.Scheme != "https" {
 		return "", false
 	}
-	if parsedPageURL.Hostname() != sp.siteCfg.AllowedDomain {
+	if !parse.SameHost(parsedPageURL.Hostname(), sp.siteCfg.AllowedDomain) {
 		return "", false
 	}
 	targetPath := parsedPageURL.Path

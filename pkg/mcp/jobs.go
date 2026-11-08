@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 type JobStatus string
@@ -50,14 +53,19 @@ type Job struct {
 	// on a platform whose clock is too coarse to separate two CreateJob calls
 	// (Windows), and job IDs are random UUIDs, so it takes a monotonic key to
 	// keep "newest first" meaning what it says.
-	Seq            uint64    `json:"seq"`
-	StartedAt      time.Time `json:"started_at"`
-	CompletedAt    time.Time `json:"completed_at,omitempty"`
-	PagesProcessed int64     `json:"pages_processed"`
-	PagesQueued    int64     `json:"pages_queued"`
-	PagesUnchanged int64     `json:"pages_unchanged"` // incremental re-checks that matched; not in PagesProcessed
-	ErrorMessage   string    `json:"error_message,omitempty"`
-	Incremental    bool      `json:"incremental"`
+	Seq                 uint64                 `json:"seq"`
+	StartedAt           time.Time              `json:"started_at"`
+	CompletedAt         time.Time              `json:"completed_at,omitempty"`
+	PagesProcessed      int64                  `json:"pages_processed"`
+	PagesQueued         int64                  `json:"pages_queued"`
+	PagesUnchanged      int64                  `json:"pages_unchanged"` // incremental re-checks that matched; not in PagesProcessed
+	PagesSaved          int64                  `json:"pages_saved"`
+	PagesFailed         int64                  `json:"pages_failed"`
+	PagesCarriedForward int64                  `json:"pages_carried_forward"`
+	Failures            []crawler.FailureClass `json:"failures,omitempty"`
+	Refused             string                 `json:"refused,omitempty"`
+	ErrorMessage        string                 `json:"error_message,omitempty"`
+	Incremental         bool                   `json:"incremental"`
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -67,9 +75,13 @@ type Job struct {
 
 // JobProgress is a point-in-time read of a crawl's counters.
 type JobProgress struct {
-	Processed int64
-	Queued    int64
-	Unchanged int64
+	Processed      int64
+	Queued         int64
+	Unchanged      int64
+	Saved          int64
+	Failed         int64
+	CarriedForward int64
+	Failures       []crawler.FailureClass
 }
 
 // siteWorker holds a site's crawl slot. job is nil while a config save
@@ -194,6 +206,10 @@ func (j *Job) applyProgress(p JobProgress) {
 	j.PagesProcessed = p.Processed
 	j.PagesQueued = p.Queued
 	j.PagesUnchanged = p.Unchanged
+	j.PagesSaved = p.Saved
+	j.PagesFailed = p.Failed
+	j.PagesCarriedForward = p.CarriedForward
+	j.Failures = p.Failures
 }
 
 // snapshotLocked returns a deep copy of the jobs for serialization. Caller
@@ -282,18 +298,10 @@ func (m *JobManager) flush() {
 		}
 		return
 	}
-	tmp := m.persistPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := utils.WriteFileAtomic(m.persistPath, data, 0o644); err != nil {
 		if m.log != nil {
-			m.log.Warn("failed to write jobs tmp file", "err", err)
+			m.log.Warn("failed to write jobs file", "err", err)
 		}
-		return
-	}
-	if err := os.Rename(tmp, m.persistPath); err != nil {
-		if m.log != nil {
-			m.log.Warn("failed to rename jobs tmp file", "err", err)
-		}
-		_ = os.Remove(tmp)
 		return
 	}
 	m.dirty.Store(false)
@@ -518,9 +526,9 @@ func (m *JobManager) releaseSiteLocked(job *Job) {
 func (m *JobManager) UpdateStatus(jobID string, status JobStatus, errorMsg string) {
 	m.mu.Lock()
 	changed := false
-	if job, exists := m.jobs[jobID]; exists {
+	if job, exists := m.jobs[jobID]; exists && !isTerminalStatus(job.Status) {
 		job.Status = status
-		if status == JobStatusCompleted || status == JobStatusFailed || status == JobStatusCancelled {
+		if isTerminalStatus(status) {
 			job.CompletedAt = time.Now().UTC()
 			m.releaseSiteLocked(job)
 		}
@@ -556,6 +564,16 @@ func (m *JobManager) DetachProgress(jobID string) {
 	if job, exists := m.jobs[jobID]; exists && job.progress != nil {
 		job.applyProgress(job.progress())
 		job.progress = nil
+		m.dirty.Store(true)
+	}
+	m.mu.Unlock()
+}
+
+// SetRefused marks a job whose crawl finished but was kept back.
+func (m *JobManager) SetRefused(jobID, reason string) {
+	m.mu.Lock()
+	if job, exists := m.jobs[jobID]; exists {
+		job.Refused = reason
 		m.dirty.Store(true)
 	}
 	m.mu.Unlock()

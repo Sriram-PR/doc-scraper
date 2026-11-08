@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 const stateFileName = "watch_state.json"
@@ -92,7 +94,7 @@ func (m *StateManager) Save() error {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	if err := os.WriteFile(m.statePath, data, 0644); err != nil {
+	if err := utils.WriteFileAtomic(m.statePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write state file: %w", err)
 	}
 

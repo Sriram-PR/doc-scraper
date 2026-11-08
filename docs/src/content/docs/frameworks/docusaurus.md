@@ -28,8 +28,8 @@ Drafted entry:
     allowed_path_prefix: /docs/
     content_selector: article .theme-doc-markdown, .theme-doc-markdown, main article
     disallowed_path_patterns:
-      - ^/docs/v?\d+(?:\.\d+)*(?:\.x)?/
-      - ^/docs/next/
+      - ^/docs/v?\d+(?:\.\d+)*(?:\.x)?(?:/|$)
+      - ^/docs/next(?:/|$)
     max_depth: 6
 
   # content_selector: docusaurus detected via generator (high confidence), validated on the fetched page
@@ -64,8 +64,8 @@ sites:
     allowed_path_prefix: /docs/
     content_selector: article .theme-doc-markdown, .theme-doc-markdown, main article
     disallowed_path_patterns:
-      - ^/docs/v?\d+(?:\.\d+)*(?:\.x)?/
-      - ^/docs/next/
+      - ^/docs/v?\d+(?:\.\d+)*(?:\.x)?(?:/|$)
+      - ^/docs/next(?:/|$)
     max_depth: 6
 ```
 
@@ -75,4 +75,4 @@ doc-scraper crawl -site docusaurus_docs
 
 ## Caveats
 
-- **Versioned docs sit inside `/docs/`.** On docusaurus.io, 1058 of the 1163 sitemap URLs under `/docs/` belong to older versions (`/docs/2.x/` through `/docs/3.9.2/`) and the unreleased `/docs/next/`. `add` excludes the version trees whose pages mirror the current docs, which leaves 105 pages. The numbered versions share one pattern, `^/docs/v?\d+(?:\.\d+)*(?:\.x)?/`, so a later release is excluded too; `/docs/next/` gets its own line. Patterns are matched against each URL's path.
+- **Versioned docs sit inside `/docs/`.** On docusaurus.io, 1058 of the 1163 sitemap URLs under `/docs/` belong to older versions (`/docs/2.x/` through `/docs/3.9.2/`) and the unreleased `/docs/next/`. `add` excludes the version trees whose pages mirror the current docs, which leaves 105 pages. The numbered versions share one pattern, `^/docs/v?\d+(?:\.\d+)*(?:\.x)?(?:/|$)`, so a later release is excluded too; `/docs/next/` gets its own line. Patterns are matched against each URL's path, and `(?:/|$)` also catches a version's root page, which the sitemap lists without the trailing slash.

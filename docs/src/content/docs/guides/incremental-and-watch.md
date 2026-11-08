@@ -15,7 +15,7 @@ sidebar:
 - After an upgrade that changes the Markdown conversion, the first incremental crawl reprocesses every page once, since the output for the same HTML has changed.
 - Unchanged pages still have their links followed, so a page newly linked from the navigation is found.
 - A page that now returns 404 or 410 is removed: its Markdown file, its JSONL record and its search entries go, and `diff_crawl` lists it as removed. Any other error (a 403 or a server error, for example) leaves its previously-crawled output **as-is**. A run that fails leaves everything in place.
-- If every page fails and none checks out unchanged (the site is down, for example), the run fails and exits `1`. The existing output is kept, and the run is not recorded in crawl history, so `get_freshness` still reports the last good crawl.
+- If every page fails and none checks out unchanged (the site is down, for example), or at least 3 pages and a quarter of the content pages fail with temporary errors, or the corpus would shrink by 30% or more on a site with at least 20 pages, the run is kept back and exits `3`. The existing output is kept, and the run is not recorded in crawl history, so `get_freshness` still reports the last good crawl. `watch` treats a kept-back run as failed and retries it after 15 minutes; pass `-allow-shrink` to a one-off `crawl` to accept a deliberate shrink.
 
 Because there is no conditional-request support yet, incremental mode still performs the HTTP fetch for each known page; the savings come from skipping the downstream processing of unchanged pages.
 
@@ -55,7 +55,7 @@ Watch mode persists state to `<state_dir>/watch_state.json`, tracking:
 - Pages saved, re-checked but unchanged, and failed in the last run
 - Error messages (if any)
 
-This allows the scheduler to resume correctly after restarts, only running sites when their interval has elapsed. A failed run (the site was unreachable, or every page failed) is retried after 15 minutes instead of a full interval, or after the interval if that is shorter.
+This allows the scheduler to resume correctly after restarts, only running sites when their interval has elapsed. A failed run (the site was unreachable, every page failed, or the run was kept back for losing pages) is retried after 15 minutes instead of a full interval, or after the interval if that is shorter.
 
 ### Example Output
 
@@ -87,7 +87,7 @@ A later run with nothing changed on the site re-checks every page and reprocesse
 level=INFO msg="  rust_cli_book: SUCCESS - 0 pages saved, 17 unchanged, 0 failed, in 168.335008ms"
 ```
 
-Output from doc-scraper 2.13.0, 2026-10-15.
+Output from doc-scraper 2.13.0, 2026-10-15; unchanged through 2.24.0.
 
 ### Graceful Shutdown
 

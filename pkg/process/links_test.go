@@ -83,15 +83,10 @@ func runExtract(t *testing.T, html string, pageURL string, siteCfg *config.SiteC
 	finalURL, err := url.Parse(pageURL)
 	require.NoError(t, err, "parse url")
 
-	pq := queue.NewThreadSafePriorityQueue(silentLog())
+	pq := queue.NewThreadSafePriorityQueue(silentLog(), nil)
 	lp := NewLinkProcessor(store, pq, disallowed, silentLog())
 
-	var wg sync.WaitGroup
-	n, extractErr := lp.ExtractAndQueueLinks(doc, finalURL, depth, siteCfg, &wg, silentLog())
-	for range n {
-		wg.Done() // ExtractAndQueueLinks Adds one per queued item; the crawler workers normally Done them.
-	}
-	wg.Wait()
+	n, extractErr := lp.ExtractAndQueueLinks(doc, finalURL, depth, siteCfg, silentLog())
 
 	return n, queuedURLs(t, pq), extractErr
 }
@@ -362,15 +357,12 @@ func TestExtractAndQueueLinks_QueuedItemsCarryNextDepth(t *testing.T) {
 	require.NoError(t, err, "parse html")
 	finalURL, _ := url.Parse("https://docs.example.com/guide/")
 
-	pq := queue.NewThreadSafePriorityQueue(silentLog())
+	pq := queue.NewThreadSafePriorityQueue(silentLog(), nil)
 	lp := NewLinkProcessor(newFakePageStore(), pq, nil, silentLog())
 
-	var wg sync.WaitGroup
-	n, err := lp.ExtractAndQueueLinks(doc, finalURL, 3, baseSiteCfg(), &wg, silentLog())
+	n, err := lp.ExtractAndQueueLinks(doc, finalURL, 3, baseSiteCfg(), silentLog())
 	require.NoError(t, err)
-	for range n {
-		wg.Done()
-	}
+	require.Equal(t, 1, n)
 
 	item, ok := pq.Pop()
 	require.True(t, ok, "expected a queued item")

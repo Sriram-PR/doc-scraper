@@ -68,6 +68,21 @@ func TestBackfillChunks(t *testing.T) {
 	assert.False(t, has, "a site with JSONL output disabled is skipped")
 }
 
+// Deleting a site's output to start over must not leave its old pages searchable.
+func TestBackfillChunks_ClearsASiteWhoseJSONLIsGone(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestServer(t, "gone", "gone.example.com")
+	idx := attachIndex(t, s)
+	require.NoError(t, idx.ReplaceChunks(ctx, "gone", "https://gone.example.com/a", "A", "h-a",
+		chunk.Split("# A\n\nDeleted walrus text. "+strings.Repeat("filler ", 40))))
+
+	s.backfillChunks(ctx)
+
+	has, err := idx.SiteHasChunks(ctx, "gone")
+	require.NoError(t, err)
+	assert.False(t, has)
+}
+
 func TestBackfillChunks_StopsOnCancelledContext(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "legacy", "legacy.example.com")
 	idx := attachIndex(t, s)
@@ -129,7 +144,7 @@ func TestRunCrawlJob_Completes(t *testing.T) {
 	job, err := s.jobManager.CreateJob("docs", false)
 	require.NoError(t, err)
 
-	s.runCrawlJob(job, siteCfg, "docs")
+	s.runCrawlJob(job, siteCfg, "docs", false)
 
 	got := s.jobManager.GetJob(job.ID)
 	require.Equal(t, JobStatusCompleted, got.Status, "error: %s", got.ErrorMessage)
@@ -151,7 +166,7 @@ func TestRunCrawlJob_FailsWithoutValidStartURLs(t *testing.T) {
 	job, err := s.jobManager.CreateJob("docs", false)
 	require.NoError(t, err)
 
-	s.runCrawlJob(job, siteCfg, "docs")
+	s.runCrawlJob(job, siteCfg, "docs", false)
 
 	got := s.jobManager.GetJob(job.ID)
 	assert.Equal(t, JobStatusFailed, got.Status)
@@ -164,7 +179,7 @@ func TestRunCrawlJob_CancelledJobEndsCancelled(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, s.jobManager.CancelJob(job.ID))
 
-	s.runCrawlJob(job, siteCfg, "docs")
+	s.runCrawlJob(job, siteCfg, "docs", false)
 
 	assert.Equal(t, JobStatusCancelled, s.jobManager.GetJob(job.ID).Status)
 }
@@ -174,7 +189,7 @@ func TestRunCrawlJob_IncrementalJobCrawlsIncrementally(t *testing.T) {
 	for _, incremental := range []bool{false, true} {
 		job, err := s.jobManager.CreateJob("docs", incremental)
 		require.NoError(t, err)
-		s.runCrawlJob(job, siteCfg, "docs")
+		s.runCrawlJob(job, siteCfg, "docs", false)
 		got := s.jobManager.GetJob(job.ID)
 		require.Equal(t, JobStatusCompleted, got.Status, "error: %s", got.ErrorMessage)
 	}

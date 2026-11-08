@@ -35,7 +35,7 @@ import (
 
 // Pre-compiled regexes for markdown link and image extraction.
 var (
-	mdLinkRe  = regexp.MustCompile(`(?:^|[^!])\[([^\]]*)\]\(([^)]+)\)`)
+	mdLinkRe  = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
 	mdImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 )
 
@@ -68,6 +68,8 @@ type Crawler struct {
 	succeededCounter atomic.Int64
 	unchangedCounter atomic.Int64
 	savedCounter     atomic.Int64
+	carriedCounter   atomic.Int64
+	failures         failureTally
 	crawlCtx         context.Context
 	cancelCrawl      context.CancelFunc
 
@@ -86,7 +88,9 @@ type Crawler struct {
 	idx *index.Index
 
 	// nil means work directly in the live output dir and visited DB.
-	stage *Stage
+	stage       *Stage
+	allowShrink bool
+	carry       *carryForward
 
 	// Optional periodic progress reporter (e.g. MCP job status updates).
 	// Invoked from the progress reporter goroutine, never per-page, so it
@@ -113,6 +117,10 @@ type CrawlerOptions struct {
 	// over the live corpus when a staged crawl completes. The store passed to
 	// the crawler must live at Stage.DBPath(); a successful staged Run closes it.
 	Stage *Stage
+
+	// AllowShrink publishes a crawl even if it lost many pages or failed many
+	// pages transiently; a crawl that saved nothing is still refused.
+	AllowShrink bool
 }
 
 // NewCrawlerWithOptions wires a Crawler and its components; opts may be nil to use defaults.
@@ -167,7 +175,6 @@ func NewCrawlerWithOptions(
 		siteOutputDir:              siteOutputDir,
 		compiledDisallowedPatterns: compiledDisallowedPatterns,
 		store:                      store,
-		pq:                         queue.NewThreadSafePriorityQueue(logger),
 		fetcher:                    fetcher,
 		rateLimiter:                rateLimiter,
 		globalSemaphore:            globalSem,
@@ -181,9 +188,11 @@ func NewCrawlerWithOptions(
 		c.progressCallback = opts.ProgressCallback
 		c.idx = opts.Index
 		c.stage = opts.Stage
+		c.allowShrink = opts.AllowShrink
 	}
 
 	c.output = NewOutputManager(logger, resolved, siteCfg, siteKey, siteOutputDir)
+	c.pq = queue.NewThreadSafePriorityQueue(logger, &c.wg)
 
 	c.robotsHandler = fetch.NewRobotsHandler(fetcher, rateLimiter, c.globalSemaphore, c.hostSemPool, c, appCfg, logger)
 	c.sitemapProcessor = sitemap.NewSitemapProcessor(c.sitemapQueue, c.pq, c.store, c.fetcher, c.rateLimiter, c.globalSemaphore, c.hostSemPool, c.compiledDisallowedPatterns, c.siteCfg, c.appCfg, logger, &c.wg)
@@ -234,23 +243,31 @@ type CrawlerProgress struct {
 	// PagesUnchanged counts incremental re-checks whose content hash matched;
 	// they are fetched but not reprocessed, so PagesProcessed excludes them.
 	PagesUnchanged int64
-	PagesQueued    int
-	IsRunning      bool
+	// PagesCarriedForward counts pages that failed temporarily in a staged
+	// crawl and kept their copy from the live corpus.
+	PagesCarriedForward int64
+	PagesQueued         int
+	IsRunning           bool
+	Failures            Failures
 }
 
 func (c *Crawler) GetProgress() CrawlerProgress {
+	f := c.failures.snapshot()
 	return CrawlerProgress{
-		SiteKey:        c.siteKey,
-		PagesProcessed: c.processedCounter.Load(),
-		PagesSaved:     c.savedCounter.Load(),
-		PagesFailed:    c.processedCounter.Load() - c.succeededCounter.Load(),
-		PagesUnchanged: c.unchangedCounter.Load(),
-		PagesQueued:    c.pq.Len(),
-		IsRunning:      c.crawlCtx.Err() == nil,
+		SiteKey:             c.siteKey,
+		PagesProcessed:      c.processedCounter.Load(),
+		PagesSaved:          c.savedCounter.Load(),
+		PagesFailed:         c.processedCounter.Load() - c.succeededCounter.Load() - f.Noindex,
+		PagesUnchanged:      c.unchangedCounter.Load(),
+		PagesCarriedForward: c.carriedCounter.Load(),
+		PagesQueued:         c.pq.Len(),
+		IsRunning:           c.crawlCtx.Err() == nil,
+		Failures:            f,
 	}
 }
 
 // Run starts the crawling process for the configured site and blocks until completion or cancellation.
+// A crawl that finished but was kept back returns a *LossyCrawlError.
 func (c *Crawler) Run(resume bool) (err error) {
 	c.output.crawlStartTime = time.Now().UTC()
 	c.output.SetIndex(c.idx, deriveMode(resume, c.appCfg.EnableIncremental))
@@ -269,6 +286,13 @@ func (c *Crawler) Run(resume bool) (err error) {
 		return err
 	}
 	c.output.OpenFiles(resume)
+	if c.stage != nil && c.stage.Staged && c.resolved.EnableJSONLOutput {
+		cf, err := newCarryForward(c.stage.liveOut, c.resolved.JSONLOutputFilename, runLog)
+		if err != nil {
+			runLog.Warn("Pages that fail temporarily will not keep their previous copy", "err", err)
+		}
+		c.carry = cf
+	}
 
 	initialTasksFromDB, err := c.requeueIncomplete(resume, runLog)
 	if err != nil {
@@ -313,32 +337,36 @@ func (c *Crawler) Run(resume bool) (err error) {
 	// saving a page; finalizing before it exits would drop that page's JSONL
 	// record while the visited DB already marks it done.
 	c.workersWg.Wait()
+	c.pq.Drain()
 
 	c.logRunSummary(overallStart, runLog)
-	// A drained queue is not success if every attempted page failed: without
-	// this, a fully unreachable site produces an empty corpus and exit code 0.
-	// A continued staged crawl counts pages saved by earlier runs, so it fails
-	// only when staging would be swapped in empty. An incremental re-crawl
-	// degrades on individual failures (a page now 404ing) but fails when no page
-	// even checked out unchanged, so an outage is not recorded as a fresh crawl.
-	noPages := !resume || (c.stage != nil && c.stage.Staged && c.output.PagesSaved() == 0)
-	nothingChecked := c.appCfg.EnableIncremental && c.unchangedCounter.Load() == 0
-	if (noPages || nothingChecked) && c.crawlCtx.Err() == nil && c.processedCounter.Load() > 0 && c.succeededCounter.Load() == 0 {
-		return fmt.Errorf("crawl completed with zero successful pages: all %d attempted page tasks failed", c.processedCounter.Load())
-	}
 	return c.crawlCtx.Err()
 }
 
 // finish finalizes the output files and publishes the result. Only a completed
-// run is recorded in crawl history and, when staged, swapped over the live
-// corpus; the search index follows whatever corpus is live.
+// run that did not lose too much is recorded in crawl history and, when staged,
+// swapped over the live corpus; the search index follows whatever corpus is live.
 func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
+	staged := c.stage != nil && c.stage.Staged
+	// Decided before anything on disk changes: an in-place run deletes the
+	// files of 404 pages in dropGonePages, which a refusal must not do.
+	if runErr == nil {
+		if lossy := c.checkLoss(staged); lossy != nil {
+			runErr = lossy
+		}
+	}
 	completed := runErr == nil
 	if completed {
+		if c.carry != nil {
+			c.carry.carryAll(c.output, c.contentProcessor, c.siteCfg, c.siteOutputDir)
+			c.carriedCounter.Store(c.carry.count())
+			if n := c.carry.count(); n > 0 {
+				runLog.Info("Kept the previous copy of pages that failed with a temporary error", "count", n)
+			}
+		}
 		c.dropGonePages(runLog)
 	}
 	c.output.Finalize()
-	staged := c.stage != nil && c.stage.Staged
 
 	if staged {
 		if !completed {
@@ -356,6 +384,45 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 	}
 	c.output.writeChunks()
 	return runErr
+}
+
+// checkLoss returns a *LossyCrawlError when the finished run lost too much to
+// publish, nil otherwise.
+func (c *Crawler) checkLoss(staged bool) *LossyCrawlError {
+	c.gonePagesMu.Lock()
+	gone := append([]*url.URL(nil), c.gonePages...)
+	c.gonePagesMu.Unlock()
+	f := c.failures.snapshot()
+
+	in := lossInput{
+		NewPages:    c.output.UniquePages(gone),
+		Carryable:   c.carry.carryable(c.output),
+		Transient:   int(f.Count(FailureTemporary)),
+		Incremental: c.appCfg.EnableIncremental,
+		Processed:   c.processedCounter.Load(),
+		Succeeded:   c.succeededCounter.Load(),
+		Unchanged:   c.unchangedCounter.Load(),
+		AllowShrink: c.allowShrink,
+	}
+	in.Attempted = int(in.Succeeded+in.Unchanged) + in.Transient + int(f.Count(FailureSelector)+f.Count(FailureOther))
+	if c.idx != nil && c.resolved.EnableJSONLOutput {
+		lc, err := c.idx.GetLatestCrawl(context.Background(), c.siteKey)
+		if err != nil {
+			c.log.Warn("Could not read the last recorded crawl; skipping the shrink check", "err", err)
+		} else if lc != nil {
+			in.Baseline, in.HasBaseline = lc.TotalPages, true
+		}
+	}
+
+	v := decideLoss(in)
+	if !v.Refused {
+		return nil
+	}
+	return &LossyCrawlError{
+		SiteKey: c.siteKey, Reason: v.Reason,
+		NewPages: v.NewPages, Baseline: v.Baseline, Transient: v.Transient, Attempted: v.Attempted, Processed: v.Processed,
+		Failures: f, StagingKept: staged,
+	}
 }
 
 // dropGonePages removes pages the site no longer serves. An incremental crawl
@@ -403,7 +470,7 @@ func (c *Crawler) validateStartURLs(runLog *slog.Logger) ([]string, *url.URL, er
 			startValidateLog.Warn(fmt.Sprintf("Invalid format: %v. Skipping.", err))
 			continue
 		}
-		if parsed.Hostname() != c.siteCfg.AllowedDomain {
+		if !parse.SameHost(parsed.Hostname(), c.siteCfg.AllowedDomain) {
 			startValidateLog.Warn(fmt.Sprintf("Domain mismatch (%s != %s). Skipping.", parsed.Hostname(), c.siteCfg.AllowedDomain))
 			continue
 		}
@@ -459,7 +526,6 @@ func (c *Crawler) requeueIncomplete(resume bool, runLog *slog.Logger) (int, erro
 	go func() {
 		defer requeueWg.Done()
 		for item := range requeueChan {
-			c.wg.Add(1)
 			c.pq.Add(&item)
 			initialTasksFromDB++
 		}
@@ -674,7 +740,6 @@ func (c *Crawler) seedStartURLs(validStartURLs []string, runLog *slog.Logger) in
 			continue
 		}
 		runLog.Info(fmt.Sprintf("Adding start URL '%s' to queue (Depth 0).", normalizedSeed))
-		c.wg.Add(1)
 		c.pq.Add(&models.WorkItem{URL: normalizedSeed, Depth: 0})
 		initialURLsAddedFromSeed++
 	}
@@ -695,6 +760,13 @@ func (c *Crawler) logRunSummary(overallStart time.Time, runLog *slog.Logger) {
 	summaryLog.Info(fmt.Sprintf("Duration:         %v", duration))
 	summaryLog.Info(fmt.Sprintf("Final Stats: Visited (DB Est): %d, Processed Tasks: %d, Unchanged Pages: %d, Pages Saved (for YAML): %d",
 		finalVisitedCount, finalProcessedCount, c.unchangedCounter.Load(), c.output.PagesSaved()))
+	f := c.failures.snapshot()
+	for _, fc := range f.Classes {
+		summaryLog.Info("Failed pages by class", "class", fc.Class, "count", fc.Count, "sample_url", fc.SampleURL, "sample_error", fc.SampleError)
+	}
+	if f.Noindex > 0 {
+		summaryLog.Info("Pages skipped as noindex", "count", f.Noindex)
+	}
 	summaryLog.Info("========================================================================")
 }
 
@@ -787,6 +859,8 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	var savedContentPath string       // Absolute path to the saved .md file.
 	var normalizedURLString string    // Populated from handleSetupAndResumeCheck.
 	var contentHash string            // Hash of the extracted content region for incremental crawling.
+	var gone bool                     // The page answered 404 or 410.
+	var noindexPage bool              // Saved nothing on purpose; neither success nor failure.
 
 	// Deferred function for panic recovery, final status logging, DB update, and WaitGroup decrement.
 	defer func() {
@@ -856,8 +930,20 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 
 		if !skipped {
 			c.processedCounter.Add(1)
-			if finalStatus == models.PageStatusSuccess {
+			if finalStatus == models.PageStatusSuccess && !noindexPage {
 				c.succeededCounter.Add(1)
+			}
+		}
+		if noindexPage {
+			c.failures.markNoindex()
+		}
+		if taskErr != nil {
+			class := classify(taskErr, gone)
+			c.failures.record(currentURL, taskErr, class)
+			if class == FailureTemporary && c.carry != nil {
+				if u, err := url.Parse(currentURL); err == nil {
+					c.carry.note(u)
+				}
 			}
 		}
 		c.wg.Done()
@@ -904,6 +990,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// fetchAndValidatePage closes resp.Body on error if resp is not nil.
 	if handleTaskError(fetchErr) {
 		if resp != nil && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone) {
+			gone = true
 			c.gonePagesMu.Lock()
 			c.gonePages = append(c.gonePages, parsedOriginalURL)
 			c.gonePagesMu.Unlock()
@@ -931,6 +1018,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// repeats every chapter) never seeds the selector cache or the corpus. No
 	// content hash is recorded, so turning respect_noindex off later reprocesses it.
 	if noindex, nofollow := process.RobotsDirectives(originalDoc, resp.Header); noindex && c.resolved.RespectNoindex {
+		noindexPage = true
 		cleanupResources()
 		if nofollow && c.siteCfg.RespectNofollow {
 			taskLog.Info("Page is marked noindex, nofollow; not saved, links not followed")
@@ -1079,7 +1167,7 @@ func (c *Crawler) runPolicyChecks(parsedURL *url.URL, depth int, taskLog *slog.L
 }
 
 func (c *Crawler) followLinks(doc *goquery.Document, pageURL *url.URL, depth int, taskLog *slog.Logger) {
-	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(doc, pageURL, depth, c.siteCfg, &c.wg, taskLog); linkErr != nil {
+	if _, linkErr := c.linkProcessor.ExtractAndQueueLinks(doc, pageURL, depth, c.siteCfg, taskLog); linkErr != nil {
 		taskLog.Warn(fmt.Sprintf("Non-fatal error encountered during link extraction/queueing: %v", linkErr))
 	}
 }
@@ -1133,13 +1221,6 @@ func (c *Crawler) acquireResources(host string, taskLog *slog.Logger) (cleanupFu
 	return cleanupFunc, nil
 }
 
-// drainClose drains and closes an HTTP response body so the keep-alive
-// connection can be reused before the caller returns a nil response.
-func drainClose(resp *http.Response) {
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-}
-
 // fetchAndValidatePage performs the HTTP GET request with retries and validates the response.
 // It handles redirects and ensures the final URL is within scope and allowed by robots.txt.
 // If successful, returns the final URL and an open http.Response (caller must close Body).
@@ -1156,9 +1237,11 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 	resp, fetchErr := c.fetcher.FetchWithRetry(req, c.crawlCtx)
 
 	if fetchErr != nil {
-		// Fetcher component already logged details of fetch/retry failures.
-		// It also ensures resp.Body is closed if resp is not nil and an error occurred.
-		return nil, resp, fetchErr // Propagate error; resp might be non-nil if an HTTP error occurred (e.g., 404)
+		// A 4xx comes back with its body open; the caller still reads the status code.
+		if resp != nil {
+			fetch.DrainAndClose(resp)
+		}
+		return nil, resp, fetchErr
 	}
 	// If fetchErr is nil, we have a successful 2xx response, and resp.Body is open.
 
@@ -1175,10 +1258,10 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		finalPath = "/"
 	}
 
-	if finalHost != c.siteCfg.AllowedDomain || !strings.HasPrefix(finalPath, c.siteCfg.AllowedPathPrefix) {
+	if !parse.SameHost(finalHost, c.siteCfg.AllowedDomain) || !strings.HasPrefix(finalPath, c.siteCfg.AllowedPathPrefix) {
 		err = fmt.Errorf("%w: redirected URL '%s' out of scope (Expected Domain: '%s', Path Prefix: '%s')",
 			utils.ErrScopeViolation, finalURL.String(), c.siteCfg.AllowedDomain, c.siteCfg.AllowedPathPrefix)
-		drainClose(resp)
+		fetch.DrainAndClose(resp)
 		return finalURL, nil, err // resp body is now closed; return a nil response
 	}
 
@@ -1186,7 +1269,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		if pattern.MatchString(finalURL.Path) {
 			err = fmt.Errorf("%w: redirected URL '%s' matches disallowed pattern '%s'",
 				utils.ErrScopeViolation, finalURL.String(), pattern.String())
-			drainClose(resp)
+			fetch.DrainAndClose(resp)
 			return finalURL, nil, err
 		}
 	}
@@ -1198,7 +1281,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 		if !c.robotsHandler.TestAgent(finalURL, c.resolved.UserAgent, c.crawlCtx) {
 			err = fmt.Errorf("%w: redirected URL '%s' disallowed by robots.txt on new host",
 				utils.ErrRobotsDisallowed, finalURL.String())
-			drainClose(resp)
+			fetch.DrainAndClose(resp)
 			return finalURL, nil, err
 		}
 	}
@@ -1215,7 +1298,7 @@ func (c *Crawler) fetchAndValidatePage(reqURLString string, originalParsedURL *u
 			strings.HasPrefix(ctLower, "application/gzip") ||
 			strings.HasPrefix(ctLower, "application/pdf") ||
 			strings.HasPrefix(ctLower, "application/octet-stream") {
-			drainClose(resp)
+			fetch.DrainAndClose(resp)
 			return finalURL, nil, fmt.Errorf("%w: '%s' for '%s'", utils.ErrNonHTMLContent, contentType, finalURL.String())
 		}
 		// Ambiguous types (text/plain, etc.) -- warn but proceed
@@ -1238,7 +1321,7 @@ func (c *Crawler) readBody(resp *http.Response, finalURL *url.URL, taskLog *slog
 		return nil, fmt.Errorf("%w: reading body from '%s': %w", utils.ErrResponseBodyRead, finalURL.String(), readErr)
 	}
 	if int64(len(bodyBytes)) > maxPageSize {
-		return nil, fmt.Errorf("%w: page '%s' exceeds max size (%d > %d bytes)", utils.ErrResponseBodyRead, finalURL.String(), len(bodyBytes), maxPageSize)
+		return nil, fmt.Errorf("%w: %w: '%s' (%d > %d bytes)", utils.ErrResponseBodyRead, utils.ErrPageTooLarge, finalURL.String(), len(bodyBytes), maxPageSize)
 	}
 	taskLog.Debug(fmt.Sprintf("Read %d bytes from response body of %s", len(bodyBytes), finalURL.String()))
 	return bodyBytes, nil
@@ -1263,13 +1346,14 @@ func parseBody(ctx context.Context, body []byte, finalURL *url.URL) (*goquery.Do
 // extractLinksAndImages extracts markdown links and image references from markdown content.
 // Returns two slices: links (from [text](url)) and images (from ![alt](url)).
 func extractLinksAndImages(markdown string) (links []string, images []string) {
-	linkMatches := mdLinkRe.FindAllStringSubmatch(markdown, -1)
+	linkMatches := mdLinkRe.FindAllStringSubmatchIndex(markdown, -1)
 	for _, match := range linkMatches {
-		if len(match) >= 3 {
-			linkURL := strings.TrimSpace(match[2])
-			if linkURL != "" {
-				links = append(links, linkURL)
-			}
+		if match[0] > 0 && markdown[match[0]-1] == '!' {
+			continue
+		}
+		linkURL := strings.TrimSpace(markdown[match[4]:match[5]])
+		if linkURL != "" {
+			links = append(links, linkURL)
 		}
 	}
 

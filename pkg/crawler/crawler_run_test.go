@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/version"
 )
 
 // These tests characterize the CURRENT end-to-end behavior of Crawler.Run
@@ -172,6 +174,41 @@ func runCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig
 	require.NoError(t, err, "NewCrawlerWithOptions")
 
 	return c.Run(false)
+}
+
+// A 404 left unread holds its connection until the client timeout and keeps
+// keep-alive from reusing it, so every dead link would open a new connection.
+func TestCrawlerRun_DeadLinksReuseOneConnection(t *testing.T) {
+	const deadLinks = 30
+	var links strings.Builder
+	for i := range deadLinks {
+		fmt.Fprintf(&links, `<a href="/docs/missing%d.html">m</a>`, i)
+	}
+	index := "<html><body><p>Index</p>" + links.String() + "</body></html>"
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/docs/index.html" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, index)
+	}))
+	var conns atomic.Int64
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	server.Start()
+	t.Cleanup(server.Close)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.NumWorkers = 1
+	appCfg.MaxRequests = 1
+	appCfg.MaxRequestsPerHost = 1
+	_ = runCrawl(t, appCfg, baseSiteConfig(server, "/docs/index.html"))
+
+	assert.LessOrEqual(t, conns.Load(), int64(3), "connections opened for %d dead links", deadLinks)
 }
 
 func TestCrawlerRun_HappyPath(t *testing.T) {
@@ -368,6 +405,92 @@ func newSitemapDocServer(t *testing.T, sitemapPath, robots string) (*httptest.Se
 	}))
 	t.Cleanup(server.Close)
 	return server, rec
+}
+
+// awaitTasks waits on the task WaitGroup in a goroutine; a token left behind
+// by a cancelled crawl parks that goroutine, and the Crawler it holds, forever.
+func TestCrawlerRun_CancelledCrawlReleasesEveryTaskToken(t *testing.T) {
+	var links strings.Builder
+	for i := range 50 {
+		fmt.Fprintf(&links, `<a href="/docs/p%d.html">p</a>`, i)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var served atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if r.URL.Path == "/docs/index.html" {
+			_, _ = io.WriteString(w, "<html><body><p>Index</p>"+links.String()+"</body></html>")
+			return
+		}
+		if served.Add(1) == 3 {
+			cancel()
+		}
+		_, _ = io.WriteString(w, `<html><body><p>Child</p></body></html>`)
+	}))
+	t.Cleanup(server.Close)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.NumWorkers = 1
+	appCfg.MaxRequestsPerHost = 1
+	logger := newCrawlLog(t).logger()
+	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, false, logger)
+	require.NoError(t, err)
+	defer store.Close()
+	fetcher := fetch.NewFetcher(fetch.NewClient(appCfg.HTTPClientSettings, logger), appCfg, logger)
+	c, err := NewCrawlerWithOptions(appCfg, baseSiteConfig(server, "/docs/index.html"), testSiteKey, logger, store, fetcher,
+		fetch.NewRateLimiter(0, logger), ctx, cancel, false, nil)
+	require.NoError(t, err)
+
+	require.Error(t, c.Run(false))
+
+	released := make(chan struct{})
+	go func() { c.wg.Wait(); close(released) }()
+	select {
+	case <-released:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("task WaitGroup never reached zero after the cancelled crawl returned (%d pages served)", served.Load())
+	}
+}
+
+func TestCrawlerRun_UnsetUserAgentFallsBackToTheDefault(t *testing.T) {
+	var mu sync.Mutex
+	agents := map[string]string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		agents[r.URL.Path] = r.UserAgent()
+		mu.Unlock()
+		origin := "http://" + r.Host
+		switch r.URL.Path {
+		case "/robots.txt":
+			_, _ = io.WriteString(w, "User-agent: *\nAllow: /\nSitemap: "+origin+"/docs/sitemap.xml\n")
+		case "/docs/sitemap.xml":
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>`+
+				origin+`/docs/orphan.html</loc></url></urlset>`)
+		case "/docs/index.html", "/docs/orphan.html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<html><head><title>T</title></head><body>Text.</body></html>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	appCfg := newTestAppConfig(t)
+	appCfg.DefaultUserAgent = ""
+
+	require.NoError(t, runCrawl(t, appCfg, baseSiteConfig(server, "/docs/index.html")))
+
+	want := "github.com/Sriram-PR/doc-scraper/" + version.Version
+	mu.Lock()
+	defer mu.Unlock()
+	for _, path := range []string{"/robots.txt", "/docs/sitemap.xml", "/docs/index.html", "/docs/orphan.html"} {
+		assert.Equal(t, want, agents[path], "User-Agent for %s", path)
+	}
 }
 
 func TestCrawlerRun_ProbesProjectPathSitemapWithoutRobots(t *testing.T) {
@@ -840,6 +963,8 @@ func TestCrawlerRun_CountsSavedAndFailedPages(t *testing.T) {
 	assert.EqualValues(t, 4, p.PagesProcessed, "every attempted task")
 	assert.EqualValues(t, 2, p.PagesSaved, "index and a; the noindex page writes nothing")
 	assert.EqualValues(t, 1, p.PagesFailed, "gone.html 404s")
+	assert.EqualValues(t, 1, p.Failures.Noindex)
+	assert.EqualValues(t, 1, p.Failures.Count(FailureGone))
 }
 
 // TestCrawlerRun_IncrementalPartialFailureSucceeds keeps the degrade-not-fail
@@ -1343,4 +1468,123 @@ func TestCrawlerRun_RobotsSitemapOffHostNotFetched(t *testing.T) {
 	require.NoError(t, runCrawl(t, appCfg, siteCfg))
 
 	assert.False(t, otherRec.wasRequested("/maps/docs.xml"), "a robots.txt sitemap on another host is not fetched")
+}
+
+// A noindex page is not a saved page: a crawl whose only "success" is a
+// noindex page while the selector misses everything else saved nothing.
+func TestCrawlerRun_NoindexIsNotASuccess(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Index</title></head><body>`+
+		`<p>no main here</p><a href="/docs/print.html">print</a></body></html>`)
+	ms.set("/docs/print.html", `<html><head><title>P</title><meta name="robots" content="noindex"></head><body><main id="c">P</main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	p, err := runResumableCrawlErr(t, appCfg, siteCfg, false)
+
+	require.ErrorContains(t, err, "zero successful pages")
+	assert.EqualValues(t, 1, p.Failures.Noindex)
+	assert.EqualValues(t, 1, p.Failures.Count(FailureSelector))
+	assert.EqualValues(t, 1, p.PagesFailed, "the noindex page is neither saved nor failed")
+}
+
+func TestCrawlerRun_ClassifiesTransientFailures(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Index</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.setStatus("/docs/a.html", http.StatusInternalServerError)
+	appCfg := newTestAppConfig(t)
+	appCfg.InitialRetryDelay = 10 * time.Millisecond
+	appCfg.MaxRetryDelay = 20 * time.Millisecond
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	p := runResumableCrawl(t, appCfg, siteCfg, false)
+
+	assert.EqualValues(t, 1, p.Failures.Count(FailureTemporary), "a 500 after retries is a temporary failure")
+	assert.Equal(t, server.URL+"/docs/a.html", p.Failures.Classes[0].SampleURL)
+}
+
+// withHost returns the URL of path on server, spelling the host as given.
+func withHost(server *httptest.Server, host, path string) string {
+	return strings.Replace(server.URL, "127.0.0.1", host, 1) + path
+}
+
+// Hostnames are case-insensitive, so any mix of cases between allowed_domain
+// and the start URL must crawl the same as all-lowercase.
+func TestCrawlerRun_HostCaseDoesNotMatter(t *testing.T) {
+	cases := []struct{ name, allowedDomain, startHost string }{
+		{"lowercase everywhere", "localhost", "localhost"},
+		{"mixed case in both", "LocalHost", "LocalHost"},
+		{"mixed case in allowed_domain only", "LocalHost", "localhost"},
+		{"mixed case in start URL only", "localhost", "LocalHost"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server, _ := newDocServer(t, map[string]string{
+				"/docs/index.html": `<html><body><a href="/docs/child.html">Child</a></body></html>`,
+				"/docs/child.html": `<html><body>Child content.</body></html>`,
+			})
+			appCfg := newTestAppConfig(t)
+			siteCfg := baseSiteConfig(server, "/docs/index.html")
+			siteCfg.AllowedDomain = tc.allowedDomain
+			siteCfg.StartURLs = []string{withHost(server, tc.startHost, "/docs/index.html")}
+
+			require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+			outDir := siteOutputDir(appCfg, siteCfg)
+			assert.FileExists(t, filepath.Join(outDir, "index.md"))
+			assert.FileExists(t, filepath.Join(outDir, "child.md"))
+		})
+	}
+}
+
+func TestCrawlerRun_FollowsLinkWithUppercaseHost(t *testing.T) {
+	pages := map[string]string{
+		"/docs/a.html": `<html><body>Page A.</body></html>`,
+		"/docs/b.html": `<html><body>Page B.</body></html>`,
+	}
+	server, _ := newDocServer(t, pages)
+	pages["/docs/index.html"] = `<html><body>
+		<a href="a.html">A</a>
+		<a href="` + withHost(server, "LocalHost", "/docs/b.html") + `">B</a>
+	</body></html>`
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.AllowedDomain = "localhost"
+	siteCfg.StartURLs = []string{withHost(server, "localhost", "/docs/index.html")}
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	assert.FileExists(t, filepath.Join(outDir, "a.md"), "a link spelled in lowercase is followed")
+	assert.FileExists(t, filepath.Join(outDir, "b.md"), "a link with an uppercase host is the same site")
+}
+
+func TestCrawlerRun_SitemapHostCase(t *testing.T) {
+	cases := []struct{ name, startHost, entryHost string }{
+		{"lowercase everywhere", "localhost", "localhost"},
+		{"sitemap entry spelled with an uppercase host", "localhost", "LocalHost"},
+		{"sitemap fetched from an uppercase host", "LocalHost", "localhost"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pages := map[string]string{
+				"/docs/index.html":  `<html><body>No links.</body></html>`,
+				"/docs/orphan.html": `<html><body>Only in the sitemap.</body></html>`,
+			}
+			server, _ := newDocServer(t, pages)
+			pages["/sitemap.xml"] = `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>` +
+				withHost(server, tc.entryHost, "/docs/orphan.html") + `</loc></url></urlset>`
+			appCfg := newTestAppConfig(t)
+			siteCfg := baseSiteConfig(server, "/docs/index.html")
+			siteCfg.AllowedDomain = "localhost"
+			siteCfg.StartURLs = []string{withHost(server, tc.startHost, "/docs/index.html")}
+
+			require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+			assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "orphan.md"))
+		})
+	}
 }

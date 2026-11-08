@@ -135,6 +135,7 @@ func TestRunDueSites_DeadSiteRecordedAsFailure(t *testing.T) {
 	require.True(t, ok)
 	assert.False(t, state.LastRunSuccess, "nothing could be fetched")
 	assert.Contains(t, state.ErrorMessage, "zero successful pages")
+	assert.Contains(t, state.ErrorMessage, "crawl kept back")
 	assert.Zero(t, state.PagesSaved)
 	assert.EqualValues(t, 1, state.PagesFailed)
 }

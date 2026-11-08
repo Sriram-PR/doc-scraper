@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -154,6 +153,10 @@ func (s *Server) siteJSONLPath(siteKey string, siteCfg *config.SiteConfig) (stri
 	), true
 }
 
+// notCrawledHint is the same for list_pages (a result) and read_page (an
+// error: the page asked for doesn't exist yet).
+const notCrawledHint = "Site '%s' has not been crawled yet. Run crawl_site first."
+
 const jsonlDisabledHint = "JSONL output is disabled for site '%s', so no stored corpus is available to read. " +
 	"Remove enable_jsonl_output: false (it defaults to true) and re-run crawl_site."
 
@@ -218,7 +221,7 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 				Pages:      []pageListEntry{},
 				Offset:     offset,
 				MaxResults: maxResults,
-				Message:    "No crawl output found for this site. Run crawl_site first.",
+				Message:    fmt.Sprintf(notCrawledHint, siteKey),
 			}), nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("failed to open JSONL for site '%s': %v", siteKey, err)), nil
@@ -226,8 +229,7 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 	defer file.Close()
 
 	pages := make([]pageListEntry, 0, 256)
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	scanner := crawler.NewJSONLScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -259,9 +261,8 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 	sort.Slice(pages, func(i, j int) bool { return pages[i].URL < pages[j].URL })
 
 	total := len(pages)
-	offset = min(offset, total)
 	var pageSlice []pageListEntry
-	if offset == total {
+	if offset >= total {
 		pageSlice = []pageListEntry{}
 	} else {
 		end := offset + maxResults
@@ -310,11 +311,7 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create request: %s", clipInput(err.Error()))), nil
 	}
 
-	userAgent := s.cfg.AppConfig.DefaultUserAgent
-	if userAgent == "" {
-		userAgent = fetch.DefaultUserAgent()
-	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", config.GetEffectiveDefaultUserAgent(s.cfg.AppConfig))
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -323,12 +320,12 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return mcp.NewToolResultError(fmt.Sprintf("HTTP error: %d %s", resp.StatusCode, resp.Status)), nil
+		return mcp.NewToolResultError("HTTP " + resp.Status), nil
 	}
 
 	body := bufio.NewReader(resp.Body)
 	head, _ := body.Peek(512)
-	if ct := htmlContentType(resp.Header.Get("Content-Type"), head); ct != "" {
+	if ct := fetch.NonHTMLContentType(resp.Header.Get("Content-Type"), head); ct != "" {
 		return mcp.NewToolResultError(fmt.Sprintf("%s is not an HTML page (Content-Type %s); get_page only converts HTML", clipInput(urlStr), clipInput(ct))), nil
 	}
 
@@ -399,20 +396,6 @@ func pageWindow(request mcp.CallToolRequest) (maxBytes, offset int) {
 	return maxBytes, request.GetInt("offset", 0)
 }
 
-// htmlContentType returns "" for an HTML response, or else the content type
-// to report, sniffing the body when the server sent none.
-func htmlContentType(header string, body []byte) string {
-	ct := header
-	if ct == "" {
-		ct = http.DetectContentType(body)
-	}
-	mediaType, _, err := mime.ParseMediaType(ct)
-	if err == nil && (mediaType == "text/html" || mediaType == "application/xhtml+xml") {
-		return ""
-	}
-	return ct
-}
-
 func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if errResult := checkArgTypes(request, map[string]argKind{"site_key": argString, "incremental": argBool}); errResult != nil {
 		return errResult, nil
@@ -423,6 +406,7 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 	}
 
 	incremental := request.GetBool("incremental", false)
+	allowShrink := request.GetBool("allow_shrink", false)
 
 	siteCfg, errResult := s.resolveSiteOrError(siteKey)
 	if errResult != nil {
@@ -455,7 +439,7 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 		siteCfg = latest
 	}
 
-	go s.runCrawlJob(job, siteCfg, siteKey)
+	go s.runCrawlJob(job, siteCfg, siteKey, allowShrink)
 
 	return structuredResult(crawlSiteResult{
 		Status:      "started",
@@ -486,6 +470,7 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 		defer deadline.Stop()
 		tick := time.NewTicker(jobWaitPoll)
 		defer tick.Stop()
+		progress := newProgressReporter(ctx, request, jobProgressInterval)
 	wait:
 		for !isTerminalStatus(job.Status) {
 			select {
@@ -497,6 +482,13 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 				if j := s.jobManager.GetJob(jobID); j != nil {
 					job = j
 				}
+				// Nothing once the job has ended: the result follows right away,
+				// and Claude Code drops progress written just before a result.
+				if !isTerminalStatus(job.Status) {
+					done := job.PagesProcessed + job.PagesUnchanged
+					// No total: a crawl finds more pages as it goes.
+					progress.report(float64(done), 0, fmt.Sprintf("%d pages crawled, %d queued", done, job.PagesQueued))
+				}
 			}
 		}
 	}
@@ -506,15 +498,16 @@ func (s *Server) handleGetJobStatus(ctx context.Context, request mcp.CallToolReq
 
 const (
 	// Short enough for MCP clients' tool-call timeouts.
-	maxJobWaitSeconds = 60
-	jobWaitPoll       = 250 * time.Millisecond
+	maxJobWaitSeconds   = 60
+	jobWaitPoll         = 250 * time.Millisecond
+	jobProgressInterval = time.Second
 )
 
 // crawlRestartWait bounds how long crawl_site waits for a cancelled crawl of
 // the same site to close its store.
 var crawlRestartWait = 30 * time.Second
 
-func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string) {
+func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string, allowShrink bool) {
 	// Deferred first so it runs last, after the store is closed.
 	defer s.jobManager.FinishJob(job.ID)
 	s.jobManager.UpdateStatus(job.ID, JobStatusRunning, "")
@@ -564,8 +557,9 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 			ProgressCallback: func(processed, queued int64) {
 				s.jobManager.UpdateProgress(jobID, processed, queued)
 			},
-			Index: s.idx,
-			Stage: stage,
+			Index:       s.idx,
+			Stage:       stage,
+			AllowShrink: allowShrink,
 		},
 	)
 	if err != nil {
@@ -575,14 +569,22 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 
 	s.jobManager.AttachProgress(jobID, func() JobProgress {
 		p := crawlerInstance.GetProgress()
-		return JobProgress{Processed: p.PagesProcessed, Queued: int64(p.PagesQueued), Unchanged: p.PagesUnchanged}
+		return JobProgress{
+			Processed: p.PagesProcessed, Queued: int64(p.PagesQueued), Unchanged: p.PagesUnchanged,
+			Saved: p.PagesSaved, Failed: p.PagesFailed, CarriedForward: p.PagesCarriedForward, Failures: p.Failures.Classes,
+		}
 	})
 	err = crawlerInstance.Run(resume)
 	s.jobManager.DetachProgress(jobID)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		var lossy *crawler.LossyCrawlError
+		switch {
+		case errors.Is(err, context.Canceled):
 			s.jobManager.UpdateStatus(job.ID, JobStatusCancelled, "")
-		} else {
+		case errors.As(err, &lossy):
+			s.jobManager.SetRefused(job.ID, lossy.Reason)
+			s.jobManager.UpdateStatus(job.ID, JobStatusFailed, lossy.Error()+". "+lossy.Hint("mcp"))
+		default:
 			s.jobManager.UpdateStatus(job.ID, JobStatusFailed, err.Error())
 		}
 		return
@@ -616,8 +618,7 @@ func (s *Server) getLastCrawledTime(siteKey string, siteCfg *config.SiteConfig) 
 	defer file.Close()
 
 	var lastEnded time.Time
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	scanner := crawler.NewJSONLScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || !strings.Contains(line, models.RecordTypeCrawlMeta) {
@@ -644,7 +645,7 @@ func (s *Server) resolveSiteOrError(siteKey string) (*config.SiteConfig, *mcp.Ca
 	if exists {
 		return siteCfg, nil
 	}
-	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %v", clipInput(siteKey), s.siteKeys()))
+	return nil, mcp.NewToolResultError(fmt.Sprintf("site '%s' not found. Available sites: %s", clipInput(siteKey), strings.Join(s.siteKeys(), ", ")))
 }
 
 // handleGetFreshness answers "is the local crawl recent enough to query, or
@@ -765,7 +766,7 @@ func (s *Server) handleDiffCrawl(ctx context.Context, request mcp.CallToolReques
 		UnchangedCount: res.UnchangedCount,
 		Total:          res.Total,
 		Returned:       len(res.Entries),
-		Offset:         min(offset, res.Total),
+		Offset:         offset,
 		MaxResults:     maxResults,
 		CurrentCrawl:   summarizeCrawl(res.CurrentCrawl),
 		BaselineCrawl:  summarizeCrawl(res.BaselineCrawl),
@@ -825,8 +826,7 @@ func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
 
 	wantNorm, _, normErr := parse.ParseAndNormalize(wantURL)
 
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	scanner := crawler.NewJSONLScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || !strings.Contains(line, `"record_type":"page"`) {
@@ -954,8 +954,7 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 	record, err := findPageRecord(jsonlPath, urlStr)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return mcp.NewToolResultError(fmt.Sprintf(
-				"no crawl output found for site '%s'. Run crawl_site first.", siteKey)), nil
+			return mcp.NewToolResultError(fmt.Sprintf(notCrawledHint, siteKey)), nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("failed to read crawl output for site '%s': %v", siteKey, err)), nil
 	}
@@ -1063,6 +1062,9 @@ func (s *Server) handleSearchDocs(ctx context.Context, request mcp.CallToolReque
 	}
 	if len(results) == 0 {
 		hint := "No matches. Broaden the query, or check the corpus with list_sites and list_pages."
+		if strings.Count(query, `"`)%2 == 1 {
+			hint = `No matches. The query has an unmatched double quote ("); close it to search for a phrase, or remove it.`
+		}
 		if siteKey == "" {
 			if !s.anySiteIndexed(ctx) {
 				hint = "No site has indexed content yet. Run crawl_site for one of: " +

@@ -48,16 +48,20 @@ func (pq *PriorityQueue) Pop() any {
 }
 
 // ThreadSafePriorityQueue wraps PriorityQueue with a mutex and condition variable.
+// Each accepted item holds one token on tasks; whoever pops it releases it once
+// the task is done, and Drain releases the tokens of items never popped.
 type ThreadSafePriorityQueue struct {
 	pq     PriorityQueue
 	mu     sync.Mutex
 	cond   *sync.Cond
 	closed bool
+	tasks  *sync.WaitGroup
 	log    *slog.Logger
 }
 
-func NewThreadSafePriorityQueue(logger *slog.Logger) *ThreadSafePriorityQueue {
-	tspq := &ThreadSafePriorityQueue{log: logger}
+// NewThreadSafePriorityQueue returns an empty queue; tasks may be nil.
+func NewThreadSafePriorityQueue(logger *slog.Logger, tasks *sync.WaitGroup) *ThreadSafePriorityQueue {
+	tspq := &ThreadSafePriorityQueue{log: logger, tasks: tasks}
 	tspq.cond = sync.NewCond(&tspq.mu)
 	heap.Init(&tspq.pq)
 	return tspq
@@ -71,6 +75,9 @@ func (tspq *ThreadSafePriorityQueue) Add(item *models.WorkItem) {
 	if tspq.closed {
 		tspq.log.Warn("Attempted to add item to closed queue", "url", item.URL)
 		return
+	}
+	if tspq.tasks != nil {
+		tspq.tasks.Add(1)
 	}
 
 	pqItem := &PQItem{
@@ -106,6 +113,23 @@ func (tspq *ThreadSafePriorityQueue) Close() {
 		tspq.closed = true
 		tspq.cond.Broadcast()
 	}
+}
+
+// Drain closes the queue, drops the items still in it and releases their
+// tokens. A cancelled crawl leaves items no worker will pop.
+func (tspq *ThreadSafePriorityQueue) Drain() {
+	tspq.mu.Lock()
+	defer tspq.mu.Unlock()
+	if !tspq.closed {
+		tspq.closed = true
+		tspq.cond.Broadcast()
+	}
+	if tspq.tasks != nil {
+		for range tspq.pq {
+			tspq.tasks.Done()
+		}
+	}
+	tspq.pq = tspq.pq[:0]
 }
 
 // Len returns the current number of items in the queue.

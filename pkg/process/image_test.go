@@ -680,3 +680,31 @@ func TestProcessImages_FailedDownloadRecordsFailureEntry(t *testing.T) {
 	// ErrorType now carries the underlying message rather than a category constant.
 	assert.Contains(t, entry.ErrorType, "connection reset", "ErrorType should carry the underlying error text")
 }
+
+type countingBody struct {
+	left, read int64
+}
+
+func (b *countingBody) Read(p []byte) (int, error) {
+	if b.left <= 0 {
+		return 0, io.EOF
+	}
+	n := min(int64(len(p)), b.left)
+	b.left -= n
+	b.read += n
+	return int(n), nil
+}
+
+func (b *countingBody) Close() error { return nil }
+
+func TestSaveImageToDisk_StopsReadingAnOversizedBody(t *testing.T) {
+	ip := &ImageProcessor{log: silentLog()}
+	task := imageTask(t, "https://e.com/img/huge.png")
+	body := &countingBody{left: 8 << 20}
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"image/png"}}, Body: body}
+
+	_, _, err := ip.saveImageToDisk(task, resp, 10, t.TempDir())
+
+	require.ErrorContains(t, err, "exceeds max size")
+	assert.LessOrEqual(t, body.read, int64(10+64<<10), "read %d bytes of an image over a 10-byte cap", body.read)
+}

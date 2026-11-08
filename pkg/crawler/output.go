@@ -28,19 +28,63 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
-const (
-	jsonlScannerInitBuf = 64 * 1024
-	jsonlScannerMaxLine = 10 * 1024 * 1024 // page records are single lines and can be large
-)
-
 var pageRecordMarker = []byte(`"record_type":"page"`)
 
-// newJSONLScanner returns a scanner sized for the long single-line JSON records
-// the crawler writes, so a big page does not trip bufio's default line cap.
-func newJSONLScanner(r io.Reader) *bufio.Scanner {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, jsonlScannerInitBuf), jsonlScannerMaxLine)
-	return scanner
+const jsonlReadBuf = 64 * 1024
+
+// JSONLScanner reads JSONL one record per line, like bufio.Scanner but with no
+// line length cap: a page record is as long as the page, which can exceed any
+// fixed buffer.
+type JSONLScanner struct {
+	r    *bufio.Reader
+	line []byte
+	err  error
+}
+
+// NewJSONLScanner returns a JSONLScanner reading from r.
+func NewJSONLScanner(r io.Reader) *JSONLScanner {
+	return &JSONLScanner{r: bufio.NewReaderSize(r, jsonlReadBuf)}
+}
+
+// Scan advances to the next line, reporting false at the end or on an error.
+func (s *JSONLScanner) Scan() bool {
+	if s.err != nil {
+		return false
+	}
+	s.line = s.line[:0]
+	for {
+		chunk, err := s.r.ReadSlice('\n')
+		s.line = append(s.line, chunk...)
+		switch {
+		case err == nil:
+			s.line = bytes.TrimSuffix(bytes.TrimSuffix(s.line, []byte("\n")), []byte("\r"))
+			return true
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			s.err = io.EOF
+			s.line = bytes.TrimSuffix(s.line, []byte("\r"))
+			return len(s.line) > 0
+		default:
+			s.err = err
+			return false
+		}
+	}
+}
+
+// Bytes returns the current line without its line ending. It is overwritten by
+// the next Scan.
+func (s *JSONLScanner) Bytes() []byte { return s.line }
+
+// Text returns the current line as a string.
+func (s *JSONLScanner) Text() string { return string(s.line) }
+
+// Err returns the first read error, or nil at a clean end of input.
+func (s *JSONLScanner) Err() error {
+	if errors.Is(s.err, io.EOF) {
+		return nil
+	}
+	return s.err
 }
 
 // OutputManager owns the JSONL output file and the crawl_meta summary.
@@ -142,7 +186,7 @@ func countPriorPageRecords(path string) (int64, error) {
 	defer in.Close()
 
 	var pages int64
-	scanner := newJSONLScanner(in)
+	scanner := NewJSONLScanner(in)
 	for scanner.Scan() {
 		if bytes.Contains(scanner.Bytes(), pageRecordMarker) {
 			pages++
@@ -249,7 +293,7 @@ func readJSONLPagesForIndex(path string) ([]index.PageRecord, error) {
 	}
 	defer f.Close()
 	out := make([]index.PageRecord, 0, 256)
-	scanner := newJSONLScanner(f)
+	scanner := NewJSONLScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if !bytes.Contains(line, pageRecordMarker) {
@@ -287,18 +331,19 @@ func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte,
 	crawledAtStr := time.Now().UTC().Format(time.RFC3339)
 
 	if om.resolved.EnableJSONLOutput && markdownBytes != nil {
+		content := string(markdownBytes)
 		var contentHash string
 		if len(markdownBytes) > 0 {
-			contentHash = utils.CalculateStringSHA256(string(markdownBytes))
+			contentHash = utils.CalculateStringSHA256(content)
 		}
 		headings := process.ExtractHeadings(markdownBytes)
-		links, images := extractLinksAndImages(string(markdownBytes))
+		links, images := extractLinksAndImages(content)
 
 		pageJSONL := models.PageJSONL{
 			RecordType:  models.RecordTypePage,
 			URL:         finalURL,
 			Title:       pageTitle,
-			Content:     string(markdownBytes),
+			Content:     content,
 			Headings:    headings,
 			Links:       links,
 			Images:      images,
@@ -350,6 +395,80 @@ func (om *OutputManager) buildCrawlMeta() models.CrawlMetaJSONL {
 		CrawlEndedAt:   time.Now().UTC().Format(time.RFC3339),
 		TotalPages:     int(om.pagesRecorded.Load()),
 	}
+}
+
+// UniquePages counts the distinct pages the run would publish, without
+// finalizing the JSONL. It reads the streamed file, so pages recorded twice
+// (a requeued URL) count once; exclude drops pages about to be removed.
+func (om *OutputManager) UniquePages(exclude []*url.URL) int {
+	if om.jsonlFilePath == "" {
+		return om.PagesSaved()
+	}
+	spans, err := om.streamedPageSpans()
+	if err != nil {
+		return om.PagesSaved()
+	}
+	skip := make(map[string]struct{}, len(exclude))
+	for _, u := range exclude {
+		skip[parse.NormalizeURL(u)] = struct{}{}
+	}
+	n := 0
+	for raw := range spans {
+		if u, err := url.Parse(raw); err == nil {
+			if _, ok := skip[parse.NormalizeURL(u)]; ok {
+				continue
+			}
+		}
+		n++
+	}
+	return n
+}
+
+// recordedPageKeys returns the normalized URLs of the pages in the streamed
+// JSONL; nil when JSONL output is off or the file can't be read.
+func (om *OutputManager) recordedPageKeys() map[string]struct{} {
+	if om.jsonlFilePath == "" {
+		return nil
+	}
+	spans, err := om.streamedPageSpans()
+	if err != nil {
+		return nil
+	}
+	keys := make(map[string]struct{}, len(spans))
+	for raw := range spans {
+		if u, err := url.Parse(raw); err == nil {
+			keys[parse.NormalizeURL(u)] = struct{}{}
+		}
+	}
+	return keys
+}
+
+func (om *OutputManager) streamedPageSpans() (map[string]pageSpan, error) {
+	om.jsonlFileMu.Lock()
+	spans, err := indexLastPageOffsets(om.jsonlFilePath)
+	om.jsonlFileMu.Unlock()
+	if err != nil {
+		om.log.Warn("Failed to read the streamed JSONL page records", "path", om.jsonlFilePath, "err", err)
+	}
+	return spans, err
+}
+
+// appendRaw writes a page record line copied from another corpus.
+func (om *OutputManager) appendRaw(line []byte) bool {
+	om.jsonlFileMu.Lock()
+	defer om.jsonlFileMu.Unlock()
+	if om.jsonlFile == nil {
+		return false
+	}
+	if len(line) == 0 || line[len(line)-1] != '\n' {
+		line = append(append([]byte(nil), line...), '\n')
+	}
+	if _, err := om.jsonlFile.Write(line); err != nil {
+		om.log.Error("Failed to write a carried-forward JSONL record", "path", om.jsonlFilePath, "err", err)
+		return false
+	}
+	om.pagesRecorded.Add(1)
+	return true
 }
 
 // pageSpan is the byte range of one page record within the streamed JSONL file.
@@ -421,7 +540,7 @@ func indexLastPageOffsets(path string) (map[string]pageSpan, error) {
 	defer f.Close()
 
 	spans := make(map[string]pageSpan)
-	reader := bufio.NewReaderSize(f, jsonlScannerInitBuf)
+	reader := bufio.NewReaderSize(f, jsonlReadBuf)
 	var offset int64
 	for {
 		line, readErr := reader.ReadBytes('\n')
@@ -483,7 +602,7 @@ func (om *OutputManager) rewriteFinalizedJSONL(spans map[string]pageSpan) error 
 	}
 	sort.Strings(urls)
 
-	buf := make([]byte, 0, jsonlScannerInitBuf)
+	buf := make([]byte, 0, jsonlReadBuf)
 	for _, u := range urls {
 		s := spans[u]
 		if cap(buf) < s.length {

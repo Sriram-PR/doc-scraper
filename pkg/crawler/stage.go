@@ -7,10 +7,10 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"time"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 const backupSuffix = ".old"
@@ -120,12 +120,12 @@ func (s *Stage) Commit() error {
 	var movedAside, promoted []pair
 	rollback := func() {
 		for i := len(promoted) - 1; i >= 0; i-- {
-			if err := renameRetry(promoted[i].live, promoted[i].staging); err != nil {
+			if err := utils.RenameRetry(promoted[i].live, promoted[i].staging); err != nil {
 				s.log.Error("Staging rollback failed", "path", promoted[i].live, "err", err)
 			}
 		}
 		for i := len(movedAside) - 1; i >= 0; i-- {
-			if err := renameRetry(movedAside[i].backup, movedAside[i].live); err != nil {
+			if err := utils.RenameRetry(movedAside[i].backup, movedAside[i].live); err != nil {
 				s.log.Error("Backup restore failed", "path", movedAside[i].live, "err", err)
 			}
 		}
@@ -133,13 +133,13 @@ func (s *Stage) Commit() error {
 
 	for _, p := range pairs {
 		if pathExists(p.live) {
-			if err := renameRetry(p.live, p.backup); err != nil {
+			if err := utils.RenameRetry(p.live, p.backup); err != nil {
 				rollback()
 				return fmt.Errorf("moving %s aside: %w", p.live, err)
 			}
 			movedAside = append(movedAside, p)
 		}
-		if err := renameRetry(p.staging, p.live); err != nil {
+		if err := utils.RenameRetry(p.staging, p.live); err != nil {
 			rollback()
 			return fmt.Errorf("promoting %s: %w", p.staging, err)
 		}
@@ -167,7 +167,7 @@ func (s *Stage) recoverSwap() {
 			_ = os.RemoveAll(backup)
 			continue
 		}
-		if err := renameRetry(backup, live); err != nil {
+		if err := utils.RenameRetry(backup, live); err != nil {
 			s.log.Error("Could not restore interrupted swap", "path", live, "err", err)
 		}
 	}
@@ -176,17 +176,4 @@ func (s *Stage) recoverSwap() {
 func pathExists(p string) bool {
 	_, err := os.Stat(p)
 	return !errors.Is(err, fs.ErrNotExist)
-}
-
-// renameRetry absorbs transient Windows sharing violations (scanners and
-// indexers briefly holding a just-closed file).
-func renameRetry(from, to string) error {
-	var err error
-	for i := range 5 {
-		if err = os.Rename(from, to); err == nil {
-			return nil
-		}
-		time.Sleep(time.Duration(i+1) * 50 * time.Millisecond)
-	}
-	return err
 }

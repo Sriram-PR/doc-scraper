@@ -99,6 +99,25 @@ func TestHandleSearchDocs_MalformedQueryDoesNotError(t *testing.T) {
 	assert.EqualValues(t, 0, got["count"])
 }
 
+func TestHandleSearchDocs_UnmatchedQuoteHint(t *testing.T) {
+	s := newTestServerWithIndex(t, "docs")
+	md := "# Retries\n\nRetry limits are configured with max_retries. " + strings.Repeat("filler ", 40)
+	require.NoError(t, s.idx.ReplaceChunks(context.Background(),
+		"docs", "https://docs.example.com/retries", "Retries", "h1", chunk.Split(md)))
+
+	got, _ := callSearchDocs(t, s, map[string]any{"query": `"nothingmatches`})
+	assert.EqualValues(t, 0, got["count"])
+	assert.Contains(t, got["next_actions"], "unmatched double quote")
+
+	got, _ = callSearchDocs(t, s, map[string]any{"query": `"nothing matches"`})
+	assert.EqualValues(t, 0, got["count"])
+	assert.NotContains(t, got["next_actions"], "unmatched double quote")
+	assert.Contains(t, got["next_actions"], "Broaden")
+
+	got, _ = callSearchDocs(t, s, map[string]any{"query": `"retry limits`})
+	assert.EqualValues(t, 1, got["count"], "an unmatched quote still finds the words")
+}
+
 func TestHandleSearchDocs_UnusualQueries(t *testing.T) {
 	s := newTestServerWithIndex(t, "docs")
 	md := "# Retries\n\nRetry limits are configured with max_retries. " + strings.Repeat("filler ", 40)

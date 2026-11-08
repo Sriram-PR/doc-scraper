@@ -23,7 +23,7 @@ Crawled content is saved under the `output_base_dir` defined in the config, orga
     └── topic_two.md
 ```
 
-A fresh (non-`--resume`) crawl never touches the existing corpus while it runs. It builds into `<sanitized_site_key>.staging` under `output_base_dir` and a `<sanitized_site_key>_visited_db.staging` state directory, and swaps them over the live copies only when the crawl completes. If the crawl is interrupted, cancelled, or fails, the previous output, visited DB, crawl history, and search index stay as they were, and `crawl` exits `130` on SIGINT/SIGTERM. `--resume` (and `-incremental`, which implies it) then continues the staged crawl and swaps it in when done; a new fresh crawl discards leftover staging. Resuming a site with no staging works in place on the live output. Crawl history (`get_freshness`/`diff_crawl`) records completed runs only. Staging needs room for a second copy of the site until the swap.
+A fresh (non-`--resume`) crawl never touches the existing corpus while it runs. It builds into `<sanitized_site_key>.staging` under `output_base_dir` and a `<sanitized_site_key>_visited_db.staging` state directory, and swaps them over the live copies only when the crawl completes. If the crawl is interrupted, cancelled, or fails, the previous output, visited DB, crawl history, and search index stay as they were, and `crawl` exits `130` on SIGINT/SIGTERM. `--resume` (and `-incremental`, which implies it) then continues the staged crawl and swaps it in when done; a new fresh crawl discards leftover staging. Resuming a site with no staging works in place on the live output. Crawl history (`get_freshness`/`diff_crawl`) records completed runs only. Staging needs room for a second copy of the site until the swap. A crawl that finishes but loses a large share of its pages is kept back the same way: the previous corpus stays live, the staging is kept, and `crawl` exits `3` (see [CLI](/doc-scraper/reference/cli/#crawl) for the rules and `-allow-shrink`). When a fresh crawl is published, a page from the previous corpus that failed with a temporary error keeps its previous copy, with its original `crawled_at` and `content_hash`.
 
 ## llms.txt and llms-full.txt
 
@@ -34,7 +34,7 @@ When JSONL output is enabled, the crawler also emits `llms.txt` and `llms-full.t
 Each generated Markdown file begins with a YAML frontmatter block carrying page metadata, followed by the converted content:
 
 - **YAML frontmatter** (delimited by `---`) with `title`, `url` (source URL), `crawled_at` (RFC3339 timestamp), `content_hash` (SHA-256 of the content, matching the JSONL record), and `depth`
-- Clean content converted from HTML to GitHub-Flavored Markdown, preserving tables
+- Clean content converted from HTML to GitHub-Flavored Markdown. A table stays a table when each cell fits on one row (a table of a single cell is layout and becomes just its content); line breaks and paragraphs inside a cell become `<br>`. A table that can't (for example, a cell holds a list, a multi-line code block, a nested table, or more than four lines) becomes one paragraph per cell, each labeled with its column header (`**Name:** value`), or with its row header when every row is a header cell and a value. A header row that is one cell spanning every column is a title: it is written once, as `**Title**`, instead of labeling every cell. Line-numbered code that a highlighter laid out as a table (Pygments and MkDocs Material, Hugo, Jekyll) becomes one code block without the numbers
 - Relative links to other crawled pages (within the allowed domain and path prefix); links to pages outside that scope are made absolute
 - Local image references (if images are enabled)
 
@@ -82,6 +82,8 @@ The file mixes two record kinds, distinguished by the `record_type` field:
 | `content_hash` | SHA-256 hash of the content (used for incremental crawling) |
 | `crawled_at` | Timestamp of when the page was crawled |
 | `depth` | Crawl depth from the start URL |
+
+`headings`, `links`, and `images` are `null`, not `[]`, when the page has none of that kind: Go encodes a nil slice as JSON `null`.
 
 **`crawl_meta` record fields** (from `CrawlMetaJSONL`):
 

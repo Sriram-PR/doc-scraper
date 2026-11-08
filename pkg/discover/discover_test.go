@@ -141,6 +141,33 @@ func TestDiscoverer_BotBlockIsDiagnosed(t *testing.T) {
 	assert.Contains(t, err.Error(), "bot protection")
 }
 
+func TestDiscoverer_RefusesANonHTMLSeed(t *testing.T) {
+	png := "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+	for _, tc := range []struct{ name, contentType, want string }{
+		{"declared", "image/png", "is image/png, not an HTML page"},
+		{"sniffed", "", "is image/png, not an HTML page"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/robots.txt" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header()["Content-Type"] = nil
+				if tc.contentType != "" {
+					w.Header().Set("Content-Type", tc.contentType)
+				}
+				_, _ = io.WriteString(w, png)
+			}))
+			t.Cleanup(srv.Close)
+
+			_, err := testDiscoverer(srv).Run(context.Background(), srv.URL+"/static/logo.png")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
 func TestDiscoverer_GzipSitemap(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/sitemap.xml", func(w http.ResponseWriter, _ *http.Request) {
@@ -534,4 +561,28 @@ func TestFetchSitemap_SkipsOffHostSitemaps(t *testing.T) {
 	// the off-host server gets exactly that one request; robots and shard
 	// sitemaps on another host are never requested.
 	assert.EqualValues(t, 1, offHits.Load())
+}
+
+// A seed typed with capitals that redirects to the lowercase host, with a
+// canonical link spelled in yet another case, is still one host.
+func TestDiscoverer_HostCaseIsNotCrossHost(t *testing.T) {
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/docs/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)+"/docs/intro/", http.StatusFound)
+	})
+	mux.HandleFunc("/docs/intro/", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `<html><head><title>Intro</title><link rel="canonical" href="%s/docs/intro/"></head><body><main><h1>Intro</h1><p>Text.</p></main></body></html>`,
+			strings.Replace(srv.URL, "127.0.0.1", "LOCALHOST", 1))
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	r, err := testDiscoverer(srv).Run(context.Background(), strings.Replace(srv.URL, "127.0.0.1", "LocalHost", 1)+"/docs/")
+	require.NoError(t, err)
+
+	assert.False(t, r.CrossHost)
+	joined := strings.Join(r.Warnings, "\n")
+	assert.NotContains(t, joined, "redirected to")
+	assert.NotContains(t, joined, "canonical URL points to")
 }

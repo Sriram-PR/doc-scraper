@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -389,4 +390,50 @@ func TestFetchWithRetry_DNSTemporary_Retries(t *testing.T) {
 	}
 	require.ErrorIs(t, err, utils.ErrRetryFailed)
 	assert.Equal(t, int32(3), tr.calls.Load())
+}
+
+// bigBody stands in for a response body that never ends; it counts what is read.
+type bigBody struct {
+	left, read int64
+	closed     bool
+}
+
+func (b *bigBody) Read(p []byte) (int, error) {
+	if b.closed {
+		return 0, errors.New("read on closed response body")
+	}
+	if b.left <= 0 {
+		return 0, io.EOF
+	}
+	n := min(int64(len(p)), b.left)
+	b.left -= n
+	b.read += n
+	return int(n), nil
+}
+
+func (b *bigBody) Close() error { b.closed = true; return nil }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestFetchWithRetry_DiscardsAtMostALittleOfAnErrorBody(t *testing.T) {
+	var bodies []*bigBody
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		b := &bigBody{left: 8 << 20}
+		bodies = append(bodies, b)
+		return &http.Response{StatusCode: http.StatusInternalServerError, Status: "500", Header: http.Header{}, Body: b, Request: r}, nil
+	})}
+	fetcher := NewFetcher(client, testConfig(2), testLogger())
+	req, _ := http.NewRequest(http.MethodGet, "http://example.test/", nil)
+
+	resp, err := fetcher.FetchWithRetry(req, context.Background())
+
+	require.ErrorIs(t, err, utils.ErrServerHTTPError)
+	assert.Nil(t, resp)
+	require.Len(t, bodies, 3)
+	for i, b := range bodies {
+		assert.LessOrEqual(t, b.read, int64(64<<10), "attempt %d read %d bytes of a body it discards", i, b.read)
+		assert.True(t, b.closed, "attempt %d body not closed", i)
+	}
 }

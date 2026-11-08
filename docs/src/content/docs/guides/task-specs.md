@@ -17,6 +17,7 @@ The `run` command reads a single JSON object from stdin and dispatches the equiv
   "resume":      false,                // crawl only
   "incremental": false,                // crawl only (implies resume)
   "full":        false,                // crawl only (mutually exclusive with incremental)
+  "allow_shrink": false,               // crawl only; publish even if pages were lost (see crawl -allow-shrink)
   "interval":    "24h",                // watch only, defaults to 24h
   "loglevel":    "info",               // defaults to info
   "json_logs":   false,                // emit slog records as JSON on stderr

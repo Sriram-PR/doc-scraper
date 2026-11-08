@@ -170,7 +170,7 @@ func hostPaths(seed *url.URL, urls []string) []string {
 }
 
 func sameSite(a, b string) bool {
-	return strings.TrimPrefix(a, "www.") == strings.TrimPrefix(b, "www.")
+	return strings.TrimPrefix(strings.ToLower(a), "www.") == strings.TrimPrefix(strings.ToLower(b), "www.")
 }
 
 // seedDir is the seed's directory path: a trailing filename (segment with an

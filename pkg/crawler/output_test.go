@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -167,4 +168,46 @@ func readJSONLURLs(t *testing.T, path string) []string {
 	}
 	require.NoError(t, scanner.Err())
 	return urls
+}
+
+func newOpenOutputManager(t *testing.T, jsonl bool) (*OutputManager, string) {
+	t.Helper()
+	dir := t.TempDir()
+	appCfg := &config.AppConfig{JSONLOutputFilename: "pages.jsonl"}
+	siteCfg := &config.SiteConfig{EnableJSONLOutput: &jsonl}
+	om := NewOutputManager(silentLogger(), config.NewResolvedSiteConfig(siteCfg, appCfg), siteCfg, "s", dir)
+	om.OpenFiles(false)
+	t.Cleanup(om.closeJSONLFile)
+	return om, dir
+}
+
+func TestOutputManager_UniquePages(t *testing.T) {
+	om, _ := newOpenOutputManager(t, true)
+	log := silentLogger()
+	om.RecordPageOutput("http://h/docs/a.html", []byte("# A"), "A", 0, log)
+	om.RecordPageOutput("http://h/docs/b.html", []byte("# B"), "B", 1, log)
+	om.RecordPageOutput("http://h/docs/a.html", []byte("# A2"), "A", 0, log)
+	gone, err := url.Parse("http://h/docs/b.html")
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, om.UniquePages(nil), "a page recorded twice counts once")
+	assert.Equal(t, 1, om.UniquePages([]*url.URL{gone}))
+}
+
+func TestOutputManager_UniquePagesWithoutJSONL(t *testing.T) {
+	om, _ := newOpenOutputManager(t, false)
+	om.RecordPageOutput("http://h/docs/a.html", []byte("# A"), "A", 0, silentLogger())
+	assert.Equal(t, 1, om.UniquePages(nil))
+}
+
+func TestOutputManager_AppendRaw(t *testing.T) {
+	om, _ := newOpenOutputManager(t, true)
+	line := []byte(`{"record_type":"page","url":"http://h/docs/c.html","title":"C","content":"# C"}`)
+
+	require.True(t, om.appendRaw(line))
+	assert.Equal(t, 1, om.UniquePages(nil))
+	assert.Equal(t, 1, om.PagesSaved())
+
+	off, _ := newOpenOutputManager(t, false)
+	assert.False(t, off.appendRaw(line))
 }

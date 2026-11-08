@@ -2,12 +2,15 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -52,6 +55,12 @@ type Server struct {
 	idx        *index.Index
 	sitesMu    sync.RWMutex
 	saveMu     sync.Mutex
+
+	// stdioServing turns on the handshake check; initializeRead is set when
+	// stdin delivers an initialize line, in read order, so a client piping
+	// initialize and its first call together is never refused.
+	stdioServing   atomic.Bool
+	initializeRead atomic.Bool
 }
 
 func NewServer(cfg *ServerConfig) (*Server, error) {
@@ -62,12 +71,21 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 		cfg.Logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
 
+	var s *Server
+	hooks := &server.Hooks{}
+	hooks.AddOnRequestInitialization(func(_ context.Context, _ any, message any) error {
+		if err := refuseOversized(message); err != nil {
+			return err
+		}
+		return s.checkHandshake(message)
+	})
 	mcpServer := server.NewMCPServer(
 		serverName,
 		serverVersion,
 		server.WithMethodCacheHints(mcp.MethodToolsList, toolsListCacheTTL.Milliseconds(), mcp.CacheScopePrivate),
 		server.WithToolCapabilities(false),
 		server.WithInstructions(serverInstructions),
+		server.WithHooks(hooks),
 	)
 
 	if cfg.AppConfig.Sites == nil {
@@ -85,7 +103,7 @@ func NewServer(cfg *ServerConfig) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open crawl-history index: %w", err)
 	}
-	s := &Server{
+	s = &Server{
 		mcpServer:  mcpServer,
 		cfg:        cfg,
 		log:        logEntry,
@@ -134,9 +152,11 @@ func (s *Server) registerTools() {
 			mcp.Description("CSS selector for main content (defaults to 'body')"),
 		),
 		mcp.WithInteger("max_bytes",
-			mcp.Description("Maximum content bytes to return (default: 102400, max: 1048576; larger values are capped, 0 or less means the default)"),
+			mcp.Min(0),
+			mcp.Description("Maximum content bytes to return (default: 102400, max: 1048576; larger values are capped, 0 means the default)"),
 		),
 		mcp.WithInteger("offset",
+			mcp.Min(0),
 			mcp.Description("Byte offset into the page content, for reading a truncated page in parts (default: 0)"),
 		),
 		outputSchemaFor[getPageResult](),
@@ -150,13 +170,17 @@ func (s *Server) registerTools() {
 		mcp.WithOpenWorldHintAnnotation(true),
 		mcp.WithDescription("Start a background crawl for a configured site. Returns immediately with a job ID. "+
 			"The crawl builds in a staging area and replaces the stored corpus only when it completes, "+
-			"so a cancelled or failed crawl leaves the previous corpus intact."),
+			"so a cancelled or failed crawl leaves the previous corpus intact. A crawl that lost a large share of "+
+			"its pages is kept back instead (the job fails with refused set), and the stored corpus is kept."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config (use list_sites to discover available keys)"),
 		),
 		mcp.WithBoolean("incremental",
 			mcp.Description("Enable incremental mode (skip unchanged pages)"),
+		),
+		mcp.WithBoolean("allow_shrink",
+			mcp.Description("Publish the crawl even if it lost many pages compared to the last one (use with incremental:true to publish a kept-back crawl)"),
 		),
 		outputSchemaFor[crawlSiteResult](),
 	)
@@ -176,6 +200,7 @@ func (s *Server) registerTools() {
 			mcp.Description("The job ID returned by crawl_site"),
 		),
 		mcp.WithInteger("wait_seconds",
+			mcp.Min(0),
 			mcp.Description("Seconds to wait for the job to finish before returning (default: 0, max: 60; larger values are capped)"),
 		),
 		outputSchemaFor[jobSummary](),
@@ -273,9 +298,11 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 			mcp.Description("Site key from config (use list_sites to discover available keys)"),
 		),
 		mcp.WithInteger("max_results",
-			mcp.Description("Maximum pages to return (default: 100, max: 1000; larger values are capped, 0 or less means the default)"),
+			mcp.Min(0),
+			mcp.Description("Maximum pages to return (default: 100, max: 1000; larger values are capped, 0 means the default)"),
 		),
 		mcp.WithInteger("offset",
+			mcp.Min(0),
 			mcp.Description("Pagination offset, 0-based (default: 0)"),
 		),
 		outputSchemaFor[listPagesResult](),
@@ -306,9 +333,11 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 			mcp.Description("Heading anchor, as in a search_docs result; returns only that section, subsections included"),
 		),
 		mcp.WithInteger("max_bytes",
-			mcp.Description("Maximum content bytes to return (default: 102400, max: 1048576; larger values are capped, 0 or less means the default)"),
+			mcp.Min(0),
+			mcp.Description("Maximum content bytes to return (default: 102400, max: 1048576; larger values are capped, 0 means the default)"),
 		),
 		mcp.WithInteger("offset",
+			mcp.Min(0),
 			mcp.Description("Byte offset into the page content, for reading a truncated page in parts (default: 0)"),
 		),
 		outputSchemaFor[readPageResult](),
@@ -337,7 +366,8 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 			mcp.Description("Limit results to one site (use list_sites to discover keys). Omit to search all sites."),
 		),
 		mcp.WithInteger("limit",
-			mcp.Description("Maximum results to return (default: 10, max: 50; larger values are capped, 0 or less means the default)"),
+			mcp.Min(0),
+			mcp.Description("Maximum results to return (default: 10, max: 50; larger values are capped, 0 means the default)"),
 		),
 		outputSchemaFor[searchDocsResult](),
 	)
@@ -379,9 +409,11 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 			mcp.Description("RFC3339 timestamp; the most recent crawl whose crawl_ended_at <= since, compared to the second, is the baseline (e.g. 2026-05-23T22:00:00Z). Omit to compare with the previous crawl."),
 		),
 		mcp.WithInteger("max_results",
-			mcp.Description("Maximum diff entries to return (default: 100, max: 1000; larger values are capped, 0 or less means the default)"),
+			mcp.Min(0),
+			mcp.Description("Maximum diff entries to return (default: 100, max: 1000; larger values are capped, 0 means the default)"),
 		),
 		mcp.WithInteger("offset",
+			mcp.Min(0),
 			mcp.Description("Pagination offset, 0-based"),
 		),
 		outputSchemaFor[diffCrawlResult](),
@@ -400,7 +432,58 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	d := newStdioDrain(ctx, stdinEOFDrainTimeout, s.log)
+	d.onInitialize = func() { s.initializeRead.Store(true) }
+	s.stdioServing.Store(true)
 	return server.NewStdioServer(s.mcpServer).Listen(ctx, d.reader(in), d.writer(out))
+}
+
+// refuseOversized answers the stand-in for a request drainReader discarded.
+func refuseOversized(message any) error {
+	raw, ok := message.(json.RawMessage)
+	if !ok {
+		return nil
+	}
+	var req struct {
+		Method string `json:"method"`
+	}
+	_ = json.Unmarshal(raw, &req)
+	if req.Method != oversizedMethod {
+		return nil
+	}
+	return fmt.Errorf("request too large: messages over %d MiB are discarded", maxStdinLine>>20)
+}
+
+// checkHandshake refuses a legacy-era request (no 2026-07-28 _meta) that
+// arrives before any initialize. Protocol 2026-07-28 warns that a server which
+// serves such requests misleads clients probing for the protocol version.
+func (s *Server) checkHandshake(message any) error {
+	if !s.stdioServing.Load() || s.initializeRead.Load() {
+		return nil
+	}
+	raw, ok := message.(json.RawMessage)
+	if !ok {
+		return nil
+	}
+	var req struct {
+		Method string          `json:"method"`
+		ID     json.RawMessage `json:"id"`
+		Params struct {
+			Meta map[string]any `json:"_meta"`
+		} `json:"params"`
+	}
+	// A message that doesn't decode is left to mcp-go, which reports it.
+	_ = json.Unmarshal(raw, &req)
+	if rpcIDKey(req.ID) == "" {
+		return nil
+	}
+	switch mcp.MCPMethod(req.Method) {
+	case mcp.MethodInitialize, mcp.MethodPing, mcp.MethodServerDiscover:
+		return nil
+	}
+	if version, _ := req.Params.Meta[mcp.MetaKeyProtocolVersion].(string); mcp.IsModernProtocol(version) {
+		return nil
+	}
+	return errors.New("server not initialized: send initialize first, or put the protocol version in _meta (protocol 2026-07-28)")
 }
 
 // backfillChunks indexes existing crawl output for sites that predate the
@@ -425,7 +508,9 @@ func (s *Server) backfillChunks(ctx context.Context) {
 			s.log.Warn("chunk backfill: check failed", "site", key, "err", err)
 			continue
 		}
-		if has {
+		// A site with chunks is refreshed only when its JSONL is gone, which
+		// clears them.
+		if _, statErr := os.Stat(jsonlPath); has && statErr == nil {
 			continue
 		}
 		if err := crawler.IndexChunksFromJSONL(ctx, s.idx, key, jsonlPath, s.log); err != nil {

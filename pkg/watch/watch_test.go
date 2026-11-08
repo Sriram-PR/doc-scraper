@@ -1,9 +1,12 @@
 package watch
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -173,4 +176,45 @@ func TestStateManager_SavesUTCTimes(t *testing.T) {
 	for _, m := range stamps {
 		assert.Regexp(t, `Z$`, m[2], m[1])
 	}
+}
+
+// A crash in the middle of Save must not leave a truncated file, or every site
+// is treated as never crawled. A reader racing the writes sees the same thing a
+// crash would: with a write in place, an empty or half-written file.
+func TestStateManager_SaveNeverExposesAPartialFile(t *testing.T) {
+	dir := t.TempDir()
+	m := NewStateManager(dir)
+	for i := range 2000 {
+		m.UpdateSiteState(fmt.Sprintf("site-%04d", i), true, PageCounts{Saved: 10}, "")
+	}
+	require.NoError(t, m.Save())
+
+	path := filepath.Join(dir, stateFileName)
+	var stop atomic.Bool
+	var bad atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for !stop.Load() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			var st WatchState
+			if json.Unmarshal(data, &st) != nil || len(st.Sites) != 2000 {
+				bad.Add(1)
+			}
+		}
+	}()
+	for range 100 {
+		require.NoError(t, m.Save())
+	}
+	stop.Store(true)
+	<-done
+
+	assert.Zero(t, bad.Load(), "reads that saw a partial state file")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "temp files left next to the state file")
+	assert.Equal(t, stateFileName, entries[0].Name())
 }

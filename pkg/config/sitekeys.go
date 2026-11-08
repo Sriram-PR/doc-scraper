@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // GetAllSiteKeys returns all site keys from the config in sorted order. Sorted
@@ -22,7 +23,7 @@ func GetAllSiteKeys(appCfg *AppConfig) []string {
 func ValidateSiteKeys(appCfg *AppConfig, siteKeys []string) error {
 	for _, key := range siteKeys {
 		if _, exists := appCfg.Sites[key]; !exists {
-			return fmt.Errorf("site '%s' not found. Available sites: %v", key, GetAllSiteKeys(appCfg))
+			return fmt.Errorf("site '%s' not found. Available sites: %s", key, strings.Join(GetAllSiteKeys(appCfg), ", "))
 		}
 	}
 	return nil

@@ -36,9 +36,14 @@ Crawl one site, several sites in parallel, or every configured site. One of `-si
 | `-resume` | bool | Resume an interrupted crawl from existing state | `false` |
 | `-incremental` | bool | Enable incremental crawling (skip unchanged pages) | `false` |
 | `-full` | bool | Force full crawl (ignore incremental settings) | `false` |
+| `-allow-shrink` | bool | Publish the crawl even if it lost many pages compared to the last one | `false` |
 | `-loglevel` | string | Log level (`debug`, `info`, `warn`, `error`) | `info` |
 | `-json` | bool | Emit logs as JSON (one record per line) instead of text | `false` |
 | `-pprof` | string | pprof server address, e.g. `localhost:6060`. Only effective in builds with `-tags pprof`; default builds log a warning and ignore the flag | `""` (disabled) |
+
+A finished crawl is kept back instead of published when it would publish no pages, when at least 3 pages and a quarter of the content pages failed with temporary errors (server errors, rate limiting, network errors, timeouts), or when it has 30% fewer pages than the last recorded crawl of a site with at least 20 pages. The previous corpus stays as it was, the run is not recorded in crawl history, and a fresh crawl's staging is kept: `crawl -resume` retries the failed pages and publishes when they succeed, and `crawl -resume -allow-shrink` publishes the kept crawl as it is (it cannot publish a crawl with no pages). In a fresh crawl that is published, a page from the last crawl that failed with a temporary error keeps its previous copy.
+
+Exit codes: `0` success, `1` error, `3` crawl kept back, `130` interrupted. With several sites, an interrupt wins, then an error, then a kept-back crawl.
 
 ## `watch`
 
@@ -83,6 +88,8 @@ doc-scraper search -site rust_cli_book -limit 5 "error handling"
 Searches the crawled corpus offline, with no network access. The non-flag arguments form the query (FTS5 query syntax is supported). Options may appear before or after the query; use `--` to end option parsing.
 
 Results are ranked best first. Plain words must all appear in a result; when fewer than `-limit` results contain every word, the rest are filled with results that contain only some of them, or built-in synonyms in their place (common words such as "how" or "the" are ignored), listed after the full matches and marked `(partial match)`. With `-json`, each result's `match` is `all` or `partial`. Queries using FTS5 syntax (quotes, `*`, parentheses, `AND`, `OR`, `NOT`, `NEAR`, column filters such as `title:`) are never relaxed. A query made only of common words, unless quoted, is rejected as having no searchable terms. `rank` is the raw BM25 score and compares only results with the same `match`; use the array order.
+
+In text output each snippet is printed on one line; `-json` keeps its line breaks. Before anything has been crawled, `search` says so and creates nothing in `state_dir`.
 
 | Flag | Type | Description | Default |
 |------|------|-------------|---------|

@@ -4,6 +4,7 @@
 package discover
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -14,7 +15,9 @@ import (
 	"github.com/PuerkitoBio/goquery"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/detect"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 )
 
 const maxFetchBytes = 8 << 20
@@ -53,9 +56,9 @@ type Discoverer struct {
 }
 
 // Run probes rawURL and assembles a Report. Request budget: robots.txt, the
-// seed page, llms.txt, up to nine sitemap probes, at most two sitemap-index
-// children, and up to two sample pages when the seed's selector fails
-// validation.
+// seed page, llms.txt, every sitemap robots.txt lists plus up to nine
+// conventional locations, at most two sitemap-index children, and up to two
+// sample pages when the seed's selector fails validation.
 func (d *Discoverer) Run(ctx context.Context, rawURL string) (*Report, error) {
 	seed, err := parseHTTPURL(rawURL)
 	if err != nil {
@@ -79,7 +82,7 @@ func (d *Discoverer) Run(ctx context.Context, rawURL string) (*Report, error) {
 	}
 	r.Doc = doc
 	r.FinalURL = finalURL
-	r.CrossHost = finalURL.Hostname() != seed.Hostname()
+	r.CrossHost = !parse.SameHost(finalURL.Hostname(), seed.Hostname())
 	if r.CrossHost {
 		r.Warnings = append(r.Warnings, fmt.Sprintf("%s redirected to %s; the draft is anchored on the final host", seed.Hostname(), finalURL.Hostname()))
 		r.Robots = d.fetchRobots(ctx, finalURL)
@@ -153,7 +156,12 @@ func (d *Discoverer) fetchPage(ctx context.Context, seed *url.URL) (*goquery.Doc
 	case resp.StatusCode != http.StatusOK:
 		return nil, nil, fmt.Errorf("%s returned HTTP %d", seed, resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
+	br := bufio.NewReader(resp.Body)
+	head, _ := br.Peek(512)
+	if ct := fetch.NonHTMLContentType(resp.Header.Get("Content-Type"), head); ct != "" {
+		return nil, nil, fmt.Errorf("%s is %s, not an HTML page", seed, ct)
+	}
+	body, err := io.ReadAll(io.LimitReader(br, maxFetchBytes))
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading %s: %w", seed, err)
 	}

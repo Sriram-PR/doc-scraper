@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
@@ -146,17 +147,22 @@ type readPageResult struct {
 }
 
 type jobSummary struct {
-	JobID           string    `json:"job_id"`
-	SiteKey         string    `json:"site_key"`
-	Status          JobStatus `json:"status" jsonschema_description:"pending, running, completed, failed or cancelled"`
-	StartedAt       string    `json:"started_at"`
-	PagesProcessed  int64     `json:"pages_processed"`
-	PagesQueued     int64     `json:"pages_queued" jsonschema_description:"Pages waiting to be crawled; for a cancelled job, the pages left uncrawled"`
-	PagesUnchanged  int64     `json:"pages_unchanged" jsonschema_description:"Incremental re-checks whose content had not changed; not counted in pages_processed"`
-	Incremental     bool      `json:"incremental"`
-	CompletedAt     string    `json:"completed_at,omitempty"`
-	DurationSeconds *float64  `json:"duration_seconds,omitempty" jsonschema_description:"Present once completed_at is"`
-	ErrorMessage    string    `json:"error_message,omitempty"`
+	JobID               string                 `json:"job_id"`
+	SiteKey             string                 `json:"site_key"`
+	Status              JobStatus              `json:"status" jsonschema_description:"pending, running, completed, failed or cancelled"`
+	StartedAt           string                 `json:"started_at"`
+	PagesProcessed      int64                  `json:"pages_processed"`
+	PagesQueued         int64                  `json:"pages_queued" jsonschema_description:"Pages waiting to be crawled; for a cancelled job, the pages left uncrawled"`
+	PagesUnchanged      int64                  `json:"pages_unchanged" jsonschema_description:"Incremental re-checks whose content had not changed; not counted in pages_processed"`
+	PagesSaved          int64                  `json:"pages_saved" jsonschema_description:"Pages written by this crawl"`
+	PagesFailed         int64                  `json:"pages_failed" jsonschema_description:"Pages that failed; noindex pages are neither saved nor failed"`
+	PagesCarriedForward int64                  `json:"pages_carried_forward" jsonschema_description:"Pages that failed temporarily and kept their copy from the previous crawl"`
+	Failures            []crawler.FailureClass `json:"failures,omitempty" jsonschema_description:"Failed pages by class (temporary, gone, selector, policy, other), each with a count and one sample"`
+	Refused             string                 `json:"refused,omitempty" jsonschema_description:"Set when a finished crawl was kept back instead of published: empty, temporary_failures or shrink"`
+	Incremental         bool                   `json:"incremental"`
+	CompletedAt         string                 `json:"completed_at,omitempty"`
+	DurationSeconds     *float64               `json:"duration_seconds,omitempty" jsonschema_description:"Present once completed_at is"`
+	ErrorMessage        string                 `json:"error_message,omitempty"`
 }
 
 func utcTime(t time.Time) string {
@@ -174,15 +180,20 @@ func utcTimestamp(s string) string {
 
 func summarizeJob(j *Job) jobSummary {
 	sum := jobSummary{
-		JobID:          j.ID,
-		SiteKey:        j.SiteKey,
-		Status:         j.Status,
-		StartedAt:      utcTime(j.StartedAt),
-		PagesProcessed: j.PagesProcessed,
-		PagesQueued:    j.PagesQueued,
-		PagesUnchanged: j.PagesUnchanged,
-		Incremental:    j.Incremental,
-		ErrorMessage:   j.ErrorMessage,
+		JobID:               j.ID,
+		SiteKey:             j.SiteKey,
+		Status:              j.Status,
+		StartedAt:           utcTime(j.StartedAt),
+		PagesProcessed:      j.PagesProcessed,
+		PagesQueued:         j.PagesQueued,
+		PagesUnchanged:      j.PagesUnchanged,
+		PagesSaved:          j.PagesSaved,
+		PagesFailed:         j.PagesFailed,
+		PagesCarriedForward: j.PagesCarriedForward,
+		Failures:            j.Failures,
+		Refused:             j.Refused,
+		Incremental:         j.Incremental,
+		ErrorMessage:        j.ErrorMessage,
 	}
 	if !j.CompletedAt.IsZero() {
 		sum.CompletedAt = utcTime(j.CompletedAt)

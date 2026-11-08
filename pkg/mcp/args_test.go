@@ -55,6 +55,36 @@ func TestToolArgumentTypesAreEnforced(t *testing.T) {
 	assert.Empty(t, s.jobManager.ListJobs(), "a rejected crawl_site call must not start a job")
 }
 
+func TestNegativeIntegerArgumentsAreRejected(t *testing.T) {
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	attachIndex(t, s)
+	since := time.Now().Format(time.RFC3339)
+
+	cases := []struct {
+		name string
+		fn   func(context.Context, mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error)
+		args map[string]any
+		want string
+	}{
+		{"list max_results", s.handleListPages, map[string]any{"site_key": "docs", "max_results": -5.0}, `"max_results" must be 0 or more`},
+		{"list offset", s.handleListPages, map[string]any{"site_key": "docs", "offset": -1.0}, `"offset" must be 0 or more`},
+		{"read max_bytes", s.handleReadPage, map[string]any{"site_key": "docs", "url": "u", "max_bytes": -1.0}, `"max_bytes" must be 0 or more`},
+		{"read offset", s.handleReadPage, map[string]any{"site_key": "docs", "url": "u", "offset": -1.0}, `"offset" must be 0 or more`},
+		{"get_page max_bytes", s.handleGetPage, map[string]any{"url": "http://127.0.0.1:1/x", "max_bytes": -1.0}, `"max_bytes" must be 0 or more`},
+		{"get_page offset", s.handleGetPage, map[string]any{"url": "http://127.0.0.1:1/x", "offset": -1.0}, `"offset" must be 0 or more`},
+		{"search limit", s.handleSearchDocs, map[string]any{"query": "x", "limit": -1.0}, `"limit" must be 0 or more`},
+		{"diff max_results", s.handleDiffCrawl, map[string]any{"site_key": "docs", "since": since, "max_results": -1.0}, `"max_results" must be 0 or more`},
+		{"diff offset", s.handleDiffCrawl, map[string]any{"site_key": "docs", "since": since, "offset": -4.0}, `"offset" must be 0 or more`},
+		{"job wait_seconds", s.handleGetJobStatus, map[string]any{"job_id": "j", "wait_seconds": -1.0}, `"wait_seconds" must be 0 or more`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := callJSON(t, tc.fn, tc.args)
+			assert.Contains(t, errText(t, r), tc.want)
+		})
+	}
+}
+
 func TestToolArgumentTypes_AcceptsValidAndNull(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 	got := callListPages(t, s, map[string]any{"site_key": "docs", "max_results": 5.0, "offset": nil})
@@ -66,7 +96,7 @@ func TestHandleDiffCrawl_EchoesEffectiveValues(t *testing.T) {
 	attachIndex(t, s)
 	_, got := callJSON(t, s.handleDiffCrawl, map[string]any{
 		"site_key": "docs", "since": time.Now().Format(time.RFC3339),
-		"max_results": -1.0, "offset": -4.0,
+		"max_results": 0.0,
 	})
 	assert.EqualValues(t, 100, got["max_results"])
 	assert.EqualValues(t, 0, got["offset"])
@@ -154,7 +184,7 @@ func TestHandleSearchDocs_EchoesEffectiveLimit(t *testing.T) {
 	for _, tc := range []struct {
 		limit any
 		want  int
-	}{{nil, 10}, {0.0, 10}, {-3.0, 10}, {7.0, 7}, {100.0, 50}} {
+	}{{nil, 10}, {0.0, 10}, {7.0, 7}, {100.0, 50}} {
 		args := map[string]any{"query": "nothingmatches"}
 		if tc.limit != nil {
 			args["limit"] = tc.limit
@@ -164,12 +194,15 @@ func TestHandleSearchDocs_EchoesEffectiveLimit(t *testing.T) {
 	}
 }
 
-func TestOffsetPastEndEchoesTotal(t *testing.T) {
+func TestOffsetPastEndIsEchoedAsGiven(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
 	seedCorpus(t, jsonlPath)
 	idx := attachIndex(t, s)
 	got := callListPages(t, s, map[string]any{"site_key": "docs", "offset": 100.0})
-	assert.EqualValues(t, 2, got["offset"])
+	assert.EqualValues(t, 100, got["offset"])
+	assert.EqualValues(t, 2, got["total"])
+	assert.EqualValues(t, 0, got["returned"])
+	assert.Empty(t, got["pages"])
 
 	base := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
 	for i, hash := range []string{"h0", "h1"} {
@@ -181,5 +214,6 @@ func TestOffsetPastEndEchoesTotal(t *testing.T) {
 	}
 	_, got = callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs", "offset": 50.0})
 	assert.EqualValues(t, 1, got["total"])
-	assert.EqualValues(t, 1, got["offset"])
+	assert.EqualValues(t, 50, got["offset"])
+	assert.EqualValues(t, 0, got["returned"])
 }

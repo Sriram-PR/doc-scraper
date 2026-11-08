@@ -33,7 +33,8 @@ func (k argKind) String() string {
 // checkArgTypes rejects a present, non-null argument whose JSON type differs
 // from the declared one. The mcp-go Get* accessors silently coerce or fall
 // back to defaults, which would e.g. run a non-incremental crawl for
-// incremental:"yes". Numeric strings are rejected for integers.
+// incremental:"yes". Numeric strings are rejected for integers, and so are
+// negative integers: every integer argument is a count, size or offset.
 func checkArgTypes(req mcp.CallToolRequest, spec map[string]argKind) *mcp.CallToolResult {
 	args := req.GetArguments()
 	names := make([]string, 0, len(spec))
@@ -65,6 +66,12 @@ func checkArgTypes(req mcp.CallToolRequest, spec map[string]argKind) *mcp.CallTo
 		}
 		if !valid {
 			return mcp.NewToolResultError(fmt.Sprintf("argument %q must be %s", name, kind))
+		}
+		if n, ok := v.(float64); ok && kind == argInteger && n < 0 {
+			return mcp.NewToolResultError(fmt.Sprintf("argument %q must be 0 or more", name))
+		}
+		if n, ok := v.(int); ok && kind == argInteger && n < 0 {
+			return mcp.NewToolResultError(fmt.Sprintf("argument %q must be 0 or more", name))
 		}
 	}
 	return nil

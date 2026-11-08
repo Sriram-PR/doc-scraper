@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/version"
 )
 
 func boolPtr(b bool) *bool {
@@ -32,10 +34,10 @@ func TestGetEffectiveUserAgent(t *testing.T) {
 			expected: "GlobalBot/1.0",
 		},
 		{
-			name:     "both empty returns empty",
+			name:     "both empty falls back to the built-in agent",
 			siteCfg:  SiteConfig{UserAgent: ""},
 			appCfg:   AppConfig{DefaultUserAgent: ""},
-			expected: "",
+			expected: "github.com/Sriram-PR/doc-scraper/" + version.Version,
 		},
 	}
 

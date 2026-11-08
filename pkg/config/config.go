@@ -1,6 +1,10 @@
 package config
 
-import "time"
+import (
+	"time"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/version"
+)
 
 // SiteConfig holds configuration specific to a single website crawl.
 type SiteConfig struct {
@@ -87,12 +91,25 @@ func GetEffectiveMaxPageSize(appCfg *AppConfig) int64 {
 	return DefaultMaxPageSizeBytes
 }
 
+// BuiltinUserAgent is sent when neither user_agent nor default_user_agent is set.
+func BuiltinUserAgent() string {
+	return "github.com/Sriram-PR/doc-scraper/" + version.Version
+}
+
+// GetEffectiveDefaultUserAgent returns default_user_agent, or BuiltinUserAgent when it is unset.
+func GetEffectiveDefaultUserAgent(appCfg *AppConfig) string {
+	if appCfg.DefaultUserAgent != "" {
+		return appCfg.DefaultUserAgent
+	}
+	return BuiltinUserAgent()
+}
+
 // GetEffectiveUserAgent returns the site-specific user agent, falling back to the global default.
 func GetEffectiveUserAgent(siteCfg *SiteConfig, appCfg *AppConfig) string {
 	if siteCfg.UserAgent != "" {
 		return siteCfg.UserAgent
 	}
-	return appCfg.DefaultUserAgent
+	return GetEffectiveDefaultUserAgent(appCfg)
 }
 
 // GetEffectiveSkipImages returns the skip_images setting. Image downloading is opt-in: when

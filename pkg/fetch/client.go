@@ -17,7 +17,6 @@ import (
 	"golang.org/x/net/idna"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
-	"github.com/Sriram-PR/doc-scraper/v2/pkg/version"
 )
 
 // Baked-in HTTP transport timings. These were exposed as config knobs prior to
@@ -34,11 +33,6 @@ const (
 )
 
 type lookupFunc func(ctx context.Context, host string) ([]netip.Addr, error)
-
-// DefaultUserAgent is sent by one-off fetches (get_page, add) when default_user_agent is unset.
-func DefaultUserAgent() string {
-	return "github.com/Sriram-PR/doc-scraper/" + version.Version
-}
 
 // NewClient creates an HTTP client with an SSRF-guarding dialer unless allow_private_networks is set.
 func NewClient(cfg config.HTTPClientConfig, log *slog.Logger) *http.Client {

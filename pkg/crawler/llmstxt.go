@@ -46,7 +46,7 @@ func (om *OutputManager) writeLLMsTxtFiles() {
 	type pageRef struct{ title, url string }
 	var pages []pageRef
 
-	scanner := newJSONLScanner(in)
+	scanner := NewJSONLScanner(in)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
