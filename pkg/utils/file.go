@@ -3,7 +3,22 @@ package utils
 import (
 	"os"
 	"path/filepath"
+	"time"
 )
+
+// RenameRetry is os.Rename that retries for a moment, absorbing transient
+// Windows sharing violations: a reader, scanner or indexer holding the target
+// open makes the rename fail with "Access is denied" until it closes it.
+func RenameRetry(from, to string) error {
+	var err error
+	for i := range 5 {
+		if err = os.Rename(from, to); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(i+1) * 50 * time.Millisecond)
+	}
+	return err
+}
 
 // WriteFileAtomic replaces path with data so that readers, and the file after
 // a crash or power loss, see either the old contents or the new, never a mix.
@@ -31,7 +46,7 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 		_ = os.Remove(tmpName)
 		return err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := RenameRetry(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
 		return err
 	}
