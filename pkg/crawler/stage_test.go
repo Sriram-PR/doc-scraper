@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -317,16 +318,18 @@ func TestStageCommitRollsBackOnFailure(t *testing.T) {
 		stageOut: filepath.Join(tmp, "out.staging"),
 		liveDB:   filepath.Join(tmp, "missing-parent", "db"),
 		stageDB:  filepath.Join(tmp, "db.staging"),
+		journal:  filepath.Join(tmp, "commit.json"),
 	}
 	write(s.liveOut, "old")
 	write(s.stageOut, "new")
 	write(s.stageDB, "newdb")
 
-	require.Error(t, s.Commit())
+	require.Error(t, s.Commit(CommitRecord{Mode: index.ModeFull}))
 	assert.FileExists(t, filepath.Join(s.liveOut, "old"), "old live corpus restored")
 	assert.FileExists(t, filepath.Join(s.stageOut, "new"), "staging kept for retry")
 	assert.FileExists(t, filepath.Join(s.stageDB, "newdb"))
 	assert.NoDirExists(t, s.liveOut+backupSuffix)
+	assert.NoFileExists(t, s.journal, "a rolled-back commit leaves no journal")
 }
 
 func TestPlanStageRestoresInterruptedSwap(t *testing.T) {
@@ -355,4 +358,141 @@ func TestPlanStageDiscardsHalfPromotedStaging(t *testing.T) {
 	assert.Equal(t, live, s.OutputDir())
 	assert.NoDirExists(t, stageDB)
 	assert.FileExists(t, filepath.Join(live, "page.md"))
+}
+
+// crashStage lays out a site with an old live corpus and a finished staged
+// one, each holding a file naming its crawl, plus the Stage that would commit it.
+type crashStage struct {
+	appCfg *config.AppConfig
+	s      *Stage
+	rec    CommitRecord
+}
+
+func newCrashStage(t *testing.T) *crashStage {
+	t.Helper()
+	appCfg := newTestAppConfig(t)
+	s, err := PlanStage(appCfg, testSiteKey, false, silentLogger())
+	require.NoError(t, err)
+	write := func(dir, name string) {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644))
+	}
+	write(s.liveOut, "old-out")
+	write(s.liveDB, "old-db")
+	write(s.stageOut, "new-out")
+	write(s.stageDB, "new-db")
+	t0 := time.Date(2026, 11, 14, 1, 0, 0, 0, time.UTC)
+	return &crashStage{appCfg: appCfg, s: s, rec: CommitRecord{CrawlStartedAt: t0, CrawlEndedAt: t0.Add(time.Minute), Mode: index.ModeFull}}
+}
+
+// assertNewCrawlLive checks that output and visited DB both hold the new crawl
+// and nothing of the swap is left over.
+func (cs *crashStage) assertNewCrawlLive(t *testing.T) {
+	t.Helper()
+	s := cs.s
+	assert.FileExists(t, filepath.Join(s.liveOut, "new-out"))
+	assert.FileExists(t, filepath.Join(s.liveDB, "new-db"))
+	for _, p := range []string{s.stageOut, s.stageDB, s.liveOut + backupSuffix, s.liveDB + backupSuffix} {
+		assert.NoDirExists(t, p)
+	}
+}
+
+func TestCommitCrashAtEveryStepRecoversToTheNewCrawl(t *testing.T) {
+	for step := 1; step <= 6; step++ {
+		t.Run(fmt.Sprintf("after step %d", step), func(t *testing.T) {
+			cs := newCrashStage(t)
+			cs.s.crashAfter = step
+			require.ErrorIs(t, cs.s.Commit(cs.rec), errSimulatedCrash)
+			require.FileExists(t, journalPath(cs.appCfg.StateDir, testSiteKey), "a crash leaves the journal")
+
+			for _, resume := range []bool{false, true} {
+				s, err := PlanStage(cs.appCfg, testSiteKey, resume, silentLogger())
+				require.NoError(t, err)
+				cs.s = s
+				cs.assertNewCrawlLive(t)
+				require.NotNil(t, s.PendingIndex(), "the index still needs this crawl")
+				assert.Equal(t, cs.rec, *s.PendingIndex())
+			}
+		})
+	}
+}
+
+func TestRecoveryFinishesEachPartlyDoneState(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, s *Stage)
+	}{
+		{"journal only", func(t *testing.T, s *Stage) {}},
+		{"output aside", func(t *testing.T, s *Stage) {
+			require.NoError(t, os.Rename(s.liveOut, s.liveOut+backupSuffix))
+		}},
+		{"output promoted", func(t *testing.T, s *Stage) {
+			require.NoError(t, os.Rename(s.liveOut, s.liveOut+backupSuffix))
+			require.NoError(t, os.Rename(s.stageOut, s.liveOut))
+		}},
+		{"db aside", func(t *testing.T, s *Stage) {
+			require.NoError(t, os.Rename(s.liveOut, s.liveOut+backupSuffix))
+			require.NoError(t, os.Rename(s.stageOut, s.liveOut))
+			require.NoError(t, os.Rename(s.liveDB, s.liveDB+backupSuffix))
+		}},
+		{"db promoted", func(t *testing.T, s *Stage) {
+			require.NoError(t, os.Rename(s.liveOut, s.liveOut+backupSuffix))
+			require.NoError(t, os.Rename(s.stageOut, s.liveOut))
+			require.NoError(t, os.Rename(s.liveDB, s.liveDB+backupSuffix))
+			require.NoError(t, os.Rename(s.stageDB, s.liveDB))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := newCrashStage(t)
+			jp := journalPath(cs.appCfg.StateDir, testSiteKey)
+			require.NoError(t, writeJournal(jp, commitJournal{Version: 1,
+				Output: cs.s.liveOut, OutputStaging: cs.s.stageOut, VisitedDB: cs.s.liveDB, VisitedDBStaging: cs.s.stageDB,
+				CrawlStartedAt: cs.rec.CrawlStartedAt, CrawlEndedAt: cs.rec.CrawlEndedAt, Mode: cs.rec.Mode}))
+			tc.setup(t, cs.s)
+
+			for range 2 { // recovering an already recovered state changes nothing
+				s, err := PlanStage(cs.appCfg, testSiteKey, true, silentLogger())
+				require.NoError(t, err)
+				cs.s = s
+				cs.assertNewCrawlLive(t)
+				require.NotNil(t, s.PendingIndex())
+			}
+		})
+	}
+}
+
+func TestRecoveryLeavesAnImpossibleStateAlone(t *testing.T) {
+	cs := newCrashStage(t)
+	jp := journalPath(cs.appCfg.StateDir, testSiteKey)
+	require.NoError(t, writeJournal(jp, commitJournal{Version: 1,
+		Output: cs.s.liveOut, OutputStaging: cs.s.stageOut, VisitedDB: cs.s.liveDB, VisitedDBStaging: cs.s.stageDB, Mode: index.ModeFull}))
+	require.NoError(t, os.MkdirAll(cs.s.liveOut+backupSuffix, 0o755)) // staging, live and .old all present
+
+	s, err := PlanStage(cs.appCfg, testSiteKey, true, silentLogger())
+	require.NoError(t, err)
+	assert.Nil(t, s.PendingIndex())
+	assert.FileExists(t, jp, "the journal stays so readers keep warning")
+	assert.FileExists(t, filepath.Join(cs.s.liveOut, "old-out"), "nothing was moved")
+}
+
+func TestUnreadableJournalIsLeftAlone(t *testing.T) {
+	appCfg := newTestAppConfig(t)
+	jp := journalPath(appCfg.StateDir, testSiteKey)
+	require.NoError(t, os.MkdirAll(appCfg.StateDir, 0o755))
+	require.NoError(t, os.WriteFile(jp, []byte("{"), 0o644))
+	s, err := PlanStage(appCfg, testSiteKey, false, silentLogger())
+	require.NoError(t, err)
+	assert.Nil(t, s.PendingIndex())
+	assert.FileExists(t, jp)
+}
+
+func TestCommitLeavesJournalForTheIndexAndDoneRemovesIt(t *testing.T) {
+	cs := newCrashStage(t)
+	require.NoError(t, cs.s.Commit(cs.rec))
+	cs.assertNewCrawlLive(t)
+	jp := journalPath(cs.appCfg.StateDir, testSiteKey)
+	assert.FileExists(t, jp)
+	assert.Nil(t, cs.s.PendingIndex(), "the committing crawl publishes the index itself")
+	require.NoError(t, cs.s.Done())
+	assert.NoFileExists(t, jp)
 }

@@ -368,21 +368,27 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 	}
 	c.output.Finalize()
 
+	if staged && !completed {
+		runLog.Warn("Crawl incomplete; live corpus left untouched, staging kept so --resume can continue it", "staging", c.stage.OutputDir())
+		return runErr
+	}
+	rec := c.output.completedRecord()
 	if staged {
-		if !completed {
-			runLog.Warn("Crawl incomplete; live corpus left untouched, staging kept so --resume can continue it", "staging", c.stage.OutputDir())
-			return runErr
-		}
-		if err := c.commitStage(); err != nil {
+		if err := c.commitStage(*rec); err != nil {
 			runLog.Error(fmt.Sprintf("Failed to swap staged crawl into place; previous corpus kept: %v", err))
 			return fmt.Errorf("swapping staged crawl into place: %w", err)
 		}
 		c.output.Relocate(c.stage.liveOut)
 	}
 	if completed {
-		c.output.publish(c.output.completedRecord())
+		c.output.publish(rec)
 	} else {
 		c.output.publish(nil)
+	}
+	if staged {
+		if err := c.stage.Done(); err != nil {
+			runLog.Warn("Could not remove the commit journal; the next crawl will replay the index", "err", err)
+		}
 	}
 	return runErr
 }
@@ -443,11 +449,11 @@ func (c *Crawler) dropGonePages(runLog *slog.Logger) {
 	}
 }
 
-func (c *Crawler) commitStage() error {
+func (c *Crawler) commitStage(rec CommitRecord) error {
 	if err := c.store.Close(); err != nil {
 		return fmt.Errorf("closing visited DB: %w", err)
 	}
-	return c.stage.Commit()
+	return c.stage.Commit(rec)
 }
 
 // validateStartURLs keeps only the configured start URLs that parse, match the
