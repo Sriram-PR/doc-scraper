@@ -81,6 +81,16 @@ func runSearch(args []string) {
 	os.Exit(doSearch(a.configFile, a.query, a.siteKey, a.limit, a.jsonOut, os.Stdout, os.Stderr))
 }
 
+// warnPendingCommits names the searched sites (all when siteKey is empty)
+// whose last commit a crash left unfinished.
+func warnPendingCommits(appCfg *config.AppConfig, siteKey string, stderr io.Writer) {
+	for _, key := range slices.Sorted(maps.Keys(appCfg.Sites)) {
+		if (siteKey == "" || key == siteKey) && crawler.CommitPending(appCfg, key) {
+			fmt.Fprintf(stderr, "Warning: %s\n", crawler.PendingCommitWarning(key))
+		}
+	}
+}
+
 func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout, stderr io.Writer) int {
 	if limit <= 0 {
 		fmt.Fprintf(stderr, "Error: -limit must be a positive integer, got %d\n", limit)
@@ -101,11 +111,7 @@ func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout
 			return 1
 		}
 	}
-	for _, key := range slices.Sorted(maps.Keys(appCfg.Sites)) {
-		if crawler.CommitPending(appCfg, key) {
-			fmt.Fprintf(stderr, "Warning: %s\n", crawler.PendingCommitWarning(key))
-		}
-	}
+	warnPendingCommits(appCfg, siteKey, stderr)
 
 	if appCfg.StateDir != "" {
 		if _, err := os.Stat(index.PathAt(appCfg.StateDir)); errors.Is(err, fs.ErrNotExist) {

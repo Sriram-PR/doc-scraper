@@ -236,3 +236,22 @@ func TestDoSearch_WarnsAboutAnUnfinishedCommit(t *testing.T) {
 	assert.Contains(t, stderr.String(), "Warning: site 'demo' has an unfinished commit from a crash")
 	assert.Contains(t, stdout.String(), "Retries", "the search still runs")
 }
+
+func TestDoSearch_SiteFlagLimitsTheUnfinishedCommitWarning(t *testing.T) {
+	cfgPath := writeSearchFixture(t, `
+  other:
+    start_urls: ["https://other.example.com/docs/"]
+    allowed_domain: "other.example.com"
+    content_selector: "main"
+`)
+	stateDir := filepath.Join(filepath.Dir(cfgPath), "state")
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "other_commit.json"), []byte("{}"), 0o644))
+
+	var stdout, stderr bytes.Buffer
+	assert.Equal(t, 0, doSearch(cfgPath, "ocelot", "demo", 5, false, &stdout, &stderr))
+	assert.NotContains(t, stderr.String(), "other", "a search of demo doesn't warn about other sites")
+
+	stderr.Reset()
+	assert.Equal(t, 0, doSearch(cfgPath, "ocelot", "", 5, false, &stdout, &stderr))
+	assert.Contains(t, stderr.String(), "Warning: site 'other' has an unfinished commit")
+}
