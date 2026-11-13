@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
@@ -71,4 +72,14 @@ func removeJournal(path string) error {
 		return err
 	}
 	return utils.SyncDir(filepath.Dir(path))
+}
+
+// CommitPending reports whether a crash left the site's last commit unfinished;
+// the site's next crawl finishes it.
+func CommitPending(appCfg *config.AppConfig, siteKey string) bool {
+	return pathExists(journalPath(appCfg.StateDir, siteKey))
+}
+
+func PendingCommitWarning(siteKey string) string {
+	return fmt.Sprintf("site '%s' has an unfinished commit from a crash; its search results may be from the previous crawl until the next crawl of '%s'", siteKey, siteKey)
 }

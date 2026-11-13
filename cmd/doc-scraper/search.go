@@ -9,10 +9,13 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
@@ -96,6 +99,11 @@ func doSearch(configPath, query, siteKey string, limit int, jsonOut bool, stdout
 		if _, ok := appCfg.Sites[siteKey]; !ok {
 			fmt.Fprintf(stderr, "Error: site '%s' not found in config\n", siteKey)
 			return 1
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(appCfg.Sites)) {
+		if crawler.CommitPending(appCfg, key) {
+			fmt.Fprintf(stderr, "Warning: %s\n", crawler.PendingCommitWarning(key))
 		}
 	}
 

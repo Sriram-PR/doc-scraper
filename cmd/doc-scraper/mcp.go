@@ -6,12 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	pkglog "github.com/Sriram-PR/doc-scraper/v2/pkg/log"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/mcp"
 )
@@ -89,6 +92,11 @@ func doMcpServer(configPath, logLevel string, allowWrites bool, _, stderr io.Wri
 	}
 	for _, w := range append(appWarnings, unknownKeys...) {
 		log.Warn(w)
+	}
+	for _, key := range slices.Sorted(maps.Keys(appCfg.Sites)) {
+		if crawler.CommitPending(appCfg, key) {
+			log.Warn(crawler.PendingCommitWarning(key))
+		}
 	}
 
 	serverCfg := &mcp.ServerConfig{

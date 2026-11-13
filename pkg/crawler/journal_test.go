@@ -43,3 +43,13 @@ func TestCommitJournal_UnknownVersionOrGarbage(t *testing.T) {
 	_, err = readJournal(p)
 	assert.Error(t, err)
 }
+
+func TestCommitPending(t *testing.T) {
+	appCfg := newTestAppConfig(t)
+	assert.False(t, CommitPending(appCfg, testSiteKey))
+	require.NoError(t, os.MkdirAll(appCfg.StateDir, 0o755))
+	require.NoError(t, os.WriteFile(journalPath(appCfg.StateDir, testSiteKey), []byte("{}"), 0o644))
+	assert.True(t, CommitPending(appCfg, testSiteKey))
+	assert.Equal(t, "site 'docs' has an unfinished commit from a crash; its search results may be from the previous crawl until the next crawl of 'docs'",
+		PendingCommitWarning("docs"))
+}
