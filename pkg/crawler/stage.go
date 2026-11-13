@@ -42,8 +42,9 @@ type swapPair struct{ live, staging string }
 func (p swapPair) backup() string { return p.live + backupSuffix }
 
 // PlanStage decides where a crawl runs. It first finishes a commit a crash
-// interrupted. A fresh crawl then discards any stale staging and starts a new
-// one; a resumed crawl continues staging if present and otherwise runs in place.
+// interrupted, and fails if it can't. A fresh crawl then discards any stale
+// staging and starts a new one; a resumed crawl continues staging if present
+// and otherwise runs in place.
 func PlanStage(appCfg *config.AppConfig, siteKey string, resume bool, log *slog.Logger) (*Stage, error) {
 	s := &Stage{
 		log:      log,
@@ -53,7 +54,9 @@ func PlanStage(appCfg *config.AppConfig, siteKey string, resume bool, log *slog.
 		stageDB:  storage.StagingVisitedDBPath(appCfg.StateDir, siteKey),
 		journal:  journalPath(appCfg.StateDir, siteKey),
 	}
-	s.recover()
+	if err := s.recover(); err != nil {
+		return nil, err
+	}
 	if !resume {
 		if err := s.Discard(); err != nil {
 			return nil, err
@@ -249,26 +252,29 @@ func (s *Stage) step() error {
 }
 
 // recover finishes a commit that a crash interrupted, or, with no journal,
-// tidies backups left by versions that wrote none.
-func (s *Stage) recover() {
+// tidies backups left by versions that wrote none. A journal it can't apply is
+// an error: crawling on would discard the staging it names.
+func (s *Stage) recover() error {
+	stuck := func(err error) error {
+		return fmt.Errorf("can't finish the commit recorded in %s: %w; put the output dir and visited DB it names back in a consistent state, then delete it", s.journal, err)
+	}
 	j, err := readJournal(s.journal)
 	if err != nil {
-		s.log.Error("Unreadable commit journal; leaving it in place", "path", s.journal, "err", err)
-		return
+		return stuck(err)
 	}
 	if j == nil {
 		s.recoverSwap()
-		return
+		return nil
 	}
 	pairs := []swapPair{{j.Output, j.OutputStaging}, {j.VisitedDB, j.VisitedDBStaging}}
 	if err := s.rollForward(pairs); err != nil {
-		s.log.Error("Could not finish a commit interrupted by a crash", "journal", s.journal, "err", err)
-		return
+		return stuck(err)
 	}
 	s.finishSwap(pairs)
 	s.log.Warn("Finished a commit interrupted by a crash", "output", j.Output)
 	s.pending = &CommitRecord{CrawlStartedAt: j.CrawlStartedAt, CrawlEndedAt: j.CrawlEndedAt, Mode: j.Mode}
 	s.pendingOut = j.Output
+	return nil
 }
 
 // recoverSwap restores the live path from its backup when a Commit from a

@@ -461,29 +461,30 @@ func TestRecoveryFinishesEachPartlyDoneState(t *testing.T) {
 	}
 }
 
-func TestRecoveryLeavesAnImpossibleStateAlone(t *testing.T) {
+func TestRecoveryRefusesAnImpossibleState(t *testing.T) {
 	cs := newCrashStage(t)
 	jp := journalPath(cs.appCfg.StateDir, testSiteKey)
 	require.NoError(t, writeJournal(jp, commitJournal{Version: 1,
 		Output: cs.s.liveOut, OutputStaging: cs.s.stageOut, VisitedDB: cs.s.liveDB, VisitedDBStaging: cs.s.stageDB, Mode: index.ModeFull}))
 	require.NoError(t, os.MkdirAll(cs.s.liveOut+backupSuffix, 0o755)) // staging, live and .old all present
 
-	s, err := PlanStage(cs.appCfg, testSiteKey, true, silentLogger())
-	require.NoError(t, err)
-	assert.Nil(t, s.PendingIndex())
+	for _, resume := range []bool{false, true} {
+		_, err := PlanStage(cs.appCfg, testSiteKey, resume, silentLogger())
+		require.ErrorContains(t, err, jp, "a crawl must not run over a commit it couldn't finish")
+	}
 	assert.FileExists(t, jp, "the journal stays so readers keep warning")
 	assert.FileExists(t, filepath.Join(cs.s.liveOut, "old-out"), "nothing was moved")
+	assert.FileExists(t, filepath.Join(cs.s.stageOut, "new-out"), "the finished crawl's staging is kept")
 }
 
-func TestUnreadableJournalIsLeftAlone(t *testing.T) {
-	appCfg := newTestAppConfig(t)
-	jp := journalPath(appCfg.StateDir, testSiteKey)
-	require.NoError(t, os.MkdirAll(appCfg.StateDir, 0o755))
+func TestUnreadableJournalRefusesTheCrawl(t *testing.T) {
+	cs := newCrashStage(t)
+	jp := journalPath(cs.appCfg.StateDir, testSiteKey)
 	require.NoError(t, os.WriteFile(jp, []byte("{"), 0o644))
-	s, err := PlanStage(appCfg, testSiteKey, false, silentLogger())
-	require.NoError(t, err)
-	assert.Nil(t, s.PendingIndex())
+	_, err := PlanStage(cs.appCfg, testSiteKey, false, silentLogger())
+	require.ErrorContains(t, err, jp)
 	assert.FileExists(t, jp)
+	assert.FileExists(t, filepath.Join(cs.s.stageOut, "new-out"), "staging is not discarded")
 }
 
 func TestCommitLeavesJournalForTheIndexAndDoneRemovesIt(t *testing.T) {
