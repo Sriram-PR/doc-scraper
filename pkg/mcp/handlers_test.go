@@ -629,19 +629,11 @@ func TestHandleDiffCrawl_AddedRemovedChanged(t *testing.T) {
 	assert.Equal(t, "ha1", chgEntry["prior_hash"])
 }
 
-// callReadPage invokes handleReadPage and parses the JSON response.
+// callReadPage invokes handleReadPage and parses the text response.
 func callReadPage(t *testing.T, s *Server, args map[string]any) map[string]any {
 	t.Helper()
-	req := mcpgo.CallToolRequest{}
-	req.Params.Arguments = args
-	result, err := s.handleReadPage(context.Background(), req)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Len(t, result.Content, 1)
-	tc, ok := result.Content[0].(mcpgo.TextContent)
-	require.True(t, ok, "expected TextContent")
-	var got map[string]any
-	require.NoError(t, json.Unmarshal([]byte(tc.Text), &got))
+	_, got := callPage(t, s.handleReadPage, args)
+	require.NotNil(t, got, "expected a successful read_page result")
 	return got
 }
 

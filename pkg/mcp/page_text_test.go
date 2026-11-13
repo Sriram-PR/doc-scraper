@@ -14,8 +14,8 @@ import (
 
 var contentLineRE = regexp.MustCompile(`^bytes (\d+)-(\d+) of (\d+)(?: \(truncated; next_offset: (\d+)\))?$`)
 
-// parsePageText reads a page tool's text result back into the keys the old
-// structured result had, so tests can keep asserting on fields.
+// parsePageText reads a page tool's text result into named fields (offset,
+// content_length, truncated, next_offset, ...) so tests can assert on them.
 func parsePageText(t *testing.T, result *mcpgo.CallToolResult) map[string]any {
 	t.Helper()
 	require.NotNil(t, result)
@@ -115,11 +115,27 @@ func callPage(t *testing.T, fn func(context.Context, mcpgo.CallToolRequest) (*mc
 
 func TestPageTools_DeclareNoOutputSchema(t *testing.T) {
 	s := newStdioTestServer(t)
-	for _, name := range []string{"get_page"} {
+	for _, name := range []string{"get_page", "read_page"} {
 		st := s.mcpServer.GetTool(name)
 		require.NotNil(t, st, name)
 		assert.Empty(t, st.Tool.RawOutputSchema, "%s must not declare an outputSchema", name)
 		maxBytes := st.Tool.InputSchema.Properties["max_bytes"].(map[string]any)
 		assert.Contains(t, maxBytes["description"], "default: 32768, max: 1048576", name)
 	}
+}
+
+func TestOtherTools_KeepOutputSchema(t *testing.T) {
+	s := newStdioTestServer(t)
+	for _, name := range []string{"list_sites", "crawl_site", "get_job_status", "cancel_crawl", "draft_site",
+		"save_site", "describe_server", "list_pages", "search_docs", "get_freshness", "diff_crawl"} {
+		st := s.mcpServer.GetTool(name)
+		require.NotNil(t, st, name)
+		assert.NotEmpty(t, st.Tool.RawOutputSchema, "%s keeps its outputSchema", name)
+	}
+}
+
+func TestPageTextResult_FlattensUnicodeLineBreaksInValues(t *testing.T) {
+	r := pageTextResult([]headerLine{{"title", "a b c\u0085d"}, contentLine(0, 2, 2, false)}, "ab")
+	text := r.Content[0].(mcpgo.TextContent).Text
+	assert.True(t, strings.HasPrefix(text, "title: a b c d\n"), text)
 }

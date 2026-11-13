@@ -157,9 +157,6 @@ func TestResponsesNeverContainNull(t *testing.T) {
 		"list": func() (*mcpgo.CallToolResult, map[string]any) {
 			return callJSON(t, s.handleListPages, map[string]any{"site_key": "docs", "offset": 99.0})
 		},
-		"read b": func() (*mcpgo.CallToolResult, map[string]any) {
-			return callJSON(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/b"})
-		},
 		"diff": func() (*mcpgo.CallToolResult, map[string]any) {
 			return callJSON(t, s.handleDiffCrawl, map[string]any{"site_key": "docs", "since": since})
 		},

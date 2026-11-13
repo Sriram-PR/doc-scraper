@@ -30,7 +30,7 @@ func TestTimestampsAreUTC(t *testing.T) {
 	_, got := callJSON(t, s.handleListPages, map[string]any{"site_key": "docs"})
 	assert.Equal(t, "2026-10-18T13:52:28Z", got["pages"].([]any)[0].(map[string]any)["crawled_at"])
 
-	_, got = callJSON(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
+	_, got = callPage(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
 	assert.Equal(t, "2026-10-18T13:52:28Z", got["crawled_at"])
 
 	_, got = callJSON(t, s.handleListSites, map[string]any{})

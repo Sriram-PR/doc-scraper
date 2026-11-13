@@ -270,22 +270,30 @@ func TestHandleListPages_StructuredOutput(t *testing.T) {
 	assert.EqualValues(t, 0, got["offset"], "zero values must not be dropped")
 }
 
-func TestHandleReadPage_StructuredOutput(t *testing.T) {
+func TestHandleReadPage_TextOutput(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
 	seedCorpus(t, jsonlPath)
 
-	whole, _ := callJSON(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
-	got := requireToolResultConforms(t, "read_page", whole)
-	assert.Equal(t, false, got["truncated"], "truncated:false must not be dropped")
+	whole, got := callPage(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a"})
+	text := whole.Content[0].(mcpgo.TextContent).Text
+	assert.True(t, strings.HasPrefix(text, "site_key: docs\nurl: https://docs.example.com/a\n"), text)
+	assert.Equal(t, false, got["truncated"])
 	assert.NotContains(t, got, "next_offset")
+	assert.NotContains(t, got, "section_end")
 	assert.EqualValues(t, 0, got["offset"])
 	assert.Equal(t, "stored_crawl", got["source"])
-	assert.NotNil(t, got["headings"])
+	assert.Equal(t, []any{"A"}, got["headings"])
 
-	part, _ := callJSON(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a", "max_bytes": 1.0})
-	got = requireToolResultConforms(t, "read_page", part)
+	_, got = callPage(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a", "max_bytes": 1.0})
 	assert.Equal(t, true, got["truncated"])
 	assert.Contains(t, got, "next_offset")
+}
+
+func TestHandleReadPage_NoHeadingsLineWhenNone(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	seedCorpus(t, jsonlPath)
+	_, got := callPage(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/b"})
+	assert.NotContains(t, got, "headings")
 }
 
 func TestHandleGetJobStatus_StructuredOutput(t *testing.T) {
@@ -442,7 +450,7 @@ func TestToolsList_EveryToolDeclaresAnOpenOutputSchema(t *testing.T) {
 		`"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`)
 	tools := res["tools"].([]any)
 	require.Len(t, tools, 13)
-	textOnly := map[any]bool{"get_page": true}
+	textOnly := map[any]bool{"get_page": true, "read_page": true}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
 		name := tool["name"]

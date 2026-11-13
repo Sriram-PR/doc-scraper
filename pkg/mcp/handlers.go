@@ -976,31 +976,25 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 
 	part, start := sliceAtRuneBoundary(content, offset, maxBytes)
 	end := start + len(part)
-	headings := record.Headings
-	if headings == nil {
-		headings = []string{}
+	header := []headerLine{
+		{"site_key", siteKey},
+		{"url", record.URL},
+		{"title", record.Title},
+		contentLine(start, end, len(record.Content), end < len(content)),
 	}
-
-	res := readPageResult{
-		SiteKey:       siteKey,
-		URL:           record.URL,
-		Title:         record.Title,
-		Content:       part,
-		ContentLength: len(part),
-		TotalLength:   len(record.Content),
-		Offset:        start,
-		SectionEnd:    sectionEnd,
-		Truncated:     end < len(content),
-		Depth:         record.Depth,
-		CrawledAt:     utcTimestamp(record.CrawledAt),
-		ContentHash:   record.ContentHash,
-		Headings:      headings,
-		Source:        "stored_crawl",
+	if sectionEnd != nil {
+		header = append(header, headerLine{"section_end", strconv.Itoa(*sectionEnd)})
 	}
-	if res.Truncated {
-		res.NextOffset = &end
+	header = append(header,
+		headerLine{"depth", strconv.Itoa(record.Depth)},
+		headerLine{"crawled_at", utcTimestamp(record.CrawledAt)},
+		headerLine{"content_hash", record.ContentHash},
+		headerLine{"source", "stored_crawl"},
+	)
+	if len(record.Headings) > 0 {
+		header = append(header, headerLine{"headings", strings.Join(record.Headings, " | ")})
 	}
-	return structuredResult(res), nil
+	return pageTextResult(header, part), nil
 }
 
 const (

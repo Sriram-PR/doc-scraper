@@ -24,7 +24,7 @@ func TestReadersReadPastAJSONLRecordOver10MiB(t *testing.T) {
 	_, got := callJSON(t, s.handleListPages, map[string]any{"site_key": "docs"})
 	assert.EqualValues(t, 2, got["total"], "list_pages")
 
-	result, got := callJSON(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/after"})
+	result, got := callPage(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/after"})
 	require.False(t, result.IsError, "%v", result.Content)
 	assert.Contains(t, got["content"], "Pelican", "read_page")
 

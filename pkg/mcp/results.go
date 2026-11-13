@@ -11,8 +11,8 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
-// Each tool's result struct is both its structuredContent and, through
-// outputSchemaFor, its declared outputSchema, so the two cannot drift.
+// Each structured tool's result struct is both its structuredContent and,
+// through outputSchemaFor, its declared outputSchema, so the two cannot drift.
 
 // outputSchemaJSON reflects T into an open JSON schema. Reflection closes every
 // object (additionalProperties:false); that is dropped so adding a field later
@@ -114,24 +114,6 @@ type listPagesResult struct {
 	MaxResults int             `json:"max_results"`
 	Returned   int             `json:"returned"`
 	Message    string          `json:"message,omitempty" jsonschema_description:"Present when the site has no crawl output yet"`
-}
-
-type readPageResult struct {
-	SiteKey       string   `json:"site_key"`
-	URL           string   `json:"url"`
-	Title         string   `json:"title"`
-	Content       string   `json:"content"`
-	ContentLength int      `json:"content_length" jsonschema_description:"Bytes of content in this response"`
-	TotalLength   int      `json:"total_length" jsonschema_description:"Bytes of the whole stored page"`
-	Offset        int      `json:"offset"`
-	SectionEnd    *int     `json:"section_end,omitempty" jsonschema_description:"Byte offset where the anchor's section ends; present when anchor was given"`
-	Truncated     bool     `json:"truncated" jsonschema_description:"More of the page, or of the anchor's section, follows"`
-	Depth         int      `json:"depth"`
-	CrawledAt     string   `json:"crawled_at"`
-	ContentHash   string   `json:"content_hash"`
-	Headings      []string `json:"headings"`
-	Source        string   `json:"source"`
-	NextOffset    *int     `json:"next_offset,omitempty" jsonschema_description:"Pass as offset to read the next part; present only when truncated"`
 }
 
 type jobSummary struct {

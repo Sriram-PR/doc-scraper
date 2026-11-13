@@ -320,8 +320,10 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 			"network access. This is the counterpart to get_page: read_page serves the crawled copy "+
 			"that already had the site's content_selector applied, while get_page re-fetches the URL "+
 			"live. Use list_pages to discover URLs, then read_page to read them. Pass a search_docs "+
-			"result's anchor to read only that section. Large pages are truncated at max_bytes; follow "+
-			"next_offset to read the rest."),
+			"result's anchor to read only that section. The result is text: header lines (site_key, url, "+
+			"title, content, section_end with an anchor, depth, crawled_at, content_hash, source, headings), "+
+			"an empty line, then the markdown. Large pages are truncated at max_bytes, and the content line "+
+			"then gives next_offset; pass it as offset to read the rest."),
 		mcp.WithString("site_key",
 			mcp.Required(),
 			mcp.Description("Site key from config (use list_sites to discover available keys)"),
@@ -341,7 +343,6 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 			mcp.Min(0),
 			mcp.Description("Byte offset into the page content, for reading a truncated page in parts (default: 0)"),
 		),
-		outputSchemaFor[readPageResult](),
 	)
 	addTool(readPageTool, s.handleReadPage)
 

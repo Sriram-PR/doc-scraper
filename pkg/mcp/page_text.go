@@ -9,7 +9,7 @@ import (
 
 type headerLine struct{ key, value string }
 
-var headerNewlines = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+var headerNewlines = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\u0085", " ", "\u2028", " ", "\u2029", " ")
 
 // pageTextResult returns page content as one text block with no
 // structuredContent: clients that get structuredContent forward only that,
