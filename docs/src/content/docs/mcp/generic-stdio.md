@@ -44,7 +44,7 @@ printf '%s\n' \
 {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"sites\":[{\"key\":\"demo\",\"domain\":\"example.com\",\"path_prefix\":\"\",\"start_urls_count\":1,\"max_depth\":0}],\"config_path\":\"/tmp/mcpdemo/config.yaml\",\"total_sites\":1}"}],"structuredContent":{"sites":[{"key":"demo","domain":"example.com","path_prefix":"","start_urls_count":1,"max_depth":0}],"config_path":"/tmp/mcpdemo/config.yaml","total_sites":1}}}
 ```
 
-Output from doc-scraper 2.26.0, 2026-11-09. Each tool result carries the data twice: as structuredContent, which matches the tool's outputSchema, and as the same JSON value in a text content block. The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
+Output from doc-scraper 2.26.0, 2026-11-09. Each tool result except get_page and read_page carries the data twice: as structuredContent, which matches the tool's outputSchema, and as the same JSON value in a text content block. get_page and read_page return a text block only (see [MCP tools](/doc-scraper/mcp/tools/#results)). The tools and their arguments are listed on [MCP tools](/doc-scraper/mcp/tools/).
 
 Send `initialize` before anything else. A request that comes before it is refused with JSON-RPC error `-32600` ("server not initialized"), except `ping`, `server/discover`, and requests that carry protocol 2026-07-28 `_meta` (`io.modelcontextprotocol/protocolVersion` and `io.modelcontextprotocol/clientCapabilities`), which need no handshake. Writing `initialize` and the first call together, as above, is fine: the order on stdin is what counts.
 

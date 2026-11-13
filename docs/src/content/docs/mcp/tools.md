@@ -30,13 +30,27 @@ Its `initialize` response carries `instructions` that tell the agent to call `de
 
 `draft_site` and `save_site` let an agent bring in a docs site that isn't configured, or fix one that extracts badly, without leaving the session. `draft_site` takes a `url` (it probes the site the way `doc-scraper add` does) or the `site_key` of a configured site, plus `overrides` for any entry field by its config name, and previews one page extracted with the result. It never writes. `save_site` writes the entry to the config file, changing only that entry's lines, and loads it into the running server; overwriting a configured site needs `replace: true`, and a save is refused while that site is crawling.
 
-`save_site` works only when the server starts with `-allow-config-writes`; `describe_server` reports `config_writes: enabled` or `disabled`. With the flag, the server also starts from a config with no sites. Entries can set every per-site field except `enable_jsonl_output` and `jsonl_output_filename`, which would turn off the stored output `read_page` and `search_docs` read; a replace keeps the entry's existing values for those two.
+`save_site` works only when the server starts with `-allow-config-writes`; `describe_server` reports `config_writes: enabled` or `disabled`. With the flag, the server also starts from a config with no sites. Entries can set every per-site field except `enable_jsonl_output` and `jsonl_output_filename`, which would turn off the stored output `read_page` and `search_docs` read; a replace keeps the entry's existing values for those two. `tools/list` declares every entry field on `draft_site`'s `overrides` and `save_site`'s `entry`, with a type and a short description each; `save_site`'s `entry` marks `start_urls`, `allowed_domain` and `content_selector` as required. `max_depth` is an exclusive bound: start pages are depth 0, so `max_depth: 1` crawls only the start pages and 2 adds the pages they link to; 0 means unlimited. A rejected entry lists every problem in one error: unknown, refused or mistyped fields, missing required fields, and invalid `disallowed_path_patterns`.
 
 ## Results
 
-Every tool declares an `outputSchema` and returns its result as `structuredContent`, with the same JSON value in a text content block for clients that read only text. The text is not byte-identical to other encoders' output: Go escapes `<`, `>` and `&` in strings as `\u003c`, `\u003e` and `\u0026`, which decode to the same characters. Schemas allow additional fields, so newer servers can add fields without breaking clients. Errors are returned as `isError` results with a text message and no `structuredContent`.
+Every tool except `get_page` and `read_page` declares an `outputSchema` and returns its result as `structuredContent`, with the same JSON value in a text content block for clients that read only text. The text is not byte-identical to other encoders' output: Go escapes `<`, `>` and `&` in strings as `\u003c`, `\u003e` and `\u0026`, which decode to the same characters. Schemas allow additional fields, so newer servers can add fields without breaking clients. Errors are returned as `isError` results with a text message and no `structuredContent`.
 
-Numeric limits (`max_results`, `limit`, `max_bytes`, `wait_seconds`) above their maximum are capped, and 0 means the default. A negative value for any numeric argument, offsets included, is an error. Results echo the values actually used: `max_results` and `offset` in `list_pages` and `diff_crawl`, `limit` in `search_docs`, and `offset` in `read_page` and `get_page`. In `list_pages` and `diff_crawl`, an offset past the end returns no results and is echoed as given, with `total` saying how many there are; `read_page` and `get_page` echo where the returned text starts. If a call's `_meta` carries a `progressToken`, `get_job_status` sends `notifications/progress` while it waits (pages crawled so far, at most once a second, no `total` since a crawl finds pages as it goes), and `draft_site` sends one before each stage that makes network requests. All timestamps are UTC in RFC 3339 form, such as `2026-10-18T13:52:28Z`.
+`get_page` and `read_page` return one text block and no `structuredContent`, so clients that forward only `structuredContent` to the model, such as Claude Code, show it the page as plain markdown rather than as escaped JSON. The text is a few `key: value` header lines, an empty line, then the markdown:
+
+```
+url: https://flask.palletsprojects.com/en/stable/api/
+title: API — Flask Documentation (3.1.x)
+content: bytes 0-32768 of 387746 (truncated; next_offset: 32768)
+fetch_time_ms: 611
+
+### Navigation
+...
+```
+
+The `content` line gives the byte range returned and the page's total length; when the page is truncated it ends with `next_offset`, which you pass as `offset` to read the rest. `read_page`'s header has `site_key`, `url`, `title`, `content`, `section_end` (when `anchor` was given), `depth`, `crawled_at`, `content_hash`, `source` and `headings` (joined with ` | `; left out when the page has none). `max_bytes` defaults to 32768 so a default page stays under the size at which clients cut a tool result short or move it to a file.
+
+Numeric limits (`max_results`, `limit`, `max_bytes`, `wait_seconds`) above their maximum are capped, and 0 means the default. A negative value for any numeric argument, offsets included, is an error. Results echo the values actually used: `max_results` and `offset` in `list_pages` and `diff_crawl`, `limit` in `search_docs`, and `offset` in `read_page` and `get_page`. In `list_pages` and `diff_crawl`, an offset past the end returns no results and is echoed as given, with `total` saying how many there are; `read_page` and `get_page` report where the returned text starts on their `content` line. If a call's `_meta` carries a `progressToken`, `get_job_status` sends `notifications/progress` while it waits (pages crawled so far, at most once a second, no `total` since a crawl finds pages as it goes), and `draft_site` sends one before each stage that makes network requests. All timestamps are UTC in RFC 3339 form, such as `2026-10-18T13:52:28Z`.
 
 `get_freshness` reports the latest crawl as a `last_crawl` object (`crawl_id`, `crawl_started_at`, `crawl_ended_at`, `total_pages`, `mode`), the same shape as `diff_crawl`'s `current_crawl` and `baseline_crawl`. To see what a crawl changed, call `diff_crawl` without `since` once it finishes: the latest crawl is compared with the one before it. With `since`, the baseline is the most recent crawl whose `crawl_ended_at` is at or before it, so pass a `crawl_ended_at` read before the new crawl, not after.
 
@@ -58,7 +72,7 @@ Result: Returns each configured site's key, domain, path prefix, max depth, last
 ```
 Tool: get_page
 Arguments: { "url": "https://docs.example.com/guide", "content_selector": "article" }
-Result: Returns up to max_bytes (default 102400) of the page as markdown with metadata; when truncated, pass next_offset as offset to read the rest
+Result: Returns up to max_bytes (default 32768) of the page as markdown after a short header; when truncated, the header's content line gives next_offset to pass as offset
 ```
 
 **Start a background crawl:**
