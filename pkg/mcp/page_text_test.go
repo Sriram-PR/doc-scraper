@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"regexp"
 	"strconv"
 	"strings"
@@ -51,9 +52,10 @@ func parsePageText(t *testing.T, result *mcpgo.CallToolResult) map[string]any {
 		case "section_end", "depth", "fetch_time_ms":
 			got[key] = num(value)
 		case "headings":
-			var hs []any
-			for _, h := range strings.Split(value, " | ") {
-				hs = append(hs, h)
+			parts := strings.Split(value, " | ")
+			hs := make([]any, len(parts))
+			for i, h := range parts {
+				hs[i] = h
 			}
 			got[key] = hs
 		default:
@@ -61,7 +63,7 @@ func parsePageText(t *testing.T, result *mcpgo.CallToolResult) map[string]any {
 		}
 	}
 	require.Contains(t, got, "offset", "header must carry a content line")
-	assert.Equal(t, got["content_length"], float64(len(content)), "content line must match the content")
+	assert.Equal(t, len(content), int(got["content_length"].(float64)), "content line must match the content")
 	return got
 }
 
@@ -95,4 +97,29 @@ func TestPageTextResult_ContentKeptVerbatim(t *testing.T) {
 	assert.Equal(t, md, got["content"])
 	assert.Equal(t, false, got["truncated"])
 	assert.NotContains(t, got, "next_offset")
+}
+
+// callPage is callJSON for the page tools, whose results are text.
+func callPage(t *testing.T, fn func(context.Context, mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error), args map[string]any) (*mcpgo.CallToolResult, map[string]any) {
+	t.Helper()
+	req := mcpgo.CallToolRequest{}
+	req.Params.Arguments = args
+	result, err := fn(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	if result.IsError {
+		return result, nil
+	}
+	return result, parsePageText(t, result)
+}
+
+func TestPageTools_DeclareNoOutputSchema(t *testing.T) {
+	s := newStdioTestServer(t)
+	for _, name := range []string{"get_page"} {
+		st := s.mcpServer.GetTool(name)
+		require.NotNil(t, st, name)
+		assert.Empty(t, st.Tool.RawOutputSchema, "%s must not declare an outputSchema", name)
+		maxBytes := st.Tool.InputSchema.Properties["max_bytes"].(map[string]any)
+		assert.Contains(t, maxBytes["description"], "default: 32768, max: 1048576", name)
+	}
 }

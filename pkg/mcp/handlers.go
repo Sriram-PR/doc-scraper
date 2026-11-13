@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -367,20 +368,12 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 
 	part, start := sliceAtRuneBoundary(content, offset, maxBytes)
 	end := start + len(part)
-	res := getPageResult{
-		URL:           parsedURL.String(),
-		Title:         title,
-		Content:       part,
-		ContentLength: len(part),
-		TotalLength:   len(content),
-		Offset:        start,
-		Truncated:     end < len(content),
-		FetchTimeMs:   fetchTimeMs,
-	}
-	if res.Truncated {
-		res.NextOffset = &end
-	}
-	return structuredResult(res), nil
+	return pageTextResult([]headerLine{
+		{"url", parsedURL.String()},
+		{"title", title},
+		contentLine(start, end, len(content), end < len(content)),
+		{"fetch_time_ms", strconv.FormatInt(fetchTimeMs, 10)},
+	}, part), nil
 }
 
 // pageWindow reads the max_bytes and offset arguments shared by read_page and
@@ -808,7 +801,7 @@ func dirExists(path string) bool {
 }
 
 const (
-	defaultReadPageBytes = 100 * 1024
+	defaultReadPageBytes = 32 * 1024
 	maxReadPageBytes     = 1024 * 1024
 )
 

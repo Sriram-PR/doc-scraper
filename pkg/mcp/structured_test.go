@@ -87,7 +87,7 @@ func TestHandleListSites_StructuredOutput(t *testing.T) {
 	assert.Contains(t, got, "config_path")
 }
 
-func TestHandleGetPage_StructuredOutput(t *testing.T) {
+func TestHandleGetPage_TextOutput(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, `<html><head><title>T</title></head><body><p>BODY</p></body></html>`)
@@ -96,12 +96,11 @@ func TestHandleGetPage_StructuredOutput(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
 
-	result, _ := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
-	got := requireToolResultConforms(t, "get_page", result)
-	assert.Equal(t, "T", got["title"])
-	assert.Contains(t, got["content"], "BODY")
-	assert.Equal(t, srv.URL+"/p", got["url"])
-	assert.Contains(t, got, "fetch_time_ms")
+	result, got := callPage(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
+	text := result.Content[0].(mcpgo.TextContent).Text
+	assert.True(t, strings.HasPrefix(text, "url: "+srv.URL+"/p\ntitle: T\ncontent: bytes 0-4 of 4\nfetch_time_ms: "), text)
+	assert.Equal(t, "BODY", got["content"])
+	assert.Equal(t, false, got["truncated"])
 }
 
 func TestHandleGetPage_DefaultUserAgentCarriesVersion(t *testing.T) {
@@ -116,7 +115,7 @@ func TestHandleGetPage_DefaultUserAgentCarriesVersion(t *testing.T) {
 	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
 	s.cfg.AppConfig.DefaultUserAgent = ""
 
-	callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
+	callPage(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
 	assert.Equal(t, "github.com/Sriram-PR/doc-scraper/"+version.Version, gotUA)
 }
 
@@ -131,8 +130,7 @@ func TestHandleGetPage_ConvertsTablesAndTaskLists(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
 
-	result, _ := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
-	got := requireToolResultConforms(t, "get_page", result)
+	_, got := callPage(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
 	assert.Contains(t, got["content"], "| alpha")
 	assert.Contains(t, got["content"], "- [x]  done")
 	assert.NotContains(t, got["content"], "<!--")
@@ -155,10 +153,9 @@ func TestHandleGetPage_PaginatesLargePages(t *testing.T) {
 	s, _ := newTestServer(t, "docs", "docs.example.com")
 	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
 
-	result, first := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/big"})
-	requireToolResultConforms(t, "get_page", result)
+	_, first := callPage(t, s.handleGetPage, map[string]any{"url": srv.URL + "/big"})
 	n := len(first["content"].(string))
-	assert.True(t, n <= 102400 && n > 102390, "default page is about 100 KiB, got %d bytes", n)
+	assert.True(t, n <= 32768 && n > 32758, "default page is about 32 KiB, got %d bytes", n)
 	assert.Equal(t, true, first["truncated"])
 	total := int(first["total_length"].(float64))
 	require.Greater(t, total, 102400)
@@ -166,7 +163,7 @@ func TestHandleGetPage_PaginatesLargePages(t *testing.T) {
 	var rebuilt strings.Builder
 	args := map[string]any{"url": srv.URL + "/big", "max_bytes": 50000}
 	for range 20 {
-		_, got := callJSON(t, s.handleGetPage, args)
+		_, got := callPage(t, s.handleGetPage, args)
 		require.NotNil(t, got)
 		rebuilt.WriteString(got["content"].(string))
 		next, ok := got["next_offset"]
@@ -207,7 +204,7 @@ func TestHandleGetPage_ContentType(t *testing.T) {
 			s, _ := newTestServer(t, "docs", "docs.example.com")
 			s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
 
-			result, got := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
+			result, got := callPage(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
 			if tc.ok {
 				require.False(t, result.IsError, "%v", result.Content)
 				assert.Contains(t, got["content"], "BODY")
@@ -437,16 +434,22 @@ func hasClosedObject(v any) bool {
 	return false
 }
 
-// Every tool must reach clients with an open, object-root outputSchema.
+// Every tool except the text-only page tools must reach clients with an open,
+// object-root outputSchema.
 func TestToolsList_EveryToolDeclaresAnOpenOutputSchema(t *testing.T) {
 	s := newStdioTestServer(t)
 	res := handleRaw(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{`+
 		`"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`)
 	tools := res["tools"].([]any)
 	require.Len(t, tools, 13)
+	textOnly := map[any]bool{"get_page": true}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
 		name := tool["name"]
+		if textOnly[name] {
+			assert.NotContains(t, tool, "outputSchema", "%s returns text only", name)
+			continue
+		}
 		schema, ok := tool["outputSchema"].(map[string]any)
 		require.True(t, ok, "%s has no outputSchema", name)
 		assert.Equal(t, "object", schema["type"], "%s outputSchema root", name)

@@ -142,8 +142,10 @@ func (s *Server) registerTools() {
 		mcp.WithOpenWorldHintAnnotation(true),
 		mcp.WithDescription("Fetch an HTML page live over the network and return its content as markdown. "+
 			"This is an on-demand fetch independent of any crawl: it does not read the stored crawl "+
-			"output, and it ignores the site's configured content_selector and scope. Large pages are "+
-			"truncated at max_bytes; follow next_offset to read the rest (each call fetches the page again)."),
+			"output, and it ignores the site's configured content_selector and scope. The result is "+
+			"text: header lines (url, title, content, fetch_time_ms), an empty line, then the markdown. "+
+			"Large pages are truncated at max_bytes, and the content line then gives next_offset; pass it "+
+			"as offset to read the rest (each call fetches the page again)."),
 		mcp.WithString("url",
 			mcp.Required(),
 			mcp.Description("The URL to fetch"),
@@ -153,13 +155,12 @@ func (s *Server) registerTools() {
 		),
 		mcp.WithInteger("max_bytes",
 			mcp.Min(0),
-			mcp.Description("Maximum content bytes to return (default: 102400, max: 1048576; larger values are capped, 0 means the default)"),
+			mcp.Description("Maximum content bytes to return (default: 32768, max: 1048576; larger values are capped, 0 means the default)"),
 		),
 		mcp.WithInteger("offset",
 			mcp.Min(0),
 			mcp.Description("Byte offset into the page content, for reading a truncated page in parts (default: 0)"),
 		),
-		outputSchemaFor[getPageResult](),
 	)
 	addTool(getPageTool, s.handleGetPage)
 
@@ -334,7 +335,7 @@ func (s *Server) registerCorpusTools(addTool func(mcp.Tool, server.ToolHandlerFu
 		),
 		mcp.WithInteger("max_bytes",
 			mcp.Min(0),
-			mcp.Description("Maximum content bytes to return (default: 102400, max: 1048576; larger values are capped, 0 means the default)"),
+			mcp.Description("Maximum content bytes to return (default: 32768, max: 1048576; larger values are capped, 0 means the default)"),
 		),
 		mcp.WithInteger("offset",
 			mcp.Min(0),
