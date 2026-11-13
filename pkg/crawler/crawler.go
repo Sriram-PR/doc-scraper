@@ -380,9 +380,10 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 		c.output.Relocate(c.stage.liveOut)
 	}
 	if completed {
-		c.output.writeToIndex()
+		c.output.publish(c.output.completedRecord())
+	} else {
+		c.output.publish(nil)
 	}
-	c.output.writeChunks()
 	return runErr
 }
 

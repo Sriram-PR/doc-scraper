@@ -202,8 +202,7 @@ func countPriorPageRecords(path string) (int64, error) {
 // index and search index (if attached).
 func (om *OutputManager) Close() error {
 	om.Finalize()
-	om.writeToIndex()
-	om.writeChunks()
+	om.publish(om.completedRecord())
 	return nil
 }
 
@@ -225,59 +224,15 @@ func (om *OutputManager) Relocate(dir string) {
 	}
 }
 
-// writeChunks refreshes the full-text chunk index from the finalized JSONL, or
-// clears the site's chunks when JSONL output is disabled. Like writeToIndex, errors are logged rather than returned so search-index
-// trouble can never fail a successful crawl.
-func (om *OutputManager) writeChunks() {
-	if om.idx == nil {
-		return
-	}
-	if !om.resolved.EnableJSONLOutput {
-		if err := om.idx.DeleteSiteChunks(context.Background(), om.siteKey); err != nil {
-			om.log.Warn("index: failed to remove chunks of a site with JSONL output disabled", "err", err)
-		}
-		return
-	}
-	if om.jsonlFilePath == "" {
-		return
-	}
-	if err := IndexChunksFromJSONL(context.Background(), om.idx, om.siteKey, om.jsonlFilePath, om.log); err != nil {
-		om.log.Warn("index: failed to refresh chunk index", "err", err)
-	}
+// publish updates the index from this manager's JSONL; rec nil refreshes the
+// search chunks without recording a crawl.
+func (om *OutputManager) publish(rec *CommitRecord) {
+	publishCrawl(context.Background(), om.idx, om.siteKey, om.jsonlFilePath, om.resolved.EnableJSONLOutput, rec, om.log)
 }
 
-// writeToIndex rescans the just-finalized JSONL for page records and records the
-// crawl in the history index, or clears the site's history when JSONL output is
-// disabled. The on-disk JSONL is the authoritative source of truth after Close. Errors are logged, not returned, so a busted index can
-// never break a successful crawl.
-func (om *OutputManager) writeToIndex() {
-	if om.idx == nil {
-		return
-	}
-	if !om.resolved.EnableJSONLOutput {
-		if err := om.idx.DeleteSiteHistory(context.Background(), om.siteKey); err != nil {
-			om.log.Warn("index: failed to remove crawl history of a site with JSONL output disabled", "err", err)
-		}
-		return
-	}
-	if om.jsonlFilePath == "" {
-		return
-	}
-	pages, err := readJSONLPagesForIndex(om.jsonlFilePath)
-	if err != nil {
-		om.log.Warn("index: failed to read JSONL for history capture", "path", om.jsonlFilePath, "err", err)
-		return
-	}
-	record := index.CrawlRecord{
-		SiteKey:        om.siteKey,
-		CrawlStartedAt: om.crawlStartTime,
-		CrawlEndedAt:   time.Now(),
-		Mode:           om.indexMode,
-		Pages:          pages,
-	}
-	if err := om.idx.RecordCrawl(context.Background(), record); err != nil {
-		om.log.Warn("index: failed to record crawl", "err", err)
-	}
+// completedRecord describes this run for crawl history, ending now.
+func (om *OutputManager) completedRecord() *CommitRecord {
+	return &CommitRecord{CrawlStartedAt: om.crawlStartTime, CrawlEndedAt: time.Now(), Mode: om.indexMode}
 }
 
 // readJSONLPagesForIndex extracts a minimal per-page row for the index. Skips
