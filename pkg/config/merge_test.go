@@ -129,3 +129,32 @@ func TestMergeSiteFields_ClipsEchoedFieldNames(t *testing.T) {
 	require.Error(t, err)
 	assert.Less(t, len(err.Error()), 1000)
 }
+
+func TestMergeSiteFields_ReportsEveryProblem(t *testing.T) {
+	_, err := MergeSiteFields(mergeBase(), map[string]any{
+		"bogus_a":             1.0,
+		"bogus_b":             "x",
+		"delay_per_host":      float64(2),
+		"enable_jsonl_output": false,
+		"max_depth":           "four",
+		"content_selector":    "article",
+	})
+	require.Error(t, err)
+	lines := strings.Split(err.Error(), "\n")
+	require.Len(t, lines, 6, err.Error())
+	assert.Equal(t, `unknown field "bogus_a"`, lines[0])
+	assert.Equal(t, `unknown field "bogus_b"`, lines[1])
+	assert.Contains(t, lines[2], `"delay_per_host"`)
+	assert.Contains(t, lines[2], "duration")
+	assert.Contains(t, lines[3], `"enable_jsonl_output"`)
+	assert.Equal(t, "field \"max_depth\": cannot unmarshal !!str `four` into int", lines[4])
+	assert.True(t, strings.HasPrefix(lines[5], "allowed fields: "), lines[5])
+	assert.Contains(t, lines[5], "content_selector")
+	assert.NotContains(t, lines[5], "enable_jsonl_output")
+}
+
+func TestMergeSiteFields_AllowedFieldsListedOnce(t *testing.T) {
+	_, err := MergeSiteFields(mergeBase(), map[string]any{"x1": 1.0, "x2": 1.0, "x3": 1.0})
+	require.Error(t, err)
+	assert.Equal(t, 1, strings.Count(err.Error(), "allowed fields: "))
+}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -20,38 +21,67 @@ var durationType = reflect.TypeOf(time.Duration(0))
 
 // MergeSiteFields sets fields, keyed by YAML name with JSON-decoded values, on
 // a copy of base. Unknown and refused names are errors, as are values of the
-// wrong type for their field.
+// wrong type for their field; every problem is reported, one per line.
 func MergeSiteFields(base SiteConfig, fields map[string]any) (SiteConfig, error) {
 	known := yamlFields(reflect.TypeOf(SiteConfig{}))
-	names := slices.Sorted(maps.Keys(fields))
-	for _, name := range names {
+	out := cloneSite(base)
+	var errs []error
+	unknown := false
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
 		if refusedSiteFields[name] {
-			return SiteConfig{}, fmt.Errorf("field %q can't be set here: turning JSONL output off breaks read_page and search_docs", name)
+			errs = append(errs, fmt.Errorf("field %q can't be set here: turning JSONL output off breaks read_page and search_docs", name))
+			continue
 		}
 		t, ok := known[name]
 		if !ok {
-			return SiteConfig{}, fmt.Errorf("unknown field %q; allowed fields: %s", clipName(name), strings.Join(allowedSiteFields(known), ", "))
+			errs = append(errs, fmt.Errorf("unknown field %q", clipName(name)))
+			unknown = true
+			continue
 		}
 		if err := checkFieldValue(name, t, fields[name]); err != nil {
-			return SiteConfig{}, err
+			errs = append(errs, err)
+			continue
+		}
+		if err := decodeSiteField(&out, name, fields[name]); err != nil {
+			errs = append(errs, err)
 		}
 	}
-
-	out := cloneSite(base)
-	for _, name := range names {
-		v := fields[name]
-		if f, ok := v.(float64); ok {
-			v = int64(f)
-		}
-		raw, err := yaml.Marshal(map[string]any{name: v})
-		if err != nil {
-			return SiteConfig{}, fmt.Errorf("field %q: %w", name, err)
-		}
-		if err := yaml.Unmarshal(raw, &out); err != nil {
-			return SiteConfig{}, fmt.Errorf("field %q: %w", name, err)
-		}
+	if unknown {
+		errs = append(errs, fmt.Errorf("allowed fields: %s", strings.Join(allowedSiteFields(known), ", ")))
+	}
+	if len(errs) > 0 {
+		return SiteConfig{}, errors.Join(errs...)
 	}
 	return out, nil
+}
+
+// decodeSiteField sets one field through yaml, so each field's type error is
+// reported on its own.
+func decodeSiteField(out *SiteConfig, name string, v any) error {
+	if f, ok := v.(float64); ok {
+		v = int64(f)
+	}
+	raw, err := yaml.Marshal(map[string]any{name: v})
+	if err != nil {
+		return fmt.Errorf("field %q: %w", name, err)
+	}
+	err = yaml.Unmarshal(raw, out)
+	var te *yaml.TypeError
+	if errors.As(err, &te) {
+		// The line numbers point into the one-field document built above.
+		msgs := make([]string, len(te.Errors))
+		for i, e := range te.Errors {
+			if pos, m, ok := strings.Cut(e, ": "); ok && strings.HasPrefix(pos, "line ") {
+				e = m
+			}
+			msgs[i] = e
+		}
+		return fmt.Errorf("field %q: %s", name, strings.Join(msgs, "; "))
+	}
+	if err != nil {
+		return fmt.Errorf("field %q: %w", name, err)
+	}
+	return nil
 }
 
 // checkFieldValue catches what yaml.v3 would accept silently: it truncates a
