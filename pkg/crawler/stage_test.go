@@ -497,18 +497,10 @@ func TestCommitLeavesJournalForTheIndexAndDoneRemovesIt(t *testing.T) {
 	assert.NoFileExists(t, jp)
 }
 
-// A crash after the swap but before the index writes leaves the journal; the
-// next crawl must record that crawl once and rebuild search from its JSONL.
-func TestNextCrawlReplaysTheIndexOfARecoveredCommit(t *testing.T) {
-	e := newStageEnv(t, "a", "b")
-	e.fullCrawl(t)
-	require.EqualValues(t, 1, e.latestCrawl(t).ID)
-	hits := func() int {
-		r, err := e.idx.SearchChunks(context.Background(), "v2", testSiteKey, 5)
-		require.NoError(t, err)
-		return len(r)
-	}
-
+// crashBeforeIndex runs a v2 crawl that commits its files and then stops as a
+// crash would, before the index writes, and returns the journal it left.
+func (e *stageEnv) crashBeforeIndex(t *testing.T) *commitJournal {
+	t.Helper()
 	e.srv.setVersion("v2")
 	ctx, cancel := e.log.deadlineContext(t, e.appCfg)
 	defer cancel()
@@ -522,20 +514,40 @@ func TestNextCrawlReplaysTheIndexOfARecoveredCommit(t *testing.T) {
 	require.NoError(t, err)
 	require.ErrorIs(t, c.Run(false), errSimulatedCrash)
 
-	jp := journalPath(e.appCfg.StateDir, testSiteKey)
-	j, err := readJournal(jp)
+	j, err := readJournal(journalPath(e.appCfg.StateDir, testSiteKey))
 	require.NoError(t, err)
 	require.NotNil(t, j)
+	return j
+}
+
+// replayRun starts a crawl that stops at once, so only the replay at the start
+// of the run matters.
+func (e *stageEnv) replayRun(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = e.crawl(t, ctx, cancel, true)
+}
+
+// A crash after the swap but before the index writes leaves the journal; the
+// next crawl must record that crawl once and rebuild search from its JSONL.
+func TestNextCrawlReplaysTheIndexOfARecoveredCommit(t *testing.T) {
+	e := newStageEnv(t, "a", "b")
+	e.fullCrawl(t)
+	require.EqualValues(t, 1, e.latestCrawl(t).ID)
+	hits := func() int {
+		r, err := e.idx.SearchChunks(context.Background(), "v2", testSiteKey, 5)
+		require.NoError(t, err)
+		return len(r)
+	}
+
+	j := e.crashBeforeIndex(t)
+	jp := journalPath(e.appCfg.StateDir, testSiteKey)
 	require.True(t, e.liveContains(t, "v2 body"), "the files already hold the second crawl")
 	require.EqualValues(t, 1, e.latestCrawl(t).ID, "history doesn't have it yet")
 	require.Zero(t, hits(), "search doesn't have it yet")
 
-	replay := func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // only the replay at the start of the run matters
-		_ = e.crawl(t, ctx, cancel, true)
-	}
-	replay()
+	e.replayRun(t)
 	assert.NoFileExists(t, jp)
 	latest := e.latestCrawl(t)
 	assert.EqualValues(t, 2, latest.ID)
@@ -543,7 +555,24 @@ func TestNextCrawlReplaysTheIndexOfARecoveredCommit(t *testing.T) {
 	assert.NotZero(t, hits(), "search serves the recovered crawl")
 
 	require.NoError(t, writeJournal(jp, *j))
-	replay()
+	e.replayRun(t)
 	assert.EqualValues(t, 2, e.latestCrawl(t).ID, "replaying again doesn't add a crawl")
 	assert.NoFileExists(t, jp)
+}
+
+// The replay must read the output the journal names, not wherever the config
+// now points.
+func TestReplayReadsTheJournaledOutputAfterAConfigChange(t *testing.T) {
+	e := newStageEnv(t, "a", "b")
+	e.fullCrawl(t)
+	want := e.latestCrawl(t).TotalPages
+	require.NotZero(t, want)
+
+	j := e.crashBeforeIndex(t)
+	e.appCfg.OutputBaseDir = t.TempDir()
+	e.replayRun(t)
+
+	latest := e.latestCrawl(t)
+	require.True(t, latest.CrawlStartedAt.Equal(j.CrawlStartedAt))
+	assert.Equal(t, want, latest.TotalPages, "the recovered crawl's pages come from its own JSONL")
 }

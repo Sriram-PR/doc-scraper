@@ -464,7 +464,7 @@ func (c *Crawler) stagePendingIndex() *CommitRecord {
 func (c *Crawler) replayIndex(rec *CommitRecord) {
 	jsonl := ""
 	if c.resolved.EnableJSONLOutput {
-		jsonl = filepath.Join(c.stage.liveOut, c.resolved.JSONLOutputFilename)
+		jsonl = filepath.Join(c.stage.pendingOut, c.resolved.JSONLOutputFilename)
 	}
 	publishCrawl(context.Background(), c.idx, c.siteKey, jsonl, c.resolved.EnableJSONLOutput, rec, c.log)
 	if err := c.stage.Done(); err != nil {

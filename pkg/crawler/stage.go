@@ -27,7 +27,8 @@ type Stage struct {
 	liveDB, stageDB   string
 	journal           string
 
-	pending *CommitRecord
+	pending    *CommitRecord
+	pendingOut string
 
 	// Test hook: Commit stops with errSimulatedCrash after this many steps.
 	crashAfter int
@@ -267,6 +268,7 @@ func (s *Stage) recover() {
 	s.finishSwap(pairs)
 	s.log.Warn("Finished a commit interrupted by a crash", "output", j.Output)
 	s.pending = &CommitRecord{CrawlStartedAt: j.CrawlStartedAt, CrawlEndedAt: j.CrawlEndedAt, Mode: j.Mode}
+	s.pendingOut = j.Output
 }
 
 // recoverSwap restores the live path from its backup when a Commit from a
