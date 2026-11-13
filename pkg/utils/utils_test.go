@@ -2,6 +2,7 @@ package utils
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -153,4 +154,14 @@ func TestCalculateStringSHA256(t *testing.T) {
 			assert.Equal(t, tt.expected, CalculateStringSHA256(tt.input))
 		})
 	}
+}
+
+func TestSyncDir(t *testing.T) {
+	require.NoError(t, SyncDir(t.TempDir()))
+	err := SyncDir(filepath.Join(t.TempDir(), "missing"))
+	if runtime.GOOS == "windows" {
+		assert.NoError(t, err, "a no-op on Windows")
+		return
+	}
+	assert.Error(t, err)
 }

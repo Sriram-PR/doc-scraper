@@ -3,6 +3,7 @@ package utils
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -51,4 +52,18 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return nil
+}
+
+// SyncDir flushes a directory's entries so renames and new files in it survive
+// a power loss. Windows can't sync a directory handle, so there it does nothing.
+func SyncDir(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	d, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	return d.Sync()
 }
