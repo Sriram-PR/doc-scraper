@@ -376,3 +376,26 @@ func TestSiteConfig_Validate_DisallowedPathPatterns(t *testing.T) {
 		})
 	}
 }
+
+func TestSiteConfig_Validate_ReportsEveryProblem(t *testing.T) {
+	cfg := SiteConfig{DisallowedPathPatterns: []string{"([unclosed"}, MaxDepth: -1}
+	warnings, err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorIs(t, err, utils.ErrConfigValidation)
+	lines := strings.Split(err.Error(), "\n")
+	require.Len(t, lines, 4, err.Error())
+	assert.Contains(t, lines[0], "no start_urls")
+	assert.Contains(t, lines[1], "needs allowed_domain")
+	assert.Contains(t, lines[2], "needs content_selector")
+	assert.Contains(t, lines[3], "invalid regex pattern #1")
+	assert.Len(t, warnings, 1, "warnings are still collected")
+	assert.Equal(t, 0, cfg.MaxDepth)
+	assert.Equal(t, "/", cfg.AllowedPathPrefix)
+}
+
+func TestSiteConfig_Validate_SingleProblemMessageUnchanged(t *testing.T) {
+	cfg := SiteConfig{StartURLs: []string{"http://example.com"}, AllowedDomain: "example.com"}
+	_, err := cfg.Validate()
+	require.Error(t, err)
+	assert.Equal(t, utils.ErrConfigValidation.Error()+": site needs content_selector", err.Error())
+}

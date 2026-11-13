@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -99,15 +100,16 @@ func (c *AppConfig) validateHTTPClientSettings() {
 	}
 }
 
-// Validate checks SiteConfig fields, applies defaults, and returns warnings and any fatal error.
+// Validate checks SiteConfig fields, applies defaults, and returns warnings and
+// every fatal problem joined into one error.
 // Modifies receiver in place (e.g., path prefix normalization).
 func (c *SiteConfig) Validate() (warnings []string, err error) {
+	var errs []error
 	if len(c.StartURLs) == 0 {
-		return nil, fmt.Errorf("%w: site has no start_urls", utils.ErrConfigValidation)
+		errs = append(errs, fmt.Errorf("%w: site has no start_urls", utils.ErrConfigValidation))
 	}
-
 	if c.AllowedDomain == "" {
-		return nil, fmt.Errorf("%w: site needs allowed_domain", utils.ErrConfigValidation)
+		errs = append(errs, fmt.Errorf("%w: site needs allowed_domain", utils.ErrConfigValidation))
 	}
 
 	if c.AllowedPathPrefix == "" {
@@ -117,7 +119,7 @@ func (c *SiteConfig) Validate() (warnings []string, err error) {
 	}
 
 	if c.ContentSelector == "" {
-		return nil, fmt.Errorf("%w: site needs content_selector", utils.ErrConfigValidation)
+		errs = append(errs, fmt.Errorf("%w: site needs content_selector", utils.ErrConfigValidation))
 	}
 
 	if c.MaxDepth < 0 {
@@ -132,8 +134,8 @@ func (c *SiteConfig) Validate() (warnings []string, err error) {
 	}
 
 	if _, err := utils.CompileRegexPatterns(c.DisallowedPathPatterns); err != nil {
-		return warnings, err
+		errs = append(errs, err)
 	}
 
-	return warnings, nil
+	return warnings, errors.Join(errs...)
 }
