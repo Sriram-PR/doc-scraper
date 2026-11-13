@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -240,4 +241,28 @@ func TestToolsList_AdvertisesCacheTTL(t *testing.T) {
 		`"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`)
 	assert.EqualValues(t, toolsListCacheTTL.Milliseconds(), res["ttlMs"])
 	assert.Equal(t, "private", res["cacheScope"])
+}
+
+func TestSiteEntrySchema_DeclaredOnDraftAndSave(t *testing.T) {
+	s := newStdioTestServer(t)
+	want := config.SiteFieldSchema()
+
+	draft := s.mcpServer.GetTool("draft_site").Tool
+	overrides := draft.InputSchema.Properties["overrides"].(map[string]any)
+	assert.Equal(t, want, overrides["properties"])
+	assert.NotContains(t, overrides, "required", "overrides is a partial patch")
+	assert.NotContains(t, draft.InputSchema.Required, "overrides")
+
+	save := s.mcpServer.GetTool("save_site").Tool
+	entry := save.InputSchema.Properties["entry"].(map[string]any)
+	assert.Equal(t, want, entry["properties"])
+	assert.Equal(t, []string{"start_urls", "allowed_domain", "content_selector"}, entry["required"])
+	assert.Contains(t, save.InputSchema.Required, "entry", "entry itself stays a required argument")
+
+	for _, tool := range []mcpgo.Tool{draft, save} {
+		assert.Contains(t, tool.Description, "max_depth is an exclusive bound: 1 crawls only the start pages.", tool.Name)
+		raw, err := json.Marshal(tool)
+		require.NoError(t, err)
+		assert.Less(t, len(raw), 5000, "%s tool definition must stay under Codex's 5,000-byte description budget", tool.Name)
+	}
 }

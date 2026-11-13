@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -234,10 +235,12 @@ func (s *Server) registerTools() {
 			"With only site_key, starts from that configured site's entry without probing. overrides sets entry fields by "+
 			"their config names (content_selector, allowed_path_prefix, disallowed_path_patterns, max_depth, ...); "+
 			"durations are strings such as \"1s\". Judge the preview (code blocks kept, nav_leak, chars), draft again with "+
-			"overrides until it looks right, then pass entry to save_site."),
+			"overrides until it looks right, then pass entry to save_site. max_depth is an exclusive bound: 1 crawls only the start pages."),
 		mcp.WithString("url", mcp.Description("A docs URL to probe as a new site")),
 		mcp.WithString("site_key", mcp.Description("With url: the key for the new site. Without url: the configured site to start from")),
-		mcp.WithObject("overrides", mcp.Description("Entry fields to set, by config field name")),
+		mcp.WithObject("overrides",
+			mcp.Description("Entry fields to set, by config field name"),
+			mcp.Properties(config.SiteFieldSchema())),
 		mcp.WithString("preview_url", mcp.Description("The page to preview (default: the sampled docs page, else the seed or first start URL)")),
 		outputSchemaFor[draftSiteResult](),
 	)
@@ -253,9 +256,12 @@ func (s *Server) registerTools() {
 			"search_docs and read_page can use it at once. entry is a full entry by config field name, normally "+
 			"draft_site's entry with changes; fields left out are unset. Overwriting a configured site needs replace: true. "+
 			"Only the entry's lines change in the file. Refused while the site is crawling, and on servers started "+
-			"without -allow-config-writes."),
+			"without -allow-config-writes. max_depth is an exclusive bound: 1 crawls only the start pages."),
 		mcp.WithString("site_key", mcp.Required(), mcp.Description("The key to save the entry under")),
-		mcp.WithObject("entry", mcp.Required(), mcp.Description("The full site entry, by config field name")),
+		mcp.WithObject("entry", mcp.Required(),
+			mcp.Description("The full site entry, by config field name"),
+			mcp.Properties(config.SiteFieldSchema())),
+		objectRequires("entry", config.RequiredSiteFields),
 		mcp.WithBoolean("replace", mcp.Description("Overwrite an existing site (default: false; must be false for a new site)")),
 		outputSchemaFor[saveSiteResult](),
 	)
@@ -263,6 +269,17 @@ func (s *Server) registerTools() {
 
 	s.registerCorpusTools(addTool)
 	s.log.Info(fmt.Sprintf("Registered %d MCP tools", toolCount))
+}
+
+// objectRequires sets the required fields inside an object argument. It runs
+// after WithObject because mcp.Required() uses the same "required" key to mark
+// the argument itself as required.
+func objectRequires(prop string, fields []string) mcp.ToolOption {
+	return func(t *mcp.Tool) {
+		if p, ok := t.InputSchema.Properties[prop].(map[string]any); ok {
+			p["required"] = slices.Clone(fields)
+		}
+	}
 }
 
 // registerCorpusTools adds the read-side tools that serve the stored crawl
