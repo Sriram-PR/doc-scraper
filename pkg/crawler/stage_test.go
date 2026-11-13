@@ -496,3 +496,54 @@ func TestCommitLeavesJournalForTheIndexAndDoneRemovesIt(t *testing.T) {
 	require.NoError(t, cs.s.Done())
 	assert.NoFileExists(t, jp)
 }
+
+// A crash after the swap but before the index writes leaves the journal; the
+// next crawl must record that crawl once and rebuild search from its JSONL.
+func TestNextCrawlReplaysTheIndexOfARecoveredCommit(t *testing.T) {
+	e := newStageEnv(t, "a", "b")
+	e.fullCrawl(t)
+	require.EqualValues(t, 1, e.latestCrawl(t).ID)
+	hits := func() int {
+		r, err := e.idx.SearchChunks(context.Background(), "v2", testSiteKey, 5)
+		require.NoError(t, err)
+		return len(r)
+	}
+
+	e.srv.setVersion("v2")
+	ctx, cancel := e.log.deadlineContext(t, e.appCfg)
+	defer cancel()
+	logger := e.log.logger()
+	stage, store, err := OpenStagedStore(ctx, e.appCfg, testSiteKey, false, logger)
+	require.NoError(t, err)
+	stage.crashAfter = 6 // files swapped and .old removed; index not yet updated
+	fetcher := fetch.NewFetcher(fetch.NewClient(e.appCfg.HTTPClientSettings, logger), e.appCfg, logger)
+	rl := fetch.NewRateLimiter(e.appCfg.DefaultDelayPerHost, logger)
+	c, err := NewCrawlerWithOptions(e.appCfg, e.siteCfg, testSiteKey, logger, store, fetcher, rl, ctx, cancel, false, &CrawlerOptions{Index: e.idx, Stage: stage})
+	require.NoError(t, err)
+	require.ErrorIs(t, c.Run(false), errSimulatedCrash)
+
+	jp := journalPath(e.appCfg.StateDir, testSiteKey)
+	j, err := readJournal(jp)
+	require.NoError(t, err)
+	require.NotNil(t, j)
+	require.True(t, e.liveContains(t, "v2 body"), "the files already hold the second crawl")
+	require.EqualValues(t, 1, e.latestCrawl(t).ID, "history doesn't have it yet")
+	require.Zero(t, hits(), "search doesn't have it yet")
+
+	replay := func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // only the replay at the start of the run matters
+		_ = e.crawl(t, ctx, cancel, true)
+	}
+	replay()
+	assert.NoFileExists(t, jp)
+	latest := e.latestCrawl(t)
+	assert.EqualValues(t, 2, latest.ID)
+	assert.True(t, latest.CrawlStartedAt.Equal(j.CrawlStartedAt), "history has the recovered crawl")
+	assert.NotZero(t, hits(), "search serves the recovered crawl")
+
+	require.NoError(t, writeJournal(jp, *j))
+	replay()
+	assert.EqualValues(t, 2, e.latestCrawl(t).ID, "replaying again doesn't add a crawl")
+	assert.NoFileExists(t, jp)
+}

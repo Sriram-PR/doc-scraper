@@ -271,6 +271,9 @@ func (c *Crawler) GetProgress() CrawlerProgress {
 func (c *Crawler) Run(resume bool) (err error) {
 	c.output.crawlStartTime = time.Now().UTC()
 	c.output.SetIndex(c.idx, deriveMode(resume, c.appCfg.EnableIncremental))
+	if rec := c.stagePendingIndex(); rec != nil {
+		c.replayIndex(rec)
+	}
 	runLog := c.log.With("domain", c.siteCfg.AllowedDomain, "resume", resume)
 	runLog.Info(fmt.Sprintf("Crawl starting with %d worker(s)...", c.appCfg.NumWorkers))
 	overallStart := time.Now()
@@ -446,6 +449,26 @@ func (c *Crawler) dropGonePages(runLog *slog.Logger) {
 		}
 		c.output.DropPage(u)
 		runLog.Info("Removed a page the site no longer serves", "url", u.String())
+	}
+}
+
+func (c *Crawler) stagePendingIndex() *CommitRecord {
+	if c.stage == nil {
+		return nil
+	}
+	return c.stage.PendingIndex()
+}
+
+// replayIndex publishes a crawl whose files a recovered commit put in place
+// but whose index writes the crash cut off.
+func (c *Crawler) replayIndex(rec *CommitRecord) {
+	jsonl := ""
+	if c.resolved.EnableJSONLOutput {
+		jsonl = filepath.Join(c.stage.liveOut, c.resolved.JSONLOutputFilename)
+	}
+	publishCrawl(context.Background(), c.idx, c.siteKey, jsonl, c.resolved.EnableJSONLOutput, rec, c.log)
+	if err := c.stage.Done(); err != nil {
+		c.log.Warn("Could not remove the commit journal; the next crawl will replay the index again", "err", err)
 	}
 }
 
