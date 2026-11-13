@@ -510,8 +510,7 @@ func TestDoListSites_SiteWithNoFields(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		exitCode := doListSites(cfgPath, jsonOut, &stdout, &stderr)
 
-		assert.Equal(t, 0, exitCode, "json=%v", jsonOut)
-		assert.Contains(t, stdout.String(), "empty", "json=%v", jsonOut)
-		assert.Contains(t, stdout.String(), "good.com", "json=%v", jsonOut)
+		assert.Equal(t, 1, exitCode, "json=%v", jsonOut)
+		assert.Contains(t, stdout.String()+stderr.String(), "site 'empty' has no settings", "json=%v", jsonOut)
 	}
 }
