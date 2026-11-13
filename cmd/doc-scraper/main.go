@@ -395,7 +395,9 @@ func doValidate(configPath, siteKey string, jsonOut bool, stdout, stderr io.Writ
 	}
 	for _, r := range results {
 		if r.Error != "" {
-			fmt.Fprintf(stderr, "ERROR: [%s] %s\n", r.Key, r.Error)
+			for _, line := range strings.Split(r.Error, "\n") {
+				fmt.Fprintf(stderr, "ERROR: [%s] %s\n", r.Key, line)
+			}
 			continue
 		}
 		for _, w := range r.Warnings {

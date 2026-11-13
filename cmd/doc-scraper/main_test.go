@@ -135,6 +135,26 @@ sites:
 	assert.Contains(t, stderr.String(), "ERROR")
 }
 
+func TestDoValidate_EveryProblemLineNamesItsSite(t *testing.T) {
+	content := `
+sites:
+  bad_a:
+    start_urls: ["http://a.com"]
+  bad_b:
+    allowed_domain: b.com
+`
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0644))
+
+	var stdout, stderr bytes.Buffer
+	assert.Equal(t, 1, doValidate(cfgPath, "", false, &stdout, &stderr))
+	lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+	require.Len(t, lines, 4, stderr.String())
+	for i, prefix := range []string{"ERROR: [bad_a] ", "ERROR: [bad_a] ", "ERROR: [bad_b] ", "ERROR: [bad_b] "} {
+		assert.True(t, strings.HasPrefix(lines[i], prefix), "line %d: %q", i, lines[i])
+	}
+}
+
 func TestDoValidate_ConfigNotFound(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exitCode := doValidate("/nonexistent.yaml", "", false, &stdout, &stderr)
