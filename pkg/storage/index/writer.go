@@ -26,11 +26,22 @@ func (i *Index) RecordCrawl(ctx context.Context, cr CrawlRecord) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	startedAt := cr.CrawlStartedAt.UTC().Format(time.RFC3339Nano)
+	var recorded int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM crawls WHERE site_key = ? AND crawl_started_at = ?`,
+		cr.SiteKey, startedAt).Scan(&recorded); err != nil {
+		return fmt.Errorf("check recorded crawl: %w", err)
+	}
+	if recorded > 0 {
+		return nil
+	}
+
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO crawls(site_key, crawl_started_at, crawl_ended_at, total_pages, mode)
 		 VALUES (?, ?, ?, ?, ?)`,
 		cr.SiteKey,
-		cr.CrawlStartedAt.UTC().Format(time.RFC3339Nano),
+		startedAt,
 		cr.CrawlEndedAt.UTC().Format(time.RFC3339Nano),
 		len(cr.Pages),
 		string(cr.Mode),

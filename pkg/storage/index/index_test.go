@@ -391,11 +391,40 @@ func TestCrawlAtOrBeforeComparesTimes(t *testing.T) {
 		idx := newTestIndex(t, 5)
 		ended := t0.Add(500 * time.Millisecond)
 		record(idx, ended)
-		record(idx, ended)
+		mustRecord(t, idx, CrawlRecord{SiteKey: "rust", CrawlStartedAt: ended.Add(-time.Second), CrawlEndedAt: ended, Mode: ModeFull})
 
 		got, err := idx.crawlAtOrBefore(ctx, "rust", t0.Add(time.Minute))
 		require.NoError(t, err)
 		require.NotNil(t, got)
 		assert.Equal(t, int64(2), got.ID)
 	})
+}
+
+func TestRecordCrawlSkipsAlreadyRecordedCrawl(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	t0 := time.Date(2026, 1, 1, 10, 0, 0, 123456789, time.UTC)
+	cr := CrawlRecord{
+		SiteKey: "rust", CrawlStartedAt: t0, CrawlEndedAt: t0.Add(time.Minute), Mode: ModeFull,
+		Pages: []PageRecord{{URL: "https://a/", Title: "A", ContentHash: "h1"}},
+	}
+	mustRecord(t, idx, cr)
+	mustRecord(t, idx, cr)
+
+	count := func(q string) int {
+		var n int
+		require.NoError(t, idx.db.QueryRow(q).Scan(&n))
+		return n
+	}
+	assert.Equal(t, 1, count(`SELECT COUNT(*) FROM crawls`), "a replayed crawl must not be recorded twice")
+	assert.Equal(t, 1, count(`SELECT COUNT(*) FROM page_history`))
+
+	cr.CrawlStartedAt = t0.Add(time.Nanosecond)
+	mustRecord(t, idx, cr)
+	assert.Equal(t, 2, count(`SELECT COUNT(*) FROM crawls`), "a different start time is a different crawl")
+
+	other := cr
+	other.SiteKey = "go"
+	other.CrawlStartedAt = t0
+	mustRecord(t, idx, other)
+	assert.Equal(t, 3, count(`SELECT COUNT(*) FROM crawls`), "the same start time on another site is a different crawl")
 }
