@@ -247,3 +247,9 @@ func TestSanitizeFilename_TruncatesOnACharacterBoundary(t *testing.T) {
 	assert.True(t, utf8.ValidString(got), "got %q", got)
 	assert.Equal(t, strings.Repeat("a", 99), got)
 }
+
+func TestSanitizeFilename_DeviceNamePrefixStaysWithinTheLimit(t *testing.T) {
+	got := SanitizeFilename("CON." + strings.Repeat("a", 96))
+	assert.LessOrEqual(t, len(got), 100, "got %d bytes", len(got))
+	assert.True(t, strings.HasPrefix(got, "_CON."), "got %q", got)
+}

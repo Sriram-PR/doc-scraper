@@ -838,6 +838,9 @@ func TestGetOutputPathForURL_AvoidsFilesInTheSiteRoot(t *testing.T) {
 		assert.Regexp(t, `_[0-9a-f]{8}$`, first, "%s must not take a generated file's name", p)
 	}
 
+	assert.Equal(t, filepath.Join("/output/site", "docs", "llms.txt", "index.md"),
+		outputPath(t, cp, siteCfg, "https://example.com/docs/llms.txt"), "below the root the name is free")
+
 	cp = &ContentProcessor{appCfg: &config.AppConfig{}}
 	siteCfg.JSONLOutputFilename = "notes.md"
 	got := outputPath(t, cp, siteCfg, "https://example.com/notes.html")

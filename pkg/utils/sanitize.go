@@ -35,7 +35,7 @@ func SanitizeFilename(name string) string {
 		sanitized = "untitled"
 	}
 	if isDeviceName(sanitized) {
-		sanitized = "_" + sanitized
+		sanitized = "_" + strings.TrimRight(truncateUTF8(sanitized, maxFilenameLength-1), "_ .")
 	}
 	return sanitized
 }
@@ -95,9 +95,8 @@ func truncateUTF8(s string, n int) string {
 	return s[:n]
 }
 
-// SafeSegment turns one decoded URL path segment into a file or directory
-// name: a segment that is already a portable name is kept, any other gets
-// HashedSegment, so two different segments never share a name.
+// SafeSegment returns a decoded URL path segment unchanged when it is a portable
+// file name and HashedSegment(seg) otherwise, so different segments don't collide.
 func SafeSegment(seg string) string {
 	if segmentIsSafe(seg) {
 		return seg
