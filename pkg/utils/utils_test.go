@@ -2,8 +2,11 @@ package utils
 
 import (
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,4 +167,58 @@ func TestSyncDir(t *testing.T) {
 		return
 	}
 	assert.Error(t, err)
+}
+
+var hashedName = regexp.MustCompile(`_[0-9a-f]{8}$`)
+
+func TestSafeSegment_KeepsSafeNames(t *testing.T) {
+	for _, s := range []string{"_modules", "__init__", "3.0.1", "fastapi.HTTPException", "index", "guide", "日本語", "a b", ".hidden", "console", "con_tents"} {
+		assert.Equal(t, s, SafeSegment(s), "%q", s)
+	}
+}
+
+func TestSafeSegment_HashesUnsafeNames(t *testing.T) {
+	for _, s := range []string{
+		"a<b", "a>b", "a:b", `a"b`, "a/b", `a\b`, "a|b", "a?b", "a*b", "a#b", "a%b",
+		"a\x01b", "a\x7fb", "a\u0085b", "a\u202eb", "a\u200bb", "a\ufeffb",
+		"name.", "name ", "", ".", "..", "...",
+		"CON", "con.txt", "Nul", "COM1", "lpt9.md", "COM¹",
+		"a\xffb", strings.Repeat("a", 101),
+	} {
+		got := SafeSegment(s)
+		assert.Regexp(t, hashedName, got, "%q", s)
+		assert.True(t, utf8.ValidString(got), "%q gave invalid UTF-8 %q", s, got)
+		assert.LessOrEqual(t, len(got), 100, "%q", s)
+		assert.Equal(t, got, SafeSegment(got), "the name made for %q must itself be safe", s)
+	}
+}
+
+func TestSafeSegment_DistinctInputsGiveDistinctNames(t *testing.T) {
+	long := strings.Repeat("x", 120)
+	inputs := []string{"a_b", "a:b", "a#b", "a?b", "CON", "con", "..", "...", long + strings.Repeat("1", 30), long + strings.Repeat("2", 30)}
+	seen := map[string]string{}
+	for _, in := range inputs {
+		out := SafeSegment(in)
+		if prev, ok := seen[out]; ok {
+			t.Errorf("%q and %q both give %q", prev, in, out)
+		}
+		seen[out] = in
+	}
+}
+
+func TestSafeSegment_TruncatesOnACharacterBoundary(t *testing.T) {
+	got := SafeSegment(strings.Repeat("a", 99) + "é")
+	assert.True(t, utf8.ValidString(got))
+	assert.LessOrEqual(t, len(got), 100)
+
+	// é occupies bytes 90-91, so a 91-byte cut would split it.
+	got = SafeSegment(strings.Repeat("a", 90) + "é" + strings.Repeat("b", 10))
+	assert.True(t, utf8.ValidString(got))
+	assert.Equal(t, strings.Repeat("a", 90)+"_", got[:91])
+}
+
+func TestSafeSegment_DeviceNameStaysPrefixedAfterCleaning(t *testing.T) {
+	got := HashedSegment("con.txt")
+	assert.True(t, strings.HasPrefix(got, "_con.txt_"), "got %q", got)
+	assert.Regexp(t, `^_[0-9a-f]{8}$`, HashedSegment(".."), "an empty cleaned name is just the hash")
 }
