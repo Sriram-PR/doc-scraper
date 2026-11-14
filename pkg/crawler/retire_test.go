@@ -49,8 +49,9 @@ func TestApplyRetirements_DropsRecordAndKey(t *testing.T) {
 	out, store := &fakeDropper{}, &fakeDeleter{}
 	entries := []retiredPage{{u: mustURL(t, "https://example.com/docs/a"), reason: retireGone}}
 
-	retired := applyRetirements(entries, nil, out, store, func(string) bool { return true }, silentLogger())
+	retired, removed := applyRetirements(entries, nil, out, store, silentLogger())
 
+	assert.Equal(t, 1, removed)
 	assert.Equal(t, []string{"https://example.com/docs/a"}, out.dropped)
 	assert.Equal(t, []string{"https://example.com/docs/a"}, store.deleted)
 	assert.Contains(t, retired, "https://example.com/docs/a")
@@ -60,7 +61,7 @@ func TestApplyRetirements_DeleteFailureOnlyWarns(t *testing.T) {
 	out, store := &fakeDropper{}, &fakeDeleter{err: errors.New("disk")}
 	entries := []retiredPage{{u: mustURL(t, "https://example.com/docs/a"), reason: retireGone}}
 
-	retired := applyRetirements(entries, nil, out, store, func(string) bool { return true }, silentLogger())
+	retired, _ := applyRetirements(entries, nil, out, store, silentLogger())
 
 	assert.Len(t, out.dropped, 1, "the record still goes")
 	assert.Contains(t, retired, "https://example.com/docs/a")
@@ -103,7 +104,8 @@ func TestApplyRetirements_KeepsKeyForRedirectAndNoindex(t *testing.T) {
 		{u: mustURL(t, "https://example.com/docs/n"), reason: retireNoindex},
 		{u: mustURL(t, "https://example.com/docs/b"), reason: retireRobots},
 	}
-	applyRetirements(entries, nil, out, store, deletesVisitedKey, silentLogger())
+	_, removed := applyRetirements(entries, keys("https://example.com/docs/r"), out, store, silentLogger())
+	assert.Equal(t, 1, removed, "only pages the corpus held count as removed")
 	assert.Len(t, out.dropped, 3)
 	assert.Equal(t, []string{"https://example.com/docs/b"}, store.deleted)
 }

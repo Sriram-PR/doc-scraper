@@ -20,8 +20,8 @@ type PageStore interface {
 
 	UpdatePageStatus(normalizedPageURL string, entry *models.PageDBEntry) error
 
-	// GetPageContentHash retrieves the content hash for a previously crawled page
-	// Returns the hash string, whether it exists, and any error
+	// GetPageContentHash returns the content hash stored for a page, whatever its
+	// status: a failed page keeps the hash of its last good copy
 	GetPageContentHash(normalizedPageURL string) (hash string, exists bool, err error)
 
 	// DeletePage removes a page's entry; deleting a missing entry is not an error.

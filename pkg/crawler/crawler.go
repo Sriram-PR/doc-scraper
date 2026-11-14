@@ -368,7 +368,6 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 		}
 	}
 	completed := runErr == nil
-	var retired map[string]struct{}
 	if completed {
 		if c.carry != nil {
 			c.carry.carryAll(c.output, c.contentProcessor, c.siteCfg, c.siteOutputDir)
@@ -377,13 +376,17 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 				runLog.Info("Kept the previous copy of pages that failed with a temporary error", "count", n)
 			}
 		}
-		_, claimed := c.claimedSnapshot()
-		retired = applyRetirements(c.retired.pending(claimed), c.output.recordedPageKeys(), c.output, c.store,
-			deletesVisitedKey, runLog)
-	}
-	c.output.Finalize()
-	if completed && !staged {
-		c.removeOrphans(retired, runLog)
+		paths, claimed := c.claimedSnapshot()
+		retired, removed := applyRetirements(c.retired.pending(claimed), c.output.recordedPageKeys(), c.output, c.store, runLog)
+		if removed > 0 {
+			runLog.Info("Removed pages from the corpus", "count", removed)
+		}
+		c.output.Finalize()
+		if !staged {
+			c.removeOrphans(paths, retired, runLog)
+		}
+	} else {
+		c.output.Finalize()
 	}
 
 	if staged && !completed {
@@ -1172,12 +1175,11 @@ func (c *Crawler) claimedSnapshot() (paths map[string]string, urls map[string]st
 }
 
 // removeOrphans deletes Markdown files the finished in-place run left unused.
-func (c *Crawler) removeOrphans(retired map[string]struct{}, runLog *slog.Logger) {
-	paths, _ := c.claimedSnapshot()
+func (c *Crawler) removeOrphans(claimed map[string]string, retired map[string]struct{}, runLog *slog.Logger) {
 	n := sweepOrphans(sweepInput{
 		dir:     c.siteOutputDir,
 		retired: retired,
-		claimed: paths,
+		claimed: claimed,
 		corpus:  c.output.recordedPageKeys(),
 		stored: func(k string) bool {
 			st, _, err := c.store.CheckPageStatus(k)

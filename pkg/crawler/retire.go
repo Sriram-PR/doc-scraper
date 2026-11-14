@@ -97,26 +97,27 @@ type pageDeleter interface {
 	DeletePage(normalizedPageURL string) error
 }
 
-// applyRetirements drops each entry's JSONL record and, where deletesKey says
-// so, its visited-DB entry. present holds the normalized URLs the corpus had
-// before (nil: unknown, treat all as present); only those are logged as removed.
-// Returns the normalized URLs of every entry.
-func applyRetirements(entries []retiredPage, present map[string]struct{}, out pageDropper, store pageDeleter, deletesKey func(reason string) bool, log *slog.Logger) map[string]struct{} {
-	retired := make(map[string]struct{}, len(entries))
+// applyRetirements drops each entry's JSONL record and, unless its reason
+// keeps it, its visited-DB entry. present holds the normalized URLs the corpus
+// had before (nil: unknown, treat all as present); only those count as removed.
+// Returns the normalized URLs of every entry and how many were removed.
+func applyRetirements(entries []retiredPage, present map[string]struct{}, out pageDropper, store pageDeleter, log *slog.Logger) (retired map[string]struct{}, removed int) {
+	retired = make(map[string]struct{}, len(entries))
 	for _, e := range entries {
 		k := parse.NormalizeURL(e.u)
 		retired[k] = struct{}{}
 		out.DropPage(e.u)
-		if deletesKey(e.reason) {
+		if deletesVisitedKey(e.reason) {
 			if err := store.DeletePage(k); err != nil {
 				log.Warn("Could not forget a removed page in the visited DB; the next run checks it again", "url", e.u.String(), "err", err)
 			}
 		}
-		if _, ok := present[k]; ok || present == nil {
+		if _, ok := present[k]; present == nil || ok {
+			removed++
 			log.Info("Removed a page from the corpus", "url", e.u.String(), "reason", e.reason)
 		} else {
 			log.Debug("Page left out of the corpus", "url", e.u.String(), "reason", e.reason)
 		}
 	}
-	return retired
+	return retired, removed
 }

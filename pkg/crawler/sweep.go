@@ -83,7 +83,7 @@ func (in sweepInput) removeIfOrphan(root *os.Root, name, p string, claimedURLs m
 		return false
 	}
 	u, err := url.Parse(pageURL)
-	if err != nil || !in.orphan(parse.NormalizeURL(u), claimedURLs) {
+	if err != nil || !in.isOrphan(parse.NormalizeURL(u), claimedURLs) {
 		return false
 	}
 	if err := root.Remove(name); err != nil {
@@ -94,7 +94,7 @@ func (in sweepInput) removeIfOrphan(root *os.Root, name, p string, claimedURLs m
 	return true
 }
 
-func (in sweepInput) orphan(key string, claimedURLs map[string]struct{}) bool {
+func (in sweepInput) isOrphan(key string, claimedURLs map[string]struct{}) bool {
 	if _, ok := in.retired[key]; ok {
 		return true
 	}
