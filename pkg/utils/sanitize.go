@@ -14,26 +14,36 @@ var invalidFilenameChars = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`) // Charac
 var consecutiveUnderscores = regexp.MustCompile(`_+`)                  // Pattern to replace multiple underscores with one
 const maxFilenameLength = 100                                          // Max length for sanitized filenames
 
-// SanitizeFilename cleans a string to be safe for use as a filename component
+// SanitizeFilename cleans a string to be safe for use as a filename component.
+// Unlike SafeSegment it adds no hash, so site keys keep stable paths.
 func SanitizeFilename(name string) string {
-	sanitized := invalidFilenameChars.ReplaceAllString(name, "_")
+	sanitized := strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			return '_'
+		}
+		return r
+	}, name)
+	sanitized = invalidFilenameChars.ReplaceAllString(sanitized, "_")
 	sanitized = consecutiveUnderscores.ReplaceAllString(sanitized, "_")
-	sanitized = strings.Trim(sanitized, "_ ")
-
+	sanitized = trimFilename(sanitized)
 	if len(sanitized) > maxFilenameLength {
-		// Simple truncation by byte length is usually sufficient for sanitization purposes
-		sanitized = sanitized[:maxFilenameLength]
-		// Trim again in case truncation created leading/trailing underscores
-		sanitized = strings.Trim(sanitized, "_ ")
+		sanitized = trimFilename(truncateUTF8(sanitized, maxFilenameLength))
 	}
 
-	// Reject segments composed entirely of dots (".", "..", "...") — these
-	// would resolve to parent/current directory references when used in
-	// filesystem paths and could escape the intended output directory.
+	// Segments of only dots would resolve to the current or parent directory.
 	if sanitized == "" || strings.Trim(sanitized, ".") == "" {
 		sanitized = "untitled"
 	}
+	if isDeviceName(sanitized) {
+		sanitized = "_" + sanitized
+	}
 	return sanitized
+}
+
+// trimFilename drops leading underscores and spaces, and trailing ones plus
+// dots, which Windows strips from names.
+func trimFilename(s string) string {
+	return strings.TrimRight(strings.TrimLeft(s, "_ "), "_ .")
 }
 
 // IsWithinDir reports whether path lies strictly inside dir, comparing the

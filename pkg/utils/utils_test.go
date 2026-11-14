@@ -222,3 +222,28 @@ func TestSafeSegment_DeviceNameStaysPrefixedAfterCleaning(t *testing.T) {
 	assert.True(t, strings.HasPrefix(got, "_con.txt_"), "got %q", got)
 	assert.Regexp(t, `^_[0-9a-f]{8}$`, HashedSegment(".."), "an empty cleaned name is just the hash")
 }
+
+func TestSanitizeFilename_PortableNames(t *testing.T) {
+	tests := []struct{ name, input, expected string }{
+		{"DeviceName", "con", "_con"},
+		{"DeviceNameWithExtension", "NUL.txt", "_NUL.txt"},
+		{"DeviceNameSuperscript", "COM¹", "_COM¹"},
+		{"NotADeviceName", "console", "console"},
+		{"TrailingDot", "site.", "site"},
+		{"TrailingDotAndUnderscore", "site_.", "site"},
+		{"BidiOverride", "a\u202eb", "a_b"},
+		{"ZeroWidth", "a\u200bb", "a_b"},
+		{"C1Control", "a\u0085b", "a_b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, SanitizeFilename(tt.input), "input %q", tt.input)
+		})
+	}
+}
+
+func TestSanitizeFilename_TruncatesOnACharacterBoundary(t *testing.T) {
+	got := SanitizeFilename(strings.Repeat("a", 99) + "é")
+	assert.True(t, utf8.ValidString(got), "got %q", got)
+	assert.Equal(t, strings.Repeat("a", 99), got)
+}
