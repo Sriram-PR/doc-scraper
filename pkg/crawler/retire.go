@@ -1,14 +1,49 @@
 package crawler
 
 import (
+	"errors"
 	"log/slog"
 	"net/url"
 	"sync"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
-const retireGone = "gone"
+const (
+	retireGone       = "gone"
+	retireRobots     = "robots"
+	retireScope      = "scope"
+	retireNonHTML    = "non-html"
+	retireMaxDepth   = "max-depth"
+	retireNoindex    = "noindex"
+	retireRedirected = "redirected"
+)
+
+// retireReason says why a failed page leaves the corpus, or "" when it keeps
+// its last good copy. A blocked address is an environment problem, not the
+// site dropping the page.
+func retireReason(err error, gone bool) string {
+	switch {
+	case gone:
+		return retireGone
+	case errors.Is(err, utils.ErrRobotsDisallowed):
+		return retireRobots
+	case errors.Is(err, utils.ErrScopeViolation):
+		return retireScope
+	case errors.Is(err, utils.ErrNonHTMLContent):
+		return retireNonHTML
+	case errors.Is(err, utils.ErrMaxDepthExceeded):
+		return retireMaxDepth
+	}
+	return ""
+}
+
+// deletesVisitedKey: a redirected URL is how the next run reaches its new
+// URL, and a noindex entry records that the page is noindex.
+func deletesVisitedKey(reason string) bool {
+	return reason != retireNoindex && reason != retireRedirected
+}
 
 type retiredPage struct {
 	u      *url.URL

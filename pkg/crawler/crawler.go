@@ -373,7 +373,7 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 		}
 		_, claimed := c.claimedSnapshot()
 		retired = applyRetirements(c.retired.pending(claimed), c.output.recordedPageKeys(), c.output, c.store,
-			func(string) bool { return true }, runLog)
+			deletesVisitedKey, runLog)
 	}
 	c.output.Finalize()
 	if completed && !staged {
@@ -882,6 +882,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	var contentHash string            // Hash of the extracted content region for incremental crawling.
 	var gone bool                     // The page answered 404 or 410.
 	var noindexPage bool              // Saved nothing on purpose; neither success nor failure.
+	var redirected bool               // The final URL normalizes differently from the requested one.
 
 	// Deferred function for panic recovery, final status logging, DB update, and WaitGroup decrement.
 	defer func() {
@@ -970,9 +971,16 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 					c.carry.note(u)
 				}
 			}
-			if gone {
-				c.retirePage(currentURL, retireGone)
+		}
+		switch {
+		case taskErr != nil:
+			if reason := retireReason(taskErr, gone); reason != "" {
+				c.retirePage(currentURL, reason)
 			}
+		case noindexPage:
+			c.retirePage(currentURL, retireNoindex)
+		case redirected:
+			c.retirePage(currentURL, retireRedirected)
 		}
 		c.wg.Done()
 	}()
@@ -1022,6 +1030,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		}
 		return
 	}
+	redirected = parse.NormalizeURL(finalURL) != normalizedURLString
 	// If successful, resp.Body is open and passed to the next stage.
 
 	bodyBytes, readErr := c.readBody(resp, finalURL, taskLog) // Closes resp.Body

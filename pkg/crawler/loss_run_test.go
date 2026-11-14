@@ -15,6 +15,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
@@ -269,4 +270,53 @@ func TestLossGuard_ProgressReadableDuringRun(t *testing.T) {
 	require.NoError(t, c.Run(false))
 	close(stop)
 	<-polled
+}
+
+func TestRetire_RedirectedPageLeavesTheCorpus(t *testing.T) {
+	e := newLossEnv(t, 3)
+	_, err := e.crawl(t, false, false)
+	require.NoError(t, err)
+	oldURL, newURL := e.url+"/docs/p2.html", e.url+"/docs/p2-new.html"
+
+	e.appCfg.EnableIncremental = true
+	e.ms.set("/docs/p2-new.html", pageBody(2))
+	e.ms.setRedirect("/docs/p2.html", "/docs/p2-new.html")
+	_, err = e.crawl(t, true, false)
+	require.NoError(t, err)
+
+	assert.False(t, jsonlHasURL(t, e.appCfg, e.siteCfg, oldURL))
+	assert.True(t, jsonlHasURL(t, e.appCfg, e.siteCfg, newURL))
+	files := mdFilesContaining(t, siteOutputDir(e.appCfg, e.siteCfg), "page 2 body")
+	require.Len(t, files, 1)
+	body, err := os.ReadFile(files[0])
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "url: "+newURL)
+	diff, err := e.idx.DiffPrevious(context.Background(), testSiteKey, 100, 0)
+	require.NoError(t, err)
+	kinds := map[string]string{}
+	for _, entry := range diff.Entries {
+		kinds[entry.URL] = entry.Kind
+	}
+	assert.Equal(t, "removed", kinds[oldURL])
+	assert.Equal(t, "added", kinds[newURL])
+
+	_, err = e.crawl(t, true, false)
+	require.NoError(t, err)
+	assert.True(t, jsonlHasURL(t, e.appCfg, e.siteCfg, newURL), "the next run keeps the new URL")
+	assert.Len(t, mdFilesContaining(t, siteOutputDir(e.appCfg, e.siteCfg), "page 2 body"), 1)
+}
+
+func TestLossGuard_RobotsDisallowingMostOfASiteIsRefused(t *testing.T) {
+	e := newLossEnv(t, 20)
+	_, err := e.crawl(t, false, false)
+	require.NoError(t, err)
+
+	e.appCfg.EnableIncremental = true
+	e.ms.set("/robots.txt", "User-agent: *\nDisallow: /docs/p\n")
+	_, err = e.crawl(t, true, false)
+
+	requireLossy(t, err, RefusedShrink)
+	assert.Equal(t, 21, e.liveMarkdownFiles(t))
+	assert.EqualValues(t, 21, e.liveJSONLPages(t))
+	assert.NotEqual(t, models.PageStatusNotFound, visitedStatus(t, e.appCfg, e.url+"/docs/p5.html"), "a refused run keeps visited-DB keys")
 }

@@ -761,21 +761,30 @@ func TestCrawlerRun_FrontmatterAndTables(t *testing.T) {
 // mutableDocServer serves per-path HTML that tests can change between crawls, and
 // counts hits per path so incremental re-fetch behavior can be asserted.
 type mutableDocServer struct {
-	mu     sync.Mutex
-	body   map[string]string
-	status map[string]int
-	hits   map[string]int
+	mu       sync.Mutex
+	body     map[string]string
+	status   map[string]int
+	hits     map[string]int
+	redirect map[string]string
+	ctype    map[string]string
 }
 
 func newMutableDocServer(t *testing.T) (*httptest.Server, *mutableDocServer) {
 	t.Helper()
-	ms := &mutableDocServer{body: map[string]string{}, status: map[string]int{}, hits: map[string]int{}}
+	ms := &mutableDocServer{body: map[string]string{}, status: map[string]int{}, hits: map[string]int{},
+		redirect: map[string]string{}, ctype: map[string]string{}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ms.mu.Lock()
 		ms.hits[r.URL.Path]++
 		body, ok := ms.body[r.URL.Path]
 		code := ms.status[r.URL.Path]
+		to := ms.redirect[r.URL.Path]
+		ct := ms.ctype[r.URL.Path]
 		ms.mu.Unlock()
+		if to != "" {
+			http.Redirect(w, r, to, http.StatusMovedPermanently)
+			return
+		}
 		if code != 0 {
 			w.WriteHeader(code)
 			return
@@ -784,7 +793,10 @@ func newMutableDocServer(t *testing.T) (*httptest.Server, *mutableDocServer) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html")
+		if ct == "" {
+			ct = "text/html"
+		}
+		w.Header().Set("Content-Type", ct)
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(srv.Close)
@@ -807,6 +819,18 @@ func (m *mutableDocServer) setStatus(path string, code int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.status[path] = code
+}
+
+func (m *mutableDocServer) setRedirect(path, to string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.redirect[path] = to
+}
+
+func (m *mutableDocServer) setContentType(path, ct string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ctype[path] = ct
 }
 
 func (m *mutableDocServer) hitCount(path string) int {
@@ -1853,4 +1877,58 @@ func TestCrawlerRun_CancelledIncrementalRetiresNothing(t *testing.T) {
 
 	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/a.html"))
 	assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"), 1)
+}
+
+// TestCrawlerRun_IncrementalRetiresPagesAFreshCrawlWouldSkip: robots, scope,
+// max depth, non-HTML and noindex all remove a previously saved page.
+func TestCrawlerRun_IncrementalRetiresPagesAFreshCrawlWouldSkip(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		path     string
+		change   func(ms *mutableDocServer, s *config.SiteConfig, path string)
+		keepsKey bool
+	}{
+		{"robots", "/docs/a.html", func(ms *mutableDocServer, _ *config.SiteConfig, p string) {
+			ms.set("/robots.txt", "User-agent: *\nDisallow: "+p+"\n")
+		}, false},
+		{"disallowed pattern", "/docs/a.html", func(_ *mutableDocServer, s *config.SiteConfig, _ string) {
+			s.DisallowedPathPatterns = []string{`^/docs/a\.html$`}
+		}, false},
+		{"narrowed prefix", "/docs-old/a.html", func(_ *mutableDocServer, s *config.SiteConfig, _ string) {
+			s.AllowedPathPrefix = "/docs/"
+		}, false},
+		{"max depth", "/docs/a.html", func(_ *mutableDocServer, s *config.SiteConfig, _ string) {
+			s.MaxDepth = 1
+		}, false},
+		{"non-html", "/docs/a.html", func(ms *mutableDocServer, _ *config.SiteConfig, p string) {
+			ms.setContentType(p, "application/pdf")
+		}, false},
+		{"noindex", "/docs/a.html", func(ms *mutableDocServer, _ *config.SiteConfig, p string) {
+			ms.set(p, `<html><head><title>A</title><meta name="robots" content="noindex"></head>`+
+				`<body><main id="c"><p>PAGE-A</p></main></body></html>`)
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server, ms := newMutableDocServer(t)
+			ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+				`<main id="c"><p>HOME</p><a href="`+tc.path+`">a</a></main></body></html>`)
+			ms.set(tc.path, `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`)
+			appCfg := newTestAppConfig(t)
+			appCfg.EnableIncremental = true
+			siteCfg := baseSiteConfig(server, "/docs/index.html")
+			siteCfg.ContentSelector = "#c"
+			aURL := server.URL + tc.path
+
+			runResumableCrawl(t, appCfg, siteCfg, false)
+			require.True(t, jsonlHasURL(t, appCfg, siteCfg, aURL))
+
+			tc.change(ms, siteCfg, tc.path)
+			runResumableCrawl(t, appCfg, siteCfg, true)
+
+			assert.False(t, jsonlHasURL(t, appCfg, siteCfg, aURL), "JSONL record")
+			assert.Empty(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"), "Markdown file")
+			assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/index.html"))
+			assert.Equal(t, tc.keepsKey, visitedStatus(t, appCfg, aURL) != models.PageStatusNotFound, "visited-DB key")
+		})
+	}
 }

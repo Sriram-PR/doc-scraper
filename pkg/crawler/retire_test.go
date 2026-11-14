@@ -1,12 +1,16 @@
 package crawler
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 type fakeDropper struct{ dropped []string }
@@ -60,4 +64,46 @@ func TestApplyRetirements_DeleteFailureOnlyWarns(t *testing.T) {
 
 	assert.Len(t, out.dropped, 1, "the record still goes")
 	assert.Contains(t, retired, "https://example.com/docs/a")
+}
+
+func TestRetireReason(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		gone bool
+		want string
+	}{
+		{errors.New("404"), true, retireGone},
+		{fmt.Errorf("x: %w", utils.ErrRobotsDisallowed), false, retireRobots},
+		{fmt.Errorf("x: %w", utils.ErrScopeViolation), false, retireScope},
+		{fmt.Errorf("x: %w", utils.ErrNonHTMLContent), false, retireNonHTML},
+		{utils.ErrMaxDepthExceeded, false, retireMaxDepth},
+		{fmt.Errorf("x: %w", utils.ErrBlockedAddress), false, ""},
+		{fmt.Errorf("x: %w", utils.ErrRetryFailed), false, ""},
+		{fmt.Errorf("x: %w", utils.ErrContentSelector), false, ""},
+		{context.DeadlineExceeded, false, ""},
+		{errors.New("other"), false, ""},
+	} {
+		assert.Equal(t, tc.want, retireReason(tc.err, tc.gone), "%v", tc.err)
+	}
+}
+
+func TestDeletesVisitedKey(t *testing.T) {
+	for _, r := range []string{retireGone, retireRobots, retireScope, retireNonHTML, retireMaxDepth} {
+		assert.True(t, deletesVisitedKey(r), r)
+	}
+	for _, r := range []string{retireNoindex, retireRedirected} {
+		assert.False(t, deletesVisitedKey(r), r)
+	}
+}
+
+func TestApplyRetirements_KeepsKeyForRedirectAndNoindex(t *testing.T) {
+	out, store := &fakeDropper{}, &fakeDeleter{}
+	entries := []retiredPage{
+		{u: mustURL(t, "https://example.com/docs/r"), reason: retireRedirected},
+		{u: mustURL(t, "https://example.com/docs/n"), reason: retireNoindex},
+		{u: mustURL(t, "https://example.com/docs/b"), reason: retireRobots},
+	}
+	applyRetirements(entries, nil, out, store, deletesVisitedKey, silentLogger())
+	assert.Len(t, out.dropped, 3)
+	assert.Equal(t, []string{"https://example.com/docs/b"}, store.deleted)
 }
