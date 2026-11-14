@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/version"
@@ -1664,4 +1666,61 @@ func TestCrawlerRun_WarnsAboutAClashWithAnUnchangedPage(t *testing.T) {
 	_, err := runResumableCrawlLogged(t, appCfg, siteCfg, true, log)
 	require.NoError(t, err)
 	assert.Len(t, sameFileWarnings(log), 1, "the unchanged page's file was overwritten")
+}
+
+func jsonlRecordOf(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, u string) models.PageJSONL {
+	t.Helper()
+	for _, line := range readJSONLLines(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "pages.jsonl")) {
+		var p models.PageJSONL
+		require.NoError(t, json.Unmarshal([]byte(line), &p))
+		if p.RecordType == models.RecordTypePage && p.URL == u {
+			return p
+		}
+	}
+	require.FailNowf(t, "no JSONL record", "url %s", u)
+	return models.PageJSONL{}
+}
+
+func visitedStatus(t *testing.T, appCfg *config.AppConfig, rawURL string) models.PageStatus {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	require.NoError(t, err)
+	store, err := storage.NewBadgerStore(context.Background(), appCfg.StateDir, testSiteKey, true, silentLogger())
+	require.NoError(t, err)
+	defer store.Close()
+	st, _, err := store.CheckPageStatus(parse.NormalizeURL(u))
+	require.NoError(t, err)
+	return st
+}
+
+// TestCrawlerRun_FailedFetchKeepsContentHash: a page that fails once and comes
+// back with the same content counts as unchanged and keeps its crawled_at.
+func TestCrawlerRun_FailedFetchKeepsContentHash(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	appCfg.InitialRetryDelay = 10 * time.Millisecond
+	appCfg.MaxRetryDelay = 20 * time.Millisecond
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+	aURL := server.URL + "/docs/a.html"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	before := jsonlRecordOf(t, appCfg, siteCfg, aURL)
+
+	ms.setStatus("/docs/a.html", http.StatusInternalServerError)
+	runResumableCrawl(t, appCfg, siteCfg, true)
+	require.Equal(t, models.PageStatusFailure, visitedStatus(t, appCfg, aURL))
+
+	ms.setStatus("/docs/a.html", 0)
+	p := runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.EqualValues(t, 2, p.PagesUnchanged, "a.html came back with the same content")
+	after := jsonlRecordOf(t, appCfg, siteCfg, aURL)
+	assert.Equal(t, before.CrawledAt, after.CrawledAt)
+	assert.Equal(t, before.ContentHash, after.ContentHash)
+	assert.Equal(t, models.PageStatusSuccess, visitedStatus(t, appCfg, aURL), "an unchanged page is a success again")
 }

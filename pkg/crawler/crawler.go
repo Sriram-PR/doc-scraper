@@ -954,6 +954,10 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			if finalStatus == models.PageStatusSuccess {
 				pageEntry.ProcessedAt = pageEntry.LastAttempt
 				pageEntry.ContentHash = contentHash
+			} else if _, prev, err := c.store.CheckPageStatus(normalizedURLString); err == nil && prev != nil {
+				// The last good hash lets the page count as unchanged once it is back.
+				pageEntry.ProcessedAt = prev.ProcessedAt
+				pageEntry.ContentHash = prev.ContentHash
 			}
 			if dbUpdateErr := c.store.UpdatePageStatus(normalizedURLString, pageEntry); dbUpdateErr != nil {
 				taskLog.Error(fmt.Sprintf("Failed update final DB status for '%s' to '%s': %v", normalizedURLString, finalStatus, dbUpdateErr))
@@ -1103,6 +1107,12 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			taskLog.Info("Page content unchanged (hash match) - skipping processing")
 			if p, ok := c.contentProcessor.OutputPathForURL(finalURL, c.siteCfg, c.siteOutputDir); ok {
 				c.claimPath(p, finalURL.String(), taskLog)
+			}
+			if st, prev, err := c.store.CheckPageStatus(normalizedURLString); err == nil && prev != nil && st != models.PageStatusSuccess {
+				prev.Status, prev.ErrorType, prev.LastAttempt = models.PageStatusSuccess, "None", time.Now().UTC()
+				if err := c.store.UpdatePageStatus(normalizedURLString, prev); err != nil {
+					taskLog.Warn("Could not mark a page that came back unchanged as a success", "err", err)
+				}
 			}
 			c.unchangedCounter.Add(1)
 			skipped = true

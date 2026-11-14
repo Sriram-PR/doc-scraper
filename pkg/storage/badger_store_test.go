@@ -377,6 +377,20 @@ func TestGetPageContentHash(t *testing.T) {
 		assert.Empty(t, hash)
 	})
 
+	t.Run("failure keeps its hash", func(t *testing.T) {
+		entry := &models.PageDBEntry{
+			Status:      models.PageStatusFailure,
+			ContentHash: "kept",
+			LastAttempt: time.Now(),
+		}
+		require.NoError(t, store.UpdatePageStatus("https://example.com/failkept", entry))
+
+		hash, exists, err := store.GetPageContentHash("https://example.com/failkept")
+		require.NoError(t, err)
+		assert.True(t, exists)
+		assert.Equal(t, "kept", hash)
+	})
+
 	t.Run("not found", func(t *testing.T) {
 		hash, exists, err := store.GetPageContentHash("https://example.com/nope")
 		require.NoError(t, err)

@@ -249,14 +249,15 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 	return nil
 }
 
-// GetPageContentHash retrieves the content hash for a previously crawled page.
+// GetPageContentHash returns the content hash stored for a page, whatever its
+// status: a failed page keeps the hash of its last good copy.
 func (s *BadgerStore) GetPageContentHash(normalizedPageURL string) (hash string, exists bool, err error) {
-	status, entry, checkErr := s.CheckPageStatus(normalizedPageURL)
+	_, entry, checkErr := s.CheckPageStatus(normalizedPageURL)
 	if checkErr != nil {
 		return "", false, checkErr
 	}
 
-	if status == models.PageStatusSuccess && entry != nil && entry.ContentHash != "" {
+	if entry != nil && entry.ContentHash != "" {
 		return entry.ContentHash, true, nil
 	}
 
