@@ -334,6 +334,16 @@ var pageExtensions = map[string]bool{
 	".php": true, ".asp": true, ".aspx": true, ".jsp": true, ".md": true,
 }
 
+// nonPageExtensions mark links to files the crawler never saves as pages, so a
+// rewritten .md link to them would point at nothing.
+var nonPageExtensions = map[string]bool{
+	".pdf": true, ".zip": true, ".gz": true, ".tgz": true, ".tar": true, ".bz2": true, ".xz": true, ".7z": true,
+	".whl": true, ".jar": true, ".exe": true, ".dmg": true, ".msi": true, ".deb": true, ".rpm": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".webp": true, ".ico": true,
+	".mp3": true, ".mp4": true, ".webm": true, ".mov": true,
+	".csv": true, ".json": true, ".xml": true, ".txt": true, ".epub": true,
+}
+
 // entryName is the on-disk name for one URL path segment plus suffix. In the
 // site root it must not take the name of a file the crawler writes there.
 func (cp *ContentProcessor) entryName(seg, suffix string, inRoot bool, siteCfg *config.SiteConfig) string {
@@ -520,6 +530,11 @@ func (cp *ContentProcessor) rewriteInternalLinks(
 			if firstError == nil {
 				firstError = parseErr
 			}
+			return
+		}
+
+		if nonPageExtensions[strings.ToLower(path.Ext(linkURL.Path))] {
+			element.SetAttr("href", linkURL.String())
 			return
 		}
 

@@ -843,3 +843,17 @@ func TestGetOutputPathForURL_AvoidsFilesInTheSiteRoot(t *testing.T) {
 	got := outputPath(t, cp, siteCfg, "https://example.com/notes.html")
 	assert.NotEqual(t, filepath.Join("/output/site", "notes.md"), got, "a page must not overwrite the site's JSONL")
 }
+
+func TestProcessAndSaveContent_LeavesLinksToFilesAbsolute(t *testing.T) {
+	md, _ := processPage(t, &stubFetcher{}, "https://e.com/docs/guide/page.html", `<body>
+		<a href="/docs/files/guide.pdf">PDF</a>
+		<a href="archive.ZIP">Zip</a>
+		<a href="/docs/dist/tool.tar.gz">Tarball</a>
+		<a href="/docs/v1.2">Version</a>
+	</body>`)
+
+	assert.Contains(t, md, "[PDF](https://e.com/docs/files/guide.pdf)", "a .md path for a PDF would point at nothing")
+	assert.Contains(t, md, "[Zip](https://e.com/docs/guide/archive.ZIP)")
+	assert.Contains(t, md, "[Tarball](https://e.com/docs/dist/tool.tar.gz)")
+	assert.Contains(t, md, "[Version](../v1.2/index.md)", "dotted page names are pages")
+}
