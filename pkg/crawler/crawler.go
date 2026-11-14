@@ -82,7 +82,8 @@ type Crawler struct {
 	gonePagesMu sync.Mutex
 
 	savedPathsMu sync.Mutex
-	savedPaths   map[string]string // Markdown path -> page URL that saved it this run
+	savedPaths   map[string]string // Markdown path -> page URL that saved or kept it this run
+	warnedPaths  map[string]bool
 
 	// Output file management (Markdown files + JSONL + llms.txt)
 	output *OutputManager
@@ -1100,6 +1101,9 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			// Continue processing despite hash check error
 		} else if exists && existingHash == contentHash && c.savedFileExists(finalURL) {
 			taskLog.Info("Page content unchanged (hash match) - skipping processing")
+			if p, ok := c.contentProcessor.OutputPathForURL(finalURL, c.siteCfg, c.siteOutputDir); ok {
+				c.claimPath(p, finalURL.String(), taskLog)
+			}
 			c.unchangedCounter.Add(1)
 			skipped = true
 			return
@@ -1131,17 +1135,19 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	// The deferred function will handle logging this success and updating DB.
 }
 
-// claimPath warns when a page saves to a file another page of this run already
-// saved: the JSONL keeps both, but only the later one stays on disk.
+// claimPath warns, once per file, when a page saves to a file another page of
+// this run saved or kept: the JSONL keeps both, but only one stays on disk.
 func (c *Crawler) claimPath(savedPath, pageURL string, taskLog *slog.Logger) {
 	c.savedPathsMu.Lock()
 	defer c.savedPathsMu.Unlock()
 	if c.savedPaths == nil {
 		c.savedPaths = make(map[string]string)
+		c.warnedPaths = make(map[string]bool)
 	}
 	prev, ok := c.savedPaths[savedPath]
 	c.savedPaths[savedPath] = pageURL
-	if ok && prev != pageURL {
+	if ok && prev != pageURL && !c.warnedPaths[savedPath] {
+		c.warnedPaths[savedPath] = true
 		taskLog.Warn(fmt.Sprintf("pages %s and %s save to the same file %s; the second overwrote the first", prev, pageURL, savedPath))
 	}
 }

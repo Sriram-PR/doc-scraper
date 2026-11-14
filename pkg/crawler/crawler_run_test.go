@@ -824,7 +824,11 @@ func runResumableCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.S
 
 func runResumableCrawlErr(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool) (CrawlerProgress, error) {
 	t.Helper()
-	crawlLog := newCrawlLog(t)
+	return runResumableCrawlLogged(t, appCfg, siteCfg, resume, newCrawlLog(t))
+}
+
+func runResumableCrawlLogged(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, resume bool, crawlLog *crawlLog) (CrawlerProgress, error) {
+	t.Helper()
 	logger := crawlLog.logger()
 	ctx, cancel := crawlLog.deadlineContext(t, appCfg)
 	defer cancel()
@@ -1605,12 +1609,7 @@ func TestCrawlerRun_WarnsWhenTwoPagesSaveToOneFile(t *testing.T) {
 	log := newCrawlLog(t)
 	require.NoError(t, runCrawlLogged(t, appCfg, siteCfg, log))
 
-	var warnings []string
-	for _, line := range strings.Split(log.String(), "\n") {
-		if strings.Contains(line, "save to the same file") {
-			warnings = append(warnings, line)
-		}
-	}
+	warnings := sameFileWarnings(log)
 	require.Len(t, warnings, 1, "one warning per clash")
 	assert.Contains(t, warnings[0], server.URL+"/docs/guide.html ")
 	assert.Contains(t, warnings[0], server.URL+"/docs/guide.htm ")
@@ -1618,4 +1617,51 @@ func TestCrawlerRun_WarnsWhenTwoPagesSaveToOneFile(t *testing.T) {
 	jsonl := strings.Join(readJSONLLines(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "pages.jsonl")), "\n")
 	assert.Contains(t, jsonl, `/docs/guide.html"`, "the JSONL keeps both pages")
 	assert.Contains(t, jsonl, `/docs/guide.htm"`)
+}
+
+func sameFileWarnings(log *crawlLog) []string {
+	var warnings []string
+	for _, line := range strings.Split(log.String(), "\n") {
+		if strings.Contains(line, "save to the same file") {
+			warnings = append(warnings, line)
+		}
+	}
+	return warnings
+}
+
+// Many URLs on one file (a paginated list whose query the path drops) must not
+// flood the log.
+func TestCrawlerRun_WarnsOncePerFileWhenManyPagesShareIt(t *testing.T) {
+	pages := map[string]string{
+		"/docs/index.html": `<html><body><p>Index</p><a href="/docs/guide.html">a</a> <a href="/docs/guide.htm">b</a> <a href="/docs/guide.php">c</a></body></html>`,
+		"/docs/guide.html": `<html><body><p>guide as html</p></body></html>`,
+		"/docs/guide.htm":  `<html><body><p>guide as htm</p></body></html>`,
+		"/docs/guide.php":  `<html><body><p>guide as php</p></body></html>`,
+	}
+	server, _ := newDocServer(t, pages)
+	appCfg := newTestAppConfig(t)
+	log := newCrawlLog(t)
+	require.NoError(t, runCrawlLogged(t, appCfg, baseSiteConfig(server, "/docs/index.html"), log))
+	assert.Len(t, sameFileWarnings(log), 1)
+}
+
+// An incremental run skips an unchanged page without saving it, but a changed
+// page that saves to the same file still overwrites it.
+func TestCrawlerRun_WarnsAboutAClashWithAnUnchangedPage(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><body><main id="c"><p>Index</p><a href="/docs/guide.html">a</a> <a href="/docs/guide.htm">b</a></main></body></html>`)
+	ms.set("/docs/guide.html", `<html><body><main id="c"><p>guide as html</p></main></body></html>`)
+	ms.set("/docs/guide.htm", `<html><body><main id="c"><p>guide as htm v1</p></main></body></html>`)
+
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+	runResumableCrawl(t, appCfg, siteCfg, false)
+
+	ms.set("/docs/guide.htm", `<html><body><main id="c"><p>guide as htm v2</p></main></body></html>`)
+	log := newCrawlLog(t)
+	_, err := runResumableCrawlLogged(t, appCfg, siteCfg, true, log)
+	require.NoError(t, err)
+	assert.Len(t, sameFileWarnings(log), 1, "the unchanged page's file was overwritten")
 }
