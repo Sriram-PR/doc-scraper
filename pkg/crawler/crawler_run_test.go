@@ -157,7 +157,11 @@ func siteOutputDir(appCfg *config.AppConfig, _ *config.SiteConfig) string {
 // builds a crawler for a single site.
 func runCrawl(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig) error {
 	t.Helper()
-	crawlLog := newCrawlLog(t)
+	return runCrawlLogged(t, appCfg, siteCfg, newCrawlLog(t))
+}
+
+func runCrawlLogged(t *testing.T, appCfg *config.AppConfig, siteCfg *config.SiteConfig, crawlLog *crawlLog) error {
+	t.Helper()
 	logger := crawlLog.logger()
 	ctx, cancel := crawlLog.deadlineContext(t, appCfg)
 	defer cancel()
@@ -1587,4 +1591,31 @@ func TestCrawlerRun_SitemapHostCase(t *testing.T) {
 			assert.FileExists(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "orphan.md"))
 		})
 	}
+}
+
+func TestCrawlerRun_WarnsWhenTwoPagesSaveToOneFile(t *testing.T) {
+	pages := map[string]string{
+		"/docs/index.html": `<html><body><p>Index</p><a href="/docs/guide.html">a</a> <a href="/docs/guide.htm">b</a></body></html>`,
+		"/docs/guide.html": `<html><head><title>A</title></head><body><p>guide as html</p></body></html>`,
+		"/docs/guide.htm":  `<html><head><title>B</title></head><body><p>guide as htm</p></body></html>`,
+	}
+	server, _ := newDocServer(t, pages)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	log := newCrawlLog(t)
+	require.NoError(t, runCrawlLogged(t, appCfg, siteCfg, log))
+
+	var warnings []string
+	for _, line := range strings.Split(log.String(), "\n") {
+		if strings.Contains(line, "save to the same file") {
+			warnings = append(warnings, line)
+		}
+	}
+	require.Len(t, warnings, 1, "one warning per clash")
+	assert.Contains(t, warnings[0], server.URL+"/docs/guide.html ")
+	assert.Contains(t, warnings[0], server.URL+"/docs/guide.htm ")
+
+	jsonl := strings.Join(readJSONLLines(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "pages.jsonl")), "\n")
+	assert.Contains(t, jsonl, `/docs/guide.html"`, "the JSONL keeps both pages")
+	assert.Contains(t, jsonl, `/docs/guide.htm"`)
 }

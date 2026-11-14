@@ -81,6 +81,9 @@ type Crawler struct {
 	gonePages   []*url.URL
 	gonePagesMu sync.Mutex
 
+	savedPathsMu sync.Mutex
+	savedPaths   map[string]string // Markdown path -> page URL that saved it this run
+
 	// Output file management (Markdown files + JSONL + llms.txt)
 	output *OutputManager
 
@@ -1120,11 +1123,27 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	savedContentPath = tempSavedPath
 
 	if savedContentPath != "" {
+		c.claimPath(savedContentPath, finalURL.String(), taskLog)
 		c.output.RecordPageOutput(finalURL.String(), tempMarkdownBytes, pageTitle, currentDepth, taskLog)
 		c.savedCounter.Add(1)
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.
+}
+
+// claimPath warns when a page saves to a file another page of this run already
+// saved: the JSONL keeps both, but only the later one stays on disk.
+func (c *Crawler) claimPath(savedPath, pageURL string, taskLog *slog.Logger) {
+	c.savedPathsMu.Lock()
+	defer c.savedPathsMu.Unlock()
+	if c.savedPaths == nil {
+		c.savedPaths = make(map[string]string)
+	}
+	prev, ok := c.savedPaths[savedPath]
+	c.savedPaths[savedPath] = pageURL
+	if ok && prev != pageURL {
+		taskLog.Warn(fmt.Sprintf("pages %s and %s save to the same file %s; the second overwrote the first", prev, pageURL, savedPath))
+	}
 }
 
 // savedFileExists reports whether a page's Markdown file is where this
