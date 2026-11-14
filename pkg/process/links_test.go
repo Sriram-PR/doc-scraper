@@ -57,6 +57,7 @@ func (f *fakePageStore) CheckPageStatus(string) (models.PageStatus, *models.Page
 }
 func (f *fakePageStore) UpdatePageStatus(string, *models.PageDBEntry) error { return nil }
 func (f *fakePageStore) GetPageContentHash(string) (string, bool, error)    { return "", false, nil }
+func (f *fakePageStore) DeletePage(string) error                            { return nil }
 
 // queuedURLs drains the queue and returns the URLs in sorted order.
 func queuedURLs(t *testing.T, pq *queue.ThreadSafePriorityQueue) []string {

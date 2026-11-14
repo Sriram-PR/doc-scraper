@@ -98,6 +98,7 @@ func (m *mockPageStore) CheckPageStatus(string) (models.PageStatus, *models.Page
 func (m *mockPageStore) UpdatePageStatus(string, *models.PageDBEntry) error { return nil }
 
 func (m *mockPageStore) GetPageContentHash(string) (string, bool, error) { return "", false, nil }
+func (m *mockPageStore) DeletePage(string) error                         { return nil }
 
 func (m *mockPageStore) visitedCount() int {
 	m.mu.Lock()

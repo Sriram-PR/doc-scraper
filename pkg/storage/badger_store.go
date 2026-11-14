@@ -249,6 +249,34 @@ func (s *BadgerStore) UpdatePageStatus(normalizedPageURL string, entry *models.P
 	return nil
 }
 
+// DeletePage removes a page's entry so a page dropped from the corpus is not requeued.
+func (s *BadgerStore) DeletePage(normalizedPageURL string) error {
+	if s.db == nil {
+		return errors.New("visitedDB not initialized")
+	}
+	key := []byte(pageKeyPrefix + normalizedPageURL)
+	var existed bool
+	err := s.dbUpdate(func(txn *badger.Txn) error {
+		existed = false
+		_, errGet := txn.Get(key)
+		if errors.Is(errGet, badger.ErrKeyNotFound) {
+			return nil
+		}
+		if errGet != nil {
+			return errGet
+		}
+		existed = true
+		return txn.Delete(key)
+	})
+	if err != nil {
+		return fmt.Errorf("%w: failed deleting page key '%s': %w", utils.ErrDatabase, string(key), err)
+	}
+	if existed {
+		s.keyCount.Add(-1)
+	}
+	return nil
+}
+
 // GetPageContentHash returns the content hash stored for a page, whatever its
 // status: a failed page keeps the hash of its last good copy.
 func (s *BadgerStore) GetPageContentHash(normalizedPageURL string) (hash string, exists bool, err error) {

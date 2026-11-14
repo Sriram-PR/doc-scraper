@@ -32,7 +32,14 @@ type sweepInput struct {
 // and one whose page is in neither the JSONL nor the visited DB. Only files
 // with doc-scraper page front matter are considered.
 func sweepOrphans(in sweepInput, log *slog.Logger) int {
-	root := filepath.Clean(in.dir)
+	dir := filepath.Clean(in.dir)
+	// Root-scoped, so a symlinked directory swapped in mid-walk can't redirect a removal.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		log.Warn("Could not open the output directory to remove orphaned files", "dir", dir, "err", err)
+		return 0
+	}
+	defer func() { _ = root.Close() }()
 	claimedPaths := make(map[string]struct{}, len(in.claimed))
 	claimedURLs := make(map[string]struct{}, len(in.claimed))
 	for p, raw := range in.claimed {
@@ -43,41 +50,48 @@ func sweepOrphans(in sweepInput, log *slog.Logger) int {
 	}
 
 	var removed []string
-	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	_ = fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
+		name := filepath.FromSlash(rel)
+		p := filepath.Join(dir, name)
 		if err != nil {
 			log.Warn("Could not read part of the output directory while removing orphaned files", "path", p, "err", err)
+			return nil //nolint:nilerr // an unreadable part is left alone, the rest is still swept
+		}
+		if !d.Type().IsRegular() || !strings.HasSuffix(rel, ".md") {
 			return nil
 		}
-		if !d.Type().IsRegular() || !strings.HasSuffix(p, ".md") {
-			return nil
+		if _, ok := claimedPaths[p]; !ok && in.removeIfOrphan(root, name, p, claimedURLs, log) {
+			removed = append(removed, name)
 		}
-		if _, ok := claimedPaths[p]; ok {
-			return nil
-		}
-		pageURL, err := frontmatterURL(p)
-		if err != nil {
-			log.Warn("Could not read a Markdown file's front matter; leaving it", "path", p, "err", err)
-			return nil
-		}
-		if pageURL == "" {
-			return nil
-		}
-		u, err := url.Parse(pageURL)
-		if err != nil || !in.orphan(parse.NormalizeURL(u), claimedURLs) {
-			return nil
-		}
-		if err := os.Remove(p); err != nil {
-			log.Warn("Could not remove an orphaned Markdown file", "path", p, "err", err)
-			return nil
-		}
-		log.Info("Removed an orphaned Markdown file", "path", p, "url", pageURL)
-		removed = append(removed, p)
 		return nil
 	})
-	for _, p := range removed {
-		removeEmptyParents(filepath.Dir(p), root)
+	for _, name := range removed {
+		removeEmptyParents(root, filepath.Dir(name))
 	}
 	return len(removed)
+}
+
+// removeIfOrphan removes the file when it is a doc-scraper page file that no
+// page of the corpus uses, and reports whether it did.
+func (in sweepInput) removeIfOrphan(root *os.Root, name, p string, claimedURLs map[string]struct{}, log *slog.Logger) bool {
+	pageURL, err := frontmatterURL(root, name)
+	if err != nil {
+		log.Warn("Could not read a Markdown file's front matter; leaving it", "path", p, "err", err)
+		return false
+	}
+	if pageURL == "" {
+		return false
+	}
+	u, err := url.Parse(pageURL)
+	if err != nil || !in.orphan(parse.NormalizeURL(u), claimedURLs) {
+		return false
+	}
+	if err := root.Remove(name); err != nil {
+		log.Warn("Could not remove an orphaned Markdown file", "path", p, "err", err)
+		return false
+	}
+	log.Info("Removed an orphaned Markdown file", "path", p, "url", pageURL)
+	return true
 }
 
 func (in sweepInput) orphan(key string, claimedURLs map[string]struct{}) bool {
@@ -98,8 +112,8 @@ func (in sweepInput) orphan(key string, claimedURLs map[string]struct{}) bool {
 
 // frontmatterURL returns the url of a doc-scraper page file, or "" when the
 // file does not start with front matter carrying url, crawled_at and content_hash.
-func frontmatterURL(path string) (string, error) {
-	f, err := os.Open(path)
+func frontmatterURL(root *os.Root, name string) (string, error) {
+	f, err := root.Open(name)
 	if err != nil {
 		return "", err
 	}
@@ -138,9 +152,9 @@ func ignoreEOF(err error) error {
 	return err
 }
 
-func removeEmptyParents(dir, root string) {
-	for dir != root && strings.HasPrefix(dir, root+string(filepath.Separator)) {
-		if os.Remove(dir) != nil {
+func removeEmptyParents(root *os.Root, dir string) {
+	for dir != "." && dir != string(filepath.Separator) {
+		if root.Remove(dir) != nil {
 			return
 		}
 		dir = filepath.Dir(dir)

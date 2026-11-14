@@ -753,3 +753,25 @@ func TestDBUpdateConflictRetry(t *testing.T) {
 		assert.Equal(t, 1, attempts)
 	})
 }
+
+func TestDeletePage(t *testing.T) {
+	store := newTestStore(t)
+	for _, u := range []string{"https://example.com/a", "https://example.com/b"} {
+		require.NoError(t, store.UpdatePageStatus(u, &models.PageDBEntry{Status: models.PageStatusSuccess, LastAttempt: time.Now()}))
+	}
+	before, err := store.GetVisitedCount()
+	require.NoError(t, err)
+
+	require.NoError(t, store.DeletePage("https://example.com/a"))
+	require.NoError(t, store.DeletePage("https://example.com/missing"), "deleting a missing page is not an error")
+
+	st, _, err := store.CheckPageStatus("https://example.com/a")
+	require.NoError(t, err)
+	assert.Equal(t, models.PageStatusNotFound, st)
+	st, _, err = store.CheckPageStatus("https://example.com/b")
+	require.NoError(t, err)
+	assert.Equal(t, models.PageStatusSuccess, st)
+	after, err := store.GetVisitedCount()
+	require.NoError(t, err)
+	assert.Equal(t, before-1, after)
+}

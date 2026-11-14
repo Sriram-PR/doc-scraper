@@ -1002,17 +1002,19 @@ func TestCrawlerRun_IncrementalPartialFailureSucceeds(t *testing.T) {
 func TestCrawlerRun_ResumeRetryingOnlyFailedPagesSucceeds(t *testing.T) {
 	server, ms := newMutableDocServer(t)
 	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
-		`<main id="c"><p>HOME</p><a href="/docs/gone.html">gone</a></main></body></html>`)
+		`<main id="c"><p>HOME</p><a href="/docs/denied.html">denied</a></main></body></html>`)
+	// A 403 keeps its failure entry; a 404 would be removed from the visited DB.
+	ms.setStatus("/docs/denied.html", http.StatusForbidden)
 	appCfg := newTestAppConfig(t)
 	siteCfg := baseSiteConfig(server, "/docs/index.html")
 	siteCfg.ContentSelector = "#c"
 
 	runResumableCrawl(t, appCfg, siteCfg, false)
-	require.Equal(t, 1, ms.hitCount("/docs/gone.html"))
+	require.Equal(t, 1, ms.hitCount("/docs/denied.html"))
 
 	p := runResumableCrawl(t, appCfg, siteCfg, true)
 
-	require.Equal(t, 2, ms.hitCount("/docs/gone.html"), "resume retries the failed page")
+	require.Equal(t, 2, ms.hitCount("/docs/denied.html"), "resume retries the failed page")
 	assert.EqualValues(t, 1, p.PagesProcessed)
 }
 
@@ -1723,4 +1725,132 @@ func TestCrawlerRun_FailedFetchKeepsContentHash(t *testing.T) {
 	assert.Equal(t, before.CrawledAt, after.CrawledAt)
 	assert.Equal(t, before.ContentHash, after.ContentHash)
 	assert.Equal(t, models.PageStatusSuccess, visitedStatus(t, appCfg, aURL), "an unchanged page is a success again")
+}
+
+// TestCrawlerRun_GonePageIsNotFetchedAgain: once a 404 page with no inbound
+// links is removed, later runs don't request it.
+func TestCrawlerRun_GonePageIsNotFetchedAgain(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body><main id="c"><p>HOME v2</p></main></body></html>`)
+	ms.remove("/docs/a.html")
+	runResumableCrawl(t, appCfg, siteCfg, true)
+	require.Empty(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"))
+	hits := ms.hitCount("/docs/a.html")
+
+	runResumableCrawl(t, appCfg, siteCfg, true)
+	assert.Equal(t, hits, ms.hitCount("/docs/a.html"), "a removed 404 page is not requeued")
+}
+
+// TestCrawlerRun_IncrementalRemovesOldNameFiles: a page file left under an older
+// name goes; a file without doc-scraper front matter stays.
+func TestCrawlerRun_IncrementalRemovesOldNameFiles(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	ms.set("/docs/a.html", `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+	runResumableCrawl(t, appCfg, siteCfg, false)
+
+	dir := siteOutputDir(appCfg, siteCfg)
+	real := mdFilesContaining(t, dir, "PAGE-A")
+	require.Len(t, real, 1)
+	body, err := os.ReadFile(real[0])
+	require.NoError(t, err)
+	oldName := filepath.Join(dir, "legacy", "v1", "a.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(oldName), 0o755))
+	require.NoError(t, os.WriteFile(oldName, body, 0o644))
+	notes := filepath.Join(dir, "notes.md")
+	require.NoError(t, os.WriteFile(notes, []byte("# my notes about PAGE-A\n"), 0o644))
+
+	runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.NoFileExists(t, oldName)
+	assert.NoDirExists(t, filepath.Join(dir, "legacy"))
+	assert.FileExists(t, real[0])
+	assert.FileExists(t, notes)
+}
+
+// TestCrawlerRun_CancelledIncrementalRetiresNothing: a 404 seen by a run that
+// is then cancelled leaves the page's file and record in place.
+func TestCrawlerRun_CancelledIncrementalRetiresNothing(t *testing.T) {
+	var goneA, blockB atomic.Bool
+	aServed := make(chan struct{}, 1)
+	bBlocked := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/docs/index.html":
+			_, _ = io.WriteString(w, `<html><head><title>Doc</title></head><body><main id="c"><p>HOME</p>`+
+				`<a href="/docs/a.html">a</a><a href="/docs/b.html">b</a></main></body></html>`)
+		case "/docs/a.html":
+			if goneA.Load() {
+				w.WriteHeader(http.StatusNotFound)
+				select {
+				case aServed <- struct{}{}:
+				default:
+				}
+				return
+			}
+			_, _ = io.WriteString(w, `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`)
+		case "/docs/b.html":
+			if blockB.Load() {
+				select {
+				case bBlocked <- struct{}{}:
+				default:
+				}
+				<-r.Context().Done()
+				return
+			}
+			_, _ = io.WriteString(w, `<html><head><title>B</title></head><body><main id="c"><p>PAGE-B</p></main></body></html>`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+	runResumableCrawl(t, appCfg, siteCfg, false)
+
+	goneA.Store(true)
+	blockB.Store(true)
+	logger := silentLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store, err := storage.NewBadgerStore(ctx, appCfg.StateDir, testSiteKey, true, logger)
+	require.NoError(t, err)
+	fetcher := fetch.NewFetcher(fetch.NewClient(appCfg.HTTPClientSettings, logger), appCfg, logger)
+	c, err := NewCrawlerWithOptions(appCfg, siteCfg, testSiteKey, logger, store, fetcher, fetch.NewRateLimiter(0, logger), ctx, cancel, true, nil)
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = c.Run(true)
+	}()
+	for _, ch := range []chan struct{}{aServed, bBlocked} {
+		select {
+		case <-ch:
+		case <-time.After(10 * time.Second):
+			t.Fatal("a.html or b.html was never requested")
+		}
+	}
+	time.Sleep(100 * time.Millisecond) // let a.html's task record its 404
+	cancel()
+	<-done
+	require.NoError(t, store.Close())
+
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/a.html"))
+	assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"), 1)
 }

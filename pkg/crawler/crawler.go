@@ -77,9 +77,8 @@ type Crawler struct {
 	foundSitemaps   map[string]bool // Tracks sitemaps discovered by robots.txt
 	foundSitemapsMu sync.Mutex
 
-	// Pages that answered 404 or 410; dropped from the corpus when the run completes.
-	gonePages   []*url.URL
-	gonePagesMu sync.Mutex
+	// Pages a completed run removes from the corpus.
+	retired retireList
 
 	savedPathsMu sync.Mutex
 	savedPaths   map[string]string // Markdown path -> page URL that saved or kept it this run
@@ -356,13 +355,14 @@ func (c *Crawler) Run(resume bool) (err error) {
 func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 	staged := c.stage != nil && c.stage.Staged
 	// Decided before anything on disk changes: an in-place run deletes the
-	// files of 404 pages in dropGonePages, which a refusal must not do.
+	// files of removed pages, which a refusal must not do.
 	if runErr == nil {
 		if lossy := c.checkLoss(staged); lossy != nil {
 			runErr = lossy
 		}
 	}
 	completed := runErr == nil
+	var retired map[string]struct{}
 	if completed {
 		if c.carry != nil {
 			c.carry.carryAll(c.output, c.contentProcessor, c.siteCfg, c.siteOutputDir)
@@ -371,9 +371,14 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 				runLog.Info("Kept the previous copy of pages that failed with a temporary error", "count", n)
 			}
 		}
-		c.dropGonePages(runLog)
+		_, claimed := c.claimedSnapshot()
+		retired = applyRetirements(c.retired.pending(claimed), c.output.recordedPageKeys(), c.output, c.store,
+			func(string) bool { return true }, runLog)
 	}
 	c.output.Finalize()
+	if completed && !staged {
+		c.removeOrphans(retired, runLog)
+	}
 
 	if staged && !completed {
 		runLog.Warn("Crawl incomplete; live corpus left untouched, staging kept so --resume can continue it", "staging", c.stage.OutputDir())
@@ -403,9 +408,8 @@ func (c *Crawler) finish(runErr error, runLog *slog.Logger) error {
 // checkLoss returns a *LossyCrawlError when the finished run lost too much to
 // publish, nil otherwise.
 func (c *Crawler) checkLoss(staged bool) *LossyCrawlError {
-	c.gonePagesMu.Lock()
-	gone := append([]*url.URL(nil), c.gonePages...)
-	c.gonePagesMu.Unlock()
+	_, claimed := c.claimedSnapshot()
+	gone := retiredURLs(c.retired.pending(claimed))
 	f := c.failures.snapshot()
 
 	in := lossInput{
@@ -436,23 +440,6 @@ func (c *Crawler) checkLoss(staged bool) *LossyCrawlError {
 		SiteKey: c.siteKey, Reason: v.Reason,
 		NewPages: v.NewPages, Baseline: v.Baseline, Transient: v.Transient, Attempted: v.Attempted, Processed: v.Processed,
 		Failures: f, StagingKept: staged,
-	}
-}
-
-// dropGonePages removes pages the site no longer serves. An incremental crawl
-// works in place on the previous corpus, so without this a deleted page would
-// stay in the output, the history index and search.
-func (c *Crawler) dropGonePages(runLog *slog.Logger) {
-	c.gonePagesMu.Lock()
-	defer c.gonePagesMu.Unlock()
-	for _, u := range c.gonePages {
-		if p, ok := c.contentProcessor.OutputPathForURL(u, c.siteCfg, c.siteOutputDir); ok {
-			if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-				runLog.Warn("Failed to remove the Markdown file of a page the site no longer serves", "path", p, "err", err)
-			}
-		}
-		c.output.DropPage(u)
-		runLog.Info("Removed a page the site no longer serves", "url", u.String())
 	}
 }
 
@@ -983,6 +970,9 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 					c.carry.note(u)
 				}
 			}
+			if gone {
+				c.retirePage(currentURL, retireGone)
+			}
 		}
 		c.wg.Done()
 	}()
@@ -1029,9 +1019,6 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	if handleTaskError(fetchErr) {
 		if resp != nil && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone) {
 			gone = true
-			c.gonePagesMu.Lock()
-			c.gonePages = append(c.gonePages, parsedOriginalURL)
-			c.gonePagesMu.Unlock()
 		}
 		return
 	}
@@ -1143,6 +1130,46 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.
+}
+
+func (c *Crawler) retirePage(rawURL, reason string) {
+	if u, err := url.Parse(rawURL); err == nil {
+		c.retired.add(u, reason)
+	}
+}
+
+// claimedSnapshot copies the paths saved or kept this run and their pages'
+// normalized URLs.
+func (c *Crawler) claimedSnapshot() (paths map[string]string, urls map[string]struct{}) {
+	c.savedPathsMu.Lock()
+	defer c.savedPathsMu.Unlock()
+	paths = make(map[string]string, len(c.savedPaths))
+	urls = make(map[string]struct{}, len(c.savedPaths))
+	for p, raw := range c.savedPaths {
+		paths[p] = raw
+		if u, err := url.Parse(raw); err == nil {
+			urls[parse.NormalizeURL(u)] = struct{}{}
+		}
+	}
+	return paths, urls
+}
+
+// removeOrphans deletes Markdown files the finished in-place run left unused.
+func (c *Crawler) removeOrphans(retired map[string]struct{}, runLog *slog.Logger) {
+	paths, _ := c.claimedSnapshot()
+	n := sweepOrphans(sweepInput{
+		dir:     c.siteOutputDir,
+		retired: retired,
+		claimed: paths,
+		corpus:  c.output.recordedPageKeys(),
+		stored: func(k string) bool {
+			st, _, err := c.store.CheckPageStatus(k)
+			return err != nil || st == models.PageStatusSuccess
+		},
+	}, runLog)
+	if n > 0 {
+		runLog.Info("Removed orphaned Markdown files", "count", n)
+	}
 }
 
 // claimPath warns, once per file, when a page saves to a file another page of

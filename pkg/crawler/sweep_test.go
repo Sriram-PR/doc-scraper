@@ -72,7 +72,7 @@ func TestSweepOrphans(t *testing.T) {
 	}
 	for _, p := range []string{live, kept, storedOnly, notes, partial, unclosed, llms, outside, link} {
 		_, err := os.Lstat(p)
-		assert.NoError(t, err, "%s must stay", p)
+		require.NoError(t, err, "%s must stay", p)
 	}
 	assert.NoDirExists(t, filepath.Join(dir, "legacy"), "directories left empty are removed")
 	assert.DirExists(t, dir)
