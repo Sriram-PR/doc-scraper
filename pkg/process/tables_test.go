@@ -53,7 +53,7 @@ func TestToMarkdown_TwoPreCellsThatAreNotLineNumbersStayData(t *testing.T) {
 }
 
 func TestMarkdownFormatVersion(t *testing.T) {
-	assert.Equal(t, 3, MarkdownFormatVersion)
+	assert.Equal(t, 4, MarkdownFormatVersion)
 }
 
 func TestToMarkdown_DataTables(t *testing.T) {

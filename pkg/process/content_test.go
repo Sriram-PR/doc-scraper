@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
 // testContentProcessor returns a minimal ContentProcessor for testing
@@ -773,4 +774,72 @@ func TestStripBreadcrumbs_ChromeScopeKeepsItsHeadings(t *testing.T) {
 	scope := doc.Find("aside").Clone()
 	assert.Zero(t, stripBreadcrumbs(scope))
 	assert.Contains(t, scope.Text(), "Home")
+}
+
+func outputPath(t *testing.T, cp *ContentProcessor, siteCfg *config.SiteConfig, rawURL string) string {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	require.NoError(t, err)
+	p, ok := cp.OutputPathForURL(u, siteCfg, "/output/site")
+	require.True(t, ok, "%s should be in scope", rawURL)
+	require.True(t, utils.IsWithinDir("/output/site", p), "%s escaped the site dir: %s", rawURL, p)
+	return p
+}
+
+func TestGetOutputPathForURL_DistinctURLsGetDistinctFiles(t *testing.T) {
+	cp := testContentProcessor()
+	siteCfg := &config.SiteConfig{AllowedDomain: "example.com", AllowedPathPrefix: "/docs/"}
+	long := strings.Repeat("x", 120)
+	paths := []string{
+		"/docs/a_b", "/docs/a:b", "/docs/v1.2", "/docs/v1.3", "/docs/3.0.1", "/docs/3.0.2",
+		"/docs/releases/1.10", "/docs/releases/1.11",
+		"/docs/guide.html", "/docs/guide.pdf", "/docs/guide",
+		"/docs/" + long + "1", "/docs/" + long + "2",
+	}
+	seen := map[string]string{}
+	for _, p := range paths {
+		got := outputPath(t, cp, siteCfg, "https://example.com"+p)
+		if prev, dup := seen[got]; dup {
+			t.Errorf("%s and %s both map to %s", prev, p, got)
+		}
+		seen[got] = p
+	}
+}
+
+func TestGetOutputPathForURL_Names(t *testing.T) {
+	cp := testContentProcessor()
+	siteCfg := &config.SiteConfig{AllowedDomain: "example.com", AllowedPathPrefix: "/docs/"}
+	for _, tc := range []struct{ path, want string }{
+		{"/docs/v1.2", "v1.2/index.md"},
+		{"/docs/3.0.1/", "3.0.1/index.md"},
+		{"/docs/fastapi.HTTPException", "fastapi.HTTPException/index.md"},
+		{"/docs/_modules/requests/api/", "_modules/requests/api/index.md"},
+		{"/docs/__init__", "__init__/index.md"},
+		{"/docs/guide.HTML", "guide.md"},
+		{"/docs/api/reference.aspx", "api/reference.md"},
+		{"/docs/notes.md", "notes.md"},
+		{"/docs/sub/llms.txt", "sub/llms.txt/index.md"},
+	} {
+		got := outputPath(t, cp, siteCfg, "https://example.com"+tc.path)
+		assert.Equal(t, filepath.Join("/output/site", filepath.FromSlash(tc.want)), got, tc.path)
+	}
+	got := outputPath(t, cp, siteCfg, "https://example.com/docs/a:b")
+	assert.Regexp(t, `a_b_[0-9a-f]{8}`, filepath.ToSlash(got))
+}
+
+func TestGetOutputPathForURL_AvoidsFilesInTheSiteRoot(t *testing.T) {
+	cp := &ContentProcessor{appCfg: &config.AppConfig{JSONLOutputFilename: "corpus.jsonl"}}
+	siteCfg := &config.SiteConfig{AllowedDomain: "example.com", AllowedPathPrefix: "/"}
+	for _, p := range []string{"/llms.txt", "/LLMS-FULL.TXT", "/corpus.jsonl", "/llms.txt/sub"} {
+		got := outputPath(t, cp, siteCfg, "https://example.com"+p)
+		rel, err := filepath.Rel("/output/site", got)
+		require.NoError(t, err)
+		first := strings.Split(filepath.ToSlash(rel), "/")[0]
+		assert.Regexp(t, `_[0-9a-f]{8}$`, first, "%s must not take a generated file's name", p)
+	}
+
+	cp = &ContentProcessor{appCfg: &config.AppConfig{}}
+	siteCfg.JSONLOutputFilename = "notes.md"
+	got := outputPath(t, cp, siteCfg, "https://example.com/notes.html")
+	assert.NotEqual(t, filepath.Join("/output/site", "notes.md"), got, "a page must not overwrite the site's JSONL")
 }

@@ -273,8 +273,9 @@ func (cp *ContentProcessor) ProcessAndSaveContent(
 	return currentPageFullOutputPath, []byte(markdownContent), imgRewriteCount, nil
 }
 
-// OutputPathForURL maps a crawled URL to a sanitized local filesystem path, performing scope
-// checks. Returns the absolute output path and true if in scope, otherwise ("", false).
+// OutputPathForURL maps a crawled URL to its Markdown file under siteOutputDir,
+// or ("", false) when the URL is out of scope. Distinct URL paths map to
+// distinct files (letter case aside); see utils.SafeSegment.
 func (cp *ContentProcessor) OutputPathForURL(targetURL *url.URL, siteCfg *config.SiteConfig, siteOutputDir string) (string, bool) {
 	if (targetURL.Scheme != "http" && targetURL.Scheme != "https") ||
 		!parse.SameHost(targetURL.Hostname(), siteCfg.AllowedDomain) {
@@ -300,34 +301,18 @@ func (cp *ContentProcessor) OutputPathForURL(targetURL *url.URL, siteCfg *config
 	relativePath := strings.TrimPrefix(normalizedPath, strings.TrimSuffix(siteCfg.AllowedPathPrefix, "/"))
 	relativePath = strings.TrimPrefix(relativePath, "/")
 
-	if relativePath != "" {
-		baseName := path.Base(relativePath)
-		dirPart := path.Dir(relativePath)
-		ext := path.Ext(baseName)
-
-		if ext != "" && len(ext) > 1 { // file-like URL
-			outputFilename = utils.SanitizeFilename(strings.TrimSuffix(baseName, ext)) + ".md"
-			if dirPart != "" && dirPart != "." {
-				var sanitizedDirParts []string
-				for _, part := range strings.Split(dirPart, "/") {
-					if part != "" {
-						sanitizedDirParts = append(sanitizedDirParts, utils.SanitizeFilename(part))
-					}
-				}
-				if len(sanitizedDirParts) > 0 {
-					outputSubDir = filepath.Join(siteOutputDir, filepath.Join(sanitizedDirParts...))
-				}
-			}
-		} else {
-			var sanitizedDirParts []string
-			for _, part := range strings.Split(relativePath, "/") {
-				if part != "" {
-					sanitizedDirParts = append(sanitizedDirParts, utils.SanitizeFilename(part))
-				}
-			}
-			if len(sanitizedDirParts) > 0 {
-				outputSubDir = filepath.Join(siteOutputDir, filepath.Join(sanitizedDirParts...))
-			}
+	if parts := strings.FieldsFunc(relativePath, func(r rune) bool { return r == '/' }); len(parts) > 0 {
+		last := parts[len(parts)-1]
+		if ext := path.Ext(last); pageExtensions[strings.ToLower(ext)] && len(last) > len(ext) {
+			outputFilename = cp.entryName(strings.TrimSuffix(last, ext), ".md", len(parts) == 1, siteCfg)
+			parts = parts[:len(parts)-1]
+		}
+		dirs := make([]string, len(parts))
+		for i, part := range parts {
+			dirs[i] = cp.entryName(part, "", i == 0, siteCfg)
+		}
+		if len(dirs) > 0 {
+			outputSubDir = filepath.Join(siteOutputDir, filepath.Join(dirs...))
 		}
 	}
 
@@ -340,6 +325,36 @@ func (cp *ContentProcessor) OutputPathForURL(targetURL *url.URL, siteCfg *config
 		return "", false
 	}
 	return fullPath, true
+}
+
+// pageExtensions are stripped from a URL's last segment; any other dotted name
+// ("v1.2", "fastapi.HTTPException") is a page of its own, saved as a directory.
+var pageExtensions = map[string]bool{
+	".html": true, ".htm": true, ".xhtml": true, ".shtml": true,
+	".php": true, ".asp": true, ".aspx": true, ".jsp": true, ".md": true,
+}
+
+// entryName is the on-disk name for one URL path segment plus suffix. In the
+// site root it must not take the name of a file the crawler writes there.
+func (cp *ContentProcessor) entryName(seg, suffix string, inRoot bool, siteCfg *config.SiteConfig) string {
+	name := utils.SafeSegment(seg) + suffix
+	if inRoot && cp.isGeneratedRootFile(name, siteCfg) {
+		name = utils.HashedSegment(seg) + suffix
+	}
+	return name
+}
+
+func (cp *ContentProcessor) isGeneratedRootFile(name string, siteCfg *config.SiteConfig) bool {
+	appCfg := cp.appCfg
+	if appCfg == nil {
+		appCfg = &config.AppConfig{}
+	}
+	for _, f := range []string{config.LLMsTxtFilename, config.LLMsFullTxtFilename, config.GetEffectiveJSONLOutputFilename(siteCfg, appCfg)} {
+		if strings.EqualFold(name, f) {
+			return true
+		}
+	}
+	return false
 }
 
 // visibleText trims whitespace and zero-width characters, so anchors that

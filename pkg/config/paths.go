@@ -17,3 +17,9 @@ func (c *AppConfig) SiteOutputDir(siteKey string) string {
 func (c *AppConfig) SiteStagingOutputDir(siteKey string) string {
 	return c.SiteOutputDir(siteKey) + utils.StagingSuffix
 }
+
+// Files the crawler writes in a site's output dir next to the pages.
+const (
+	LLMsTxtFilename     = "llms.txt"
+	LLMsFullTxtFilename = "llms-full.txt"
+)

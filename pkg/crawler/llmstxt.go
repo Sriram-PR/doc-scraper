@@ -7,12 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 )
 
 const (
-	llmsTxtFilename     = "llms.txt"
-	llmsFullTxtFilename = "llms-full.txt"
+	llmsTxtFilename     = config.LLMsTxtFilename
+	llmsFullTxtFilename = config.LLMsFullTxtFilename
 )
 
 // writeLLMsTxtFiles emits llms.txt and llms-full.txt per https://llmstxt.org/,
