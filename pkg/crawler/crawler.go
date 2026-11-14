@@ -80,6 +80,9 @@ type Crawler struct {
 	// Pages a completed run removes from the corpus.
 	retired retireList
 
+	// Normalized URLs with a JSONL record when an incremental run started.
+	priorRecords map[string]struct{}
+
 	savedPathsMu sync.Mutex
 	savedPaths   map[string]string // Markdown path -> page URL that saved or kept it this run
 	warnedPaths  map[string]bool
@@ -292,6 +295,9 @@ func (c *Crawler) Run(resume bool) (err error) {
 		return err
 	}
 	c.output.OpenFiles(resume)
+	if c.appCfg.EnableIncremental {
+		c.priorRecords = c.output.recordedPageKeys()
+	}
 	if c.stage != nil && c.stage.Staged && c.resolved.EnableJSONLOutput {
 		cf, err := newCarryForward(c.stage.liveOut, c.resolved.JSONLOutputFilename, runLog)
 		if err != nil {
@@ -1099,7 +1105,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		if hashErr != nil {
 			taskLog.Warn(fmt.Sprintf("Failed to check content hash for incremental crawl: %v", hashErr))
 			// Continue processing despite hash check error
-		} else if exists && existingHash == contentHash && c.savedFileExists(finalURL) {
+		} else if exists && existingHash == contentHash && c.savedFileExists(finalURL) && (!redirected || c.hasPriorRecord(finalURL)) {
 			taskLog.Info("Page content unchanged (hash match) - skipping processing")
 			if p, ok := c.contentProcessor.OutputPathForURL(finalURL, c.siteCfg, c.siteOutputDir); ok {
 				c.claimPath(p, finalURL.String(), taskLog)
@@ -1113,6 +1119,8 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			c.unchangedCounter.Add(1)
 			skipped = true
 			return
+		} else if exists && existingHash == contentHash && redirected {
+			taskLog.Info("Page content unchanged but now served from another URL - saving it under that URL")
 		} else if exists && existingHash == contentHash {
 			taskLog.Info("Page content unchanged but its saved file is missing - saving it again")
 		} else if exists {
@@ -1196,6 +1204,17 @@ func (c *Crawler) claimPath(savedPath, pageURL string, taskLog *slog.Logger) {
 		c.warnedPaths[savedPath] = true
 		taskLog.Warn(fmt.Sprintf("pages %s and %s save to the same file %s; the second overwrote the first", prev, pageURL, savedPath))
 	}
+}
+
+// hasPriorRecord reports whether the corpus already holds a record for u. A
+// redirect to a URL that saves to the same file (a move to https, say) must
+// still record the page under its new URL.
+func (c *Crawler) hasPriorRecord(u *url.URL) bool {
+	if !c.resolved.EnableJSONLOutput {
+		return true
+	}
+	_, ok := c.priorRecords[parse.NormalizeURL(u)]
+	return ok
 }
 
 // savedFileExists reports whether a page's Markdown file is where this

@@ -1932,3 +1932,29 @@ func TestCrawlerRun_IncrementalRetiresPagesAFreshCrawlWouldSkip(t *testing.T) {
 		})
 	}
 }
+
+// TestCrawlerRun_RedirectToTheSamePathKeepsThePage covers a site moving host
+// or scheme: the new URL saves to the same file, so the unchanged skip must
+// not hide that its record still has to be written.
+func TestCrawlerRun_RedirectToTheSamePathKeepsThePage(t *testing.T) {
+	oldSrv, oldMS := newMutableDocServer(t)
+	newSrv, newMS := newMutableDocServer(t)
+	page := `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`
+	oldMS.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/a.html">a</a></main></body></html>`)
+	oldMS.set("/docs/a.html", page)
+	newMS.set("/docs/a.html", page)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(oldSrv, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+	runResumableCrawl(t, appCfg, siteCfg, false)
+
+	oldMS.setRedirect("/docs/a.html", newSrv.URL+"/docs/a.html")
+	for run := 2; run <= 3; run++ {
+		runResumableCrawl(t, appCfg, siteCfg, true)
+		assert.False(t, jsonlHasURL(t, appCfg, siteCfg, oldSrv.URL+"/docs/a.html"), "run %d: old URL", run)
+		assert.True(t, jsonlHasURL(t, appCfg, siteCfg, newSrv.URL+"/docs/a.html"), "run %d: new URL", run)
+		assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"), 1, "run %d: file", run)
+	}
+}
