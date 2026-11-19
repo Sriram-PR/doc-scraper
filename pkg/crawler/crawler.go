@@ -751,7 +751,7 @@ func (c *Crawler) seedStartURLs(validStartURLs []string, runLog *slog.Logger) in
 	runLog.Info("Seeding priority queue with validated start URLs...")
 	initialURLsAddedFromSeed := 0
 	for _, startURLStr := range validStartURLs {
-		normalizedSeed, _, normErr := parse.ParseAndNormalize(startURLStr)
+		normalizedSeed, fetchSeed, _, normErr := parse.ParseURL(startURLStr)
 		if normErr != nil {
 			runLog.Warn(fmt.Sprintf("Skipping start URL '%s': normalize failed: %v", startURLStr, normErr))
 			continue
@@ -760,7 +760,7 @@ func (c *Crawler) seedStartURLs(validStartURLs []string, runLog *slog.Logger) in
 		// the seed body cannot enqueue a duplicate WorkItem during link
 		// extraction (MarkPageVisited would otherwise return added=true since
 		// the seed has no DB entry until the deferred UpdatePageStatus runs).
-		added, markErr := c.store.MarkPageVisited(normalizedSeed, 0)
+		added, markErr := c.store.MarkPageVisited(normalizedSeed, fetchSeed, 0)
 		if markErr != nil {
 			runLog.Error(fmt.Sprintf("Skipping start URL '%s': MarkPageVisited failed: %v", startURLStr, markErr))
 			continue
@@ -769,8 +769,8 @@ func (c *Crawler) seedStartURLs(validStartURLs []string, runLog *slog.Logger) in
 			runLog.Debug(fmt.Sprintf("Start URL '%s' already in DB (likely from resume); skipping re-seed.", startURLStr))
 			continue
 		}
-		runLog.Info(fmt.Sprintf("Adding start URL '%s' to queue (Depth 0).", normalizedSeed))
-		c.pq.Add(&models.WorkItem{URL: normalizedSeed, Depth: 0})
+		runLog.Info(fmt.Sprintf("Adding start URL '%s' to queue (Depth 0).", fetchSeed))
+		c.pq.Add(&models.WorkItem{URL: fetchSeed, Depth: 0})
 		initialURLsAddedFromSeed++
 	}
 	return initialURLsAddedFromSeed
@@ -892,6 +892,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	var gone bool                     // The page answered 404 or 410.
 	var noindexPage bool              // Saved nothing on purpose; neither success nor failure.
 	var redirected bool               // The final URL normalizes differently from the requested one.
+	var fetchedURL *url.URL           // Where the fetch ended up, once it succeeded.
 
 	// Deferred function for panic recovery, final status logging, DB update, and WaitGroup decrement.
 	defer func() {
@@ -947,6 +948,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 				ErrorType:   finalErrorType,
 				LastAttempt: time.Now().UTC(),
 				Depth:       currentDepth,
+				URL:         nextFetchURL(currentURL, fetchedURL, redirected),
 			}
 			if finalStatus == models.PageStatusSuccess {
 				pageEntry.ProcessedAt = pageEntry.LastAttempt
@@ -1039,7 +1041,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		}
 		return
 	}
-	redirected = parse.CanonicalURL(finalURL) != normalizedURLString
+	redirected, fetchedURL = parse.CanonicalURL(finalURL) != normalizedURLString, finalURL
 	// If successful, resp.Body is open and passed to the next stage.
 
 	bodyBytes, readErr := c.readBody(resp, finalURL, taskLog) // Closes resp.Body
@@ -1113,8 +1115,9 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 			if p, ok := c.contentProcessor.OutputPathForURL(finalURL, c.siteCfg, c.siteOutputDir); ok {
 				c.claimPath(p, finalURL.String(), taskLog)
 			}
-			if st, prev, err := c.store.CheckPageStatus(normalizedURLString); err == nil && prev != nil && st != models.PageStatusSuccess {
-				prev.Status, prev.ErrorType, prev.LastAttempt = models.PageStatusSuccess, "None", time.Now().UTC()
+			next := nextFetchURL(currentURL, finalURL, redirected)
+			if st, prev, err := c.store.CheckPageStatus(normalizedURLString); err == nil && prev != nil && (st != models.PageStatusSuccess || prev.URL != next) {
+				prev.Status, prev.ErrorType, prev.LastAttempt, prev.URL = models.PageStatusSuccess, "None", time.Now().UTC(), next
 				if err := c.store.UpdatePageStatus(normalizedURLString, prev); err != nil {
 					taskLog.Warn("Could not mark a page that came back unchanged as a success", "err", err)
 				}
@@ -1150,6 +1153,16 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 	}
 	// If execution reaches here, taskErr is still nil, indicating success.
 	// The deferred function will handle logging this success and updating DB.
+}
+
+// nextFetchURL is the URL the next run requests for this page: where the fetch
+// ended up when that is still this page, so a legacy slashless key heals to
+// the form the server answers.
+func nextFetchURL(requested string, fetched *url.URL, redirected bool) string {
+	if fetched != nil && !redirected {
+		return parse.FetchURL(fetched)
+	}
+	return requested
 }
 
 func (c *Crawler) retirePage(rawURL, reason string) {

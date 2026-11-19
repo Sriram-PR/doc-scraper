@@ -480,19 +480,19 @@ func (sp *SitemapProcessor) handleURLSet(urlSet parse.XMLURLSet, sitemapLog *slo
 			sitemapLog.Debug(fmt.Sprintf("Found URL: %s (No LastMod specified)", pageURL))
 		}
 
-		normalizedPageURL, ok := sp.normalizeInScopeURL(pageURL, sitemapLog)
+		key, fetch, ok := sp.normalizeInScopeURL(pageURL, sitemapLog)
 		if !ok {
 			continue
 		}
 
-		added, visitErr := sp.store.MarkPageVisited(normalizedPageURL, 1)
+		added, visitErr := sp.store.MarkPageVisited(key, fetch, 1)
 		if visitErr != nil {
 			sitemapLog.Error(fmt.Sprintf("Sitemap URL DB mark error: %v", visitErr))
 			dbErrorCount++
 			continue
 		}
 		if added {
-			sp.pq.Add(&models.WorkItem{URL: normalizedPageURL, Depth: sitemapURLDepth})
+			sp.pq.Add(&models.WorkItem{URL: fetch, Depth: sitemapURLDepth})
 			queuedCount++
 		}
 	}
@@ -504,39 +504,38 @@ func (sp *SitemapProcessor) handleURLSet(urlSet parse.XMLURLSet, sitemapLog *slo
 	}
 }
 
-// normalizeInScopeURL returns the normalized form of pageURL if it is an
+// normalizeInScopeURL returns the key and fetch URL of pageURL if it is an
 // http(s) URL on the allowed domain, under the allowed path prefix, and not
-// disallowed. The second return is false when the URL is out of scope or
-// unparseable.
-func (sp *SitemapProcessor) normalizeInScopeURL(pageURL string, sitemapLog *slog.Logger) (string, bool) {
+// disallowed. ok is false when the URL is out of scope or unparseable.
+func (sp *SitemapProcessor) normalizeInScopeURL(pageURL string, sitemapLog *slog.Logger) (key, fetch string, ok bool) {
 	parsedPageURL, err := url.Parse(pageURL)
 	if err != nil {
 		sitemapLog.Warn(fmt.Sprintf("Sitemap URL parse error: %v", err))
-		return "", false
+		return "", "", false
 	}
 	if parsedPageURL.Scheme != "http" && parsedPageURL.Scheme != "https" {
-		return "", false
+		return "", "", false
 	}
 	if !parse.SameHost(parsedPageURL.Hostname(), sp.siteCfg.AllowedDomain) {
-		return "", false
+		return "", "", false
 	}
 	targetPath := parsedPageURL.Path
 	if targetPath == "" {
 		targetPath = "/"
 	}
 	if !strings.HasPrefix(targetPath, sp.siteCfg.AllowedPathPrefix) {
-		return "", false
+		return "", "", false
 	}
 	for _, pattern := range sp.compiledDisallowedPatterns {
 		if pattern.MatchString(parsedPageURL.Path) {
-			return "", false
+			return "", "", false
 		}
 	}
 
-	normalizedPageURL, _, errNorm := parse.ParseAndNormalize(pageURL)
+	key, fetch, _, errNorm := parse.ParseURL(pageURL)
 	if errNorm != nil {
 		sitemapLog.Warn(fmt.Sprintf("Sitemap URL normalize error: %v", errNorm))
-		return "", false
+		return "", "", false
 	}
-	return normalizedPageURL, true
+	return key, fetch, true
 }

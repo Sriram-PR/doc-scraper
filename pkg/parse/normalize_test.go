@@ -213,7 +213,7 @@ func TestCanonicalURL_DoesNotModifyInput(t *testing.T) {
 	assert.Equal(t, origQuery, parsed.RawQuery)
 }
 
-func TestParseAndNormalize_ValidURLs(t *testing.T) {
+func TestParseURL_ValidURLs(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
@@ -243,7 +243,7 @@ func TestParseAndNormalize_ValidURLs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resultStr, parsedURL, err := ParseAndNormalize(tt.input)
+			resultStr, _, parsedURL, err := ParseURL(tt.input)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedStr, resultStr)
 			assert.NotNil(t, parsedURL)
@@ -251,7 +251,7 @@ func TestParseAndNormalize_ValidURLs(t *testing.T) {
 	}
 }
 
-func TestParseAndNormalize_InvalidURLs(t *testing.T) {
+func TestParseURL_InvalidURLs(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -264,7 +264,7 @@ func TestParseAndNormalize_InvalidURLs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resultStr, parsedURL, err := ParseAndNormalize(tt.input)
+			resultStr, _, parsedURL, err := ParseURL(tt.input)
 			require.Error(t, err)
 			assert.Empty(t, resultStr)
 			assert.Nil(t, parsedURL)
@@ -272,15 +272,15 @@ func TestParseAndNormalize_InvalidURLs(t *testing.T) {
 	}
 }
 
-func TestParseAndNormalize_AbsolutePathRejected(t *testing.T) {
+func TestParseURL_AbsolutePathRejected(t *testing.T) {
 	// Bare absolute paths (no scheme/host) are not crawlable URLs and are
-	// rejected by ParseAndNormalize so callers don't end up with rows in the
+	// rejected by ParseURL so callers don't end up with rows in the
 	// visited DB that can't be fetched.
-	_, _, err := ParseAndNormalize("/path/to/page")
+	_, _, _, err := ParseURL("/path/to/page")
 	require.Error(t, err)
 }
 
-func TestParseAndNormalize_FragmentStripped(t *testing.T) {
+func TestParseURL_FragmentStripped(t *testing.T) {
 	// Regression: ParseRequestURI absorbed "#foo" into the path and
 	// round-tripped as "%23foo", which polluted the visited DB with
 	// uncrawlable URLs. Parse + clear-fragment must produce a clean URL.
@@ -293,13 +293,13 @@ func TestParseAndNormalize_FragmentStripped(t *testing.T) {
 		{"https://example.com/page?q=1#top", "https://example.com/page"},
 	}
 	for _, tt := range tests {
-		got, _, err := ParseAndNormalize(tt.input)
+		got, _, _, err := ParseURL(tt.input)
 		require.NoError(t, err, "input %q", tt.input)
 		assert.Equal(t, tt.expected, got, "input %q", tt.input)
 	}
 }
 
-func TestParseAndNormalize_EdgeCases(t *testing.T) {
+func TestParseURL_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
@@ -329,7 +329,7 @@ func TestParseAndNormalize_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resultStr, _, err := ParseAndNormalize(tt.input)
+			resultStr, _, _, err := ParseURL(tt.input)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedStr, resultStr)
 		})
@@ -342,4 +342,32 @@ func TestSameHost(t *testing.T) {
 	assert.True(t, SameHost("docs.example.com", "DOCS.EXAMPLE.COM"))
 	assert.False(t, SameHost("docs.example.com", "example.com"))
 	assert.False(t, SameHost("docs.example.com", ""))
+}
+
+func TestFetchURL(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"https://h/book/", "https://h/book/"},
+		{"https://h/book/index.html", "https://h/book/index.html"},
+		{"https://h/d/A?", "https://h/d/A"},
+		{"https://h/d/%41", "https://h/d/A"},
+		{"https://h/d/%2F", "https://h/d/%2F"},
+		{"https://h/d/%2f", "https://h/d/%2f"},
+		{"https://h/s?q=1", "https://h/s?q=1"},
+		{"https://h/p#frag", "https://h/p"},
+		{"HTTPS://H:443/p", "https://h/p"},
+		{"https://[::1]:443/x", "https://[::1]/x"},
+		{"http://[::1]:8080/x", "http://[::1]:8080/x"},
+	} {
+		u, err := url.Parse(tc.in)
+		require.NoError(t, err)
+		assert.Equal(t, tc.want, FetchURL(u), tc.in)
+	}
+}
+
+func TestParseURL_ReturnsKeyAndFetch(t *testing.T) {
+	key, fetch, parsed, err := ParseURL("https://h/docs/")
+	require.NoError(t, err)
+	assert.Equal(t, "https://h/docs", key)
+	assert.Equal(t, "https://h/docs/", fetch)
+	assert.Equal(t, "/docs/", parsed.Path)
 }

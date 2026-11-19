@@ -19,13 +19,7 @@ func CanonicalURL(u *url.URL) string {
 	normalized.Scheme = strings.ToLower(normalized.Scheme)
 	normalized.Host = strings.ToLower(normalized.Host)
 
-	host, port, err := net.SplitHostPort(normalized.Host)
-	if err == nil {
-		if (normalized.Scheme == "http" && port == "80") ||
-			(normalized.Scheme == "https" && port == "443") {
-			normalized.Host = host
-		}
-	}
+	normalized.Host = hostWithoutDefaultPort(normalized.Scheme, normalized.Host)
 
 	if normalized.Path == "" {
 		normalized.Path = "/"
@@ -46,19 +40,104 @@ func SameHost(a, b string) bool {
 	return strings.EqualFold(a, b)
 }
 
-// ParseAndNormalize parses an absolute URL string and normalizes it. Uses
-// url.Parse (not url.ParseRequestURI) so the fragment separator is honored:
-// ParseRequestURI silently folds "#anchor" into the path or query, which
-// round-trips as a percent-encoded "%23anchor" and breaks dedup. We then
-// require scheme + host explicitly to keep the "absolute URL only" contract.
-func ParseAndNormalize(urlStr string) (string, *url.URL, error) {
-	parsed, err := url.Parse(urlStr)
+// FetchURL is the URL to request for u: as linked, minus what never changes
+// the response (fragment, an empty "?", a default port, escaped unreserved
+// characters, scheme and host case). A trailing slash and index.html stay,
+// since some servers answer only the form that was linked.
+func FetchURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	f := *u
+	f.Scheme = strings.ToLower(f.Scheme)
+	f.Host = hostWithoutDefaultPort(f.Scheme, strings.ToLower(f.Host))
+	f.Fragment, f.RawFragment = "", ""
+	if f.RawQuery == "" {
+		f.ForceQuery = false
+	}
+	setEscapedPath(&f, cleanEscapes(u.EscapedPath(), false))
+	return f.String()
+}
+
+// ParseURL parses an absolute URL and returns its dedup key and the URL to
+// fetch. Uses url.Parse (not url.ParseRequestURI) so the fragment separator is
+// honored: ParseRequestURI folds "#anchor" into the path, which round-trips as
+// "%23anchor" and breaks dedup.
+func ParseURL(urlStr string) (key, fetch string, parsed *url.URL, err error) {
+	parsed, err = url.Parse(urlStr)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	if parsed.Scheme == "" || parsed.Host == "" {
-		return "", nil, fmt.Errorf("URL must be absolute (have scheme and host): %q", urlStr)
+		return "", "", nil, fmt.Errorf("URL must be absolute (have scheme and host): %q", urlStr)
 	}
-	normalizedStr := CanonicalURL(parsed)
-	return normalizedStr, parsed, nil
+	return CanonicalURL(parsed), FetchURL(parsed), parsed, nil
+}
+
+// hostWithoutDefaultPort drops the scheme's default port, keeping IPv6 brackets.
+func hostWithoutDefaultPort(scheme, host string) string {
+	h, port, err := net.SplitHostPort(host)
+	if err != nil {
+		return host
+	}
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+		if strings.Contains(h, ":") {
+			return "[" + h + "]"
+		}
+		return h
+	}
+	return host
+}
+
+// cleanEscapes decodes %XX escapes of unreserved characters in an escaped
+// path; with upperRest it also uppercases the hex of the escapes it keeps.
+func cleanEscapes(p string, upperRest bool) string {
+	if !strings.Contains(p, "%") {
+		return p
+	}
+	var b strings.Builder
+	b.Grow(len(p))
+	for i := 0; i < len(p); i++ {
+		if p[i] == '%' && i+2 < len(p) && isHex(p[i+1]) && isHex(p[i+2]) {
+			c := unhex(p[i+1])<<4 | unhex(p[i+2])
+			if isUnreserved(c) {
+				b.WriteByte(c)
+				i += 2
+				continue
+			}
+			if upperRest {
+				b.WriteByte('%')
+				b.WriteString(strings.ToUpper(p[i+1 : i+3]))
+				i += 2
+				continue
+			}
+		}
+		b.WriteByte(p[i])
+	}
+	return b.String()
+}
+
+func setEscapedPath(u *url.URL, escaped string) {
+	if p, err := url.PathUnescape(escaped); err == nil {
+		u.Path, u.RawPath = p, escaped
+	}
+}
+
+func isUnreserved(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~'
+}
+
+func isHex(c byte) bool {
+	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
+}
+
+func unhex(c byte) byte {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0'
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10
+	default:
+		return c - 'A' + 10
+	}
 }

@@ -817,7 +817,7 @@ func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
 	}
 	defer file.Close()
 
-	wantNorm, _, normErr := parse.ParseAndNormalize(wantURL)
+	wantNorm, _, _, normErr := parse.ParseURL(wantURL)
 
 	scanner := crawler.NewJSONLScanner(file)
 	for scanner.Scan() {
@@ -833,7 +833,7 @@ func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
 			return &p, nil
 		}
 		if normErr == nil {
-			if gotNorm, _, err := parse.ParseAndNormalize(p.URL); err == nil && gotNorm == wantNorm {
+			if gotNorm, _, _, err := parse.ParseURL(p.URL); err == nil && gotNorm == wantNorm {
 				return &p, nil
 			}
 		}

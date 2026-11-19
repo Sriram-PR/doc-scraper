@@ -166,7 +166,7 @@ func (ip *ImageProcessor) ProcessImages( //nolint:gocyclo // image processing pi
 			return
 		}
 
-		imgNormURLStr, _, imgNormErr := parse.ParseAndNormalize(absoluteImgURL)
+		imgNormURLStr, _, _, imgNormErr := parse.ParseURL(absoluteImgURL)
 		if imgNormErr != nil {
 			imgLog.Warn(fmt.Sprintf("Cannot normalize image URL: %v", imgNormErr))
 			element.SetAttr("data-crawl-status", "error-normalize")

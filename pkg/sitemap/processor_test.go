@@ -78,7 +78,7 @@ func newMockPageStore() *mockPageStore {
 	return &mockPageStore{visited: make(map[string]bool)}
 }
 
-func (m *mockPageStore) MarkPageVisited(normalizedPageURL string, _ int) (bool, error) {
+func (m *mockPageStore) MarkPageVisited(normalizedPageURL, _ string, _ int) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.err != nil {

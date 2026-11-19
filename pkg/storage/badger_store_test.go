@@ -51,7 +51,7 @@ func TestNewBadgerStore(t *testing.T) {
 		// Create store and add data
 		store1, err := NewBadgerStore(ctx, dir, "example.com", false, logger)
 		require.NoError(t, err)
-		_, err = store1.MarkPageVisited("https://example.com/page1", 0)
+		_, err = store1.MarkPageVisited("https://example.com/page1", "", 0)
 		require.NoError(t, err)
 		require.NoError(t, store1.Close())
 
@@ -73,7 +73,7 @@ func TestNewBadgerStore(t *testing.T) {
 		// Create store and add data
 		store1, err := NewBadgerStore(ctx, dir, "example.com", false, logger)
 		require.NoError(t, err)
-		_, err = store1.MarkPageVisited("https://example.com/page1", 0)
+		_, err = store1.MarkPageVisited("https://example.com/page1", "", 0)
 		require.NoError(t, err)
 		require.NoError(t, store1.Close())
 
@@ -116,7 +116,7 @@ func TestNewBadgerStore(t *testing.T) {
 		ctx := context.Background()
 		store, err := NewBadgerStoreAt(ctx, dbPath, true, testLogger())
 		require.NoError(t, err)
-		_, err = store.MarkPageVisited("https://example.com/new", 0)
+		_, err = store.MarkPageVisited("https://example.com/new", "", 0)
 		require.NoError(t, err)
 		require.NoError(t, store.Close())
 
@@ -133,19 +133,19 @@ func TestMarkPageVisited(t *testing.T) {
 	store := newTestStore(t)
 
 	t.Run("new URL returns true", func(t *testing.T) {
-		added, err := store.MarkPageVisited("https://example.com/page1", 0)
+		added, err := store.MarkPageVisited("https://example.com/page1", "", 0)
 		require.NoError(t, err)
 		assert.True(t, added)
 	})
 
 	t.Run("duplicate returns false", func(t *testing.T) {
-		added, err := store.MarkPageVisited("https://example.com/page1", 0)
+		added, err := store.MarkPageVisited("https://example.com/page1", "", 0)
 		require.NoError(t, err)
 		assert.False(t, added)
 	})
 
 	t.Run("count tracks correctly", func(t *testing.T) {
-		_, err := store.MarkPageVisited("https://example.com/page2", 0)
+		_, err := store.MarkPageVisited("https://example.com/page2", "", 0)
 		require.NoError(t, err)
 		count, err := store.GetVisitedCount()
 		require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestConcurrentWritesToOneKeyCountItOnce(t *testing.T) {
 
 	t.Run("MarkPageVisited", func(t *testing.T) {
 		race(t, func(store *BadgerStore, key string) bool {
-			added, err := store.MarkPageVisited(key, 1)
+			added, err := store.MarkPageVisited(key, "", 1)
 			assert.NoError(t, err)
 			return added
 		})
@@ -214,7 +214,7 @@ func TestCheckPageStatus(t *testing.T) {
 	})
 
 	t.Run("pending carries enqueue depth", func(t *testing.T) {
-		_, err := store.MarkPageVisited("https://example.com/pending", 2)
+		_, err := store.MarkPageVisited("https://example.com/pending", "", 2)
 		require.NoError(t, err)
 
 		status, entry, err := store.CheckPageStatus("https://example.com/pending")
@@ -523,8 +523,8 @@ func TestGetVisitedCount(t *testing.T) {
 	})
 
 	t.Run("after page marks", func(t *testing.T) {
-		store.MarkPageVisited("https://example.com/1", 0)
-		store.MarkPageVisited("https://example.com/2", 0)
+		store.MarkPageVisited("https://example.com/1", "", 0)
+		store.MarkPageVisited("https://example.com/2", "", 0)
 		count, err := store.GetVisitedCount()
 		require.NoError(t, err)
 		assert.Equal(t, 2, count)
@@ -540,7 +540,7 @@ func TestGetVisitedCount(t *testing.T) {
 	})
 
 	t.Run("duplicates not double-counted", func(t *testing.T) {
-		store.MarkPageVisited("https://example.com/1", 0) // duplicate
+		store.MarkPageVisited("https://example.com/1", "", 0) // duplicate
 		store.UpdateImageStatus("https://example.com/img1.png", &models.ImageDBEntry{
 			Status: models.ImageStatusFailure,
 		}) // overwrite
@@ -577,7 +577,7 @@ func TestRequeueIncomplete(t *testing.T) {
 	t.Run("pending pages requeued", func(t *testing.T) {
 		store := newTestStore(t)
 		// Mark page (creates empty value = pending)
-		store.MarkPageVisited("https://example.com/pending1", 0)
+		store.MarkPageVisited("https://example.com/pending1", "", 0)
 		ch := make(chan models.WorkItem, 10)
 		requeued, _, err := store.RequeueIncomplete(context.Background(), ch, false)
 		require.NoError(t, err)
@@ -589,7 +589,7 @@ func TestRequeueIncomplete(t *testing.T) {
 
 	t.Run("pending pages keep their enqueue depth", func(t *testing.T) {
 		store := newTestStore(t)
-		store.MarkPageVisited("https://example.com/deep", 3)
+		store.MarkPageVisited("https://example.com/deep", "", 3)
 		ch := make(chan models.WorkItem, 10)
 		requeued, _, err := store.RequeueIncomplete(context.Background(), ch, false)
 		require.NoError(t, err)
@@ -645,8 +645,8 @@ func TestRequeueIncomplete(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		store := newTestStore(t)
-		store.MarkPageVisited("https://example.com/p1", 0)
-		store.MarkPageVisited("https://example.com/p2", 0)
+		store.MarkPageVisited("https://example.com/p1", "", 0)
+		store.MarkPageVisited("https://example.com/p2", "", 0)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // cancel immediately
@@ -774,4 +774,23 @@ func TestDeletePage(t *testing.T) {
 	after, err := store.GetVisitedCount()
 	require.NoError(t, err)
 	assert.Equal(t, before-1, after)
+}
+
+func TestRequeueIncomplete_SendsTheFetchURL(t *testing.T) {
+	store := newTestStore(t)
+	_, err := store.MarkPageVisited("https://example.com/docs", "https://example.com/docs/", 1)
+	require.NoError(t, err)
+	require.NoError(t, store.UpdatePageStatus("https://example.com/legacy", &models.PageDBEntry{Status: models.PageStatusFailure, LastAttempt: time.Now()}))
+
+	ch := make(chan models.WorkItem, 4)
+	n, _, err := store.RequeueIncomplete(context.Background(), ch, false)
+	require.NoError(t, err)
+	close(ch)
+	require.Equal(t, 2, n)
+	got := map[string]bool{}
+	for it := range ch {
+		got[it.URL] = true
+	}
+	assert.True(t, got["https://example.com/docs/"], "requeued under its fetch URL")
+	assert.True(t, got["https://example.com/legacy"], "an entry without a fetch URL is requeued under its key")
 }

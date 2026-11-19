@@ -76,7 +76,7 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 		return 0, nil
 	}
 
-	foundLinks := make(map[string]struct{}) // set of normalized URLs
+	foundLinks := map[string]string{} // key to fetch URL
 
 	selectorsToSearch := siteCfg.LinkExtractionSelectors
 	if len(selectorsToSearch) == 0 {
@@ -139,22 +139,23 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 				return
 			}
 
-			normalizedLink, _, errNorm := parse.ParseAndNormalize(absoluteLinkURL)
+			key, fetch, _, errNorm := parse.ParseURL(absoluteLinkURL)
 			if errNorm != nil {
 				taskLog.Warn(fmt.Sprintf("Cannot normalize extracted link '%s': %v", absoluteLinkURL, errNorm))
 				return
 			}
-
-			foundLinks[normalizedLink] = struct{}{}
+			if _, dup := foundLinks[key]; !dup {
+				foundLinks[key] = fetch
+			}
 		})
 	}
 
 	if len(foundLinks) > 0 {
 		taskLog.Debug(fmt.Sprintf("Found %d unique, valid, in-scope links across all specified selectors.", len(foundLinks)))
-		for normalizedLink := range foundLinks {
-			added, visitErr := lp.store.MarkPageVisited(normalizedLink, nextDepth)
+		for key, fetch := range foundLinks {
+			added, visitErr := lp.store.MarkPageVisited(key, fetch, nextDepth)
 			if visitErr != nil {
-				dbErr := fmt.Errorf("%w: checking/marking link '%s' visited: %w", utils.ErrDatabase, normalizedLink, visitErr)
+				dbErr := fmt.Errorf("%w: checking/marking link '%s' visited: %w", utils.ErrDatabase, key, visitErr)
 				taskLog.Error(dbErr.Error())
 				if firstDBError == nil {
 					firstDBError = dbErr
@@ -163,17 +164,13 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 			}
 
 			if added {
-				// Enqueue the normalized URL: the DB key and WorkItem.URL then
-				// agree, which closes a dedup-escape race where a same-page
-				// anchor (e.g. index.html#foo) could be enqueued and later
-				// processed as a distinct page if the parent's deferred
-				// UpdatePageStatus had not yet marked the bare URL Success.
-				nextWorkItem := models.WorkItem{URL: normalizedLink, Depth: nextDepth}
+				// Enqueue the fetch URL; its key is the one just marked, so a same-page anchor (index.html#foo) can't be queued again before the parent's status update lands.
+				nextWorkItem := models.WorkItem{URL: fetch, Depth: nextDepth}
 				lp.pq.Add(&nextWorkItem)
 				queuedCount++
-				taskLog.Debug(fmt.Sprintf("Queued new link (normalized): %s", normalizedLink))
+				taskLog.Debug(fmt.Sprintf("Queued new link: %s", fetch))
 			} else {
-				taskLog.Debug(fmt.Sprintf("Link already visited/pending, skipping queue: %s", normalizedLink))
+				taskLog.Debug(fmt.Sprintf("Link already visited/pending, skipping queue: %s", key))
 			}
 		}
 	} else {

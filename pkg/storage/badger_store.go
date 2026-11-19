@@ -132,7 +132,7 @@ func (s *BadgerStore) dbUpdate(fn func(txn *badger.Txn) error) error {
 
 // MarkPageVisited records a newly enqueued URL as pending at depth so an interrupted
 // crawl can requeue it at the right depth on resume.
-func (s *BadgerStore) MarkPageVisited(normalizedPageURL string, depth int) (bool, error) {
+func (s *BadgerStore) MarkPageVisited(normalizedPageURL, fetchURL string, depth int) (bool, error) {
 	if s.db == nil {
 		return false, errors.New("visitedDB not initialized")
 	}
@@ -142,6 +142,7 @@ func (s *BadgerStore) MarkPageVisited(normalizedPageURL string, depth int) (bool
 		Status:      models.PageStatusPending,
 		LastAttempt: time.Now().UTC(),
 		Depth:       depth,
+		URL:         fetchURL,
 	})
 	if errJson != nil {
 		return false, fmt.Errorf("%w: failed to marshal pending entry for key '%s': %w", utils.ErrParsing, string(key), errJson)
@@ -457,6 +458,9 @@ func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- mod
 						s.log.Error("Resume scan: failed to unmarshal PageDBEntry, skipping", "url", urlToRequeue, "err", errJson)
 						scanErrors++
 						return nil
+					}
+					if entry.URL != "" {
+						urlToRequeue = entry.URL
 					}
 					if entry.Status == models.PageStatusFailure || entry.Status == models.PageStatusPending ||
 						(includeSuccess && entry.Status == models.PageStatusSuccess) {

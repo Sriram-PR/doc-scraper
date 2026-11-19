@@ -38,7 +38,7 @@ func newFakePageStore() *fakePageStore {
 	return &fakePageStore{seen: map[string]bool{}, failURLs: map[string]bool{}}
 }
 
-func (f *fakePageStore) MarkPageVisited(u string, _ int) (bool, error) {
+func (f *fakePageStore) MarkPageVisited(u, _ string, _ int) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.marked = append(f.marked, u)

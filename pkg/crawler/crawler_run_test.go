@@ -1958,3 +1958,85 @@ func TestCrawlerRun_RedirectToTheSamePathKeepsThePage(t *testing.T) {
 		assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"), 1, "run %d: file", run)
 	}
 }
+
+func visitedEntry(t *testing.T, appCfg *config.AppConfig, key string) *models.PageDBEntry {
+	t.Helper()
+	store, err := storage.NewBadgerStore(context.Background(), appCfg.StateDir, testSiteKey, true, silentLogger())
+	require.NoError(t, err)
+	defer store.Close()
+	_, e, err := store.CheckPageStatus(key)
+	require.NoError(t, err)
+	require.NotNil(t, e, "no entry for %s", key)
+	return e
+}
+
+// TestCrawlerRun_StartURLIsFetchedAsGiven: /docs/ is requested as /docs/, not
+// the slashless key, which this server 404s (#57's crawl half).
+func TestCrawlerRun_StartURLIsFetchedAsGiven(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/", `<html><head><title>Docs</title></head><body><main id="c"><p>ROOT</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/"))
+	assert.Equal(t, server.URL+"/docs/", visitedEntry(t, appCfg, server.URL+"/docs").URL)
+
+	runResumableCrawl(t, appCfg, siteCfg, true)
+	assert.Zero(t, ms.hitCount("/docs"), "the slashless form is never requested")
+	assert.Equal(t, 2, ms.hitCount("/docs/"))
+}
+
+// TestCrawlerRun_LegacyEntryHealsToTheFinalURL: an entry saved before fetch
+// URLs existed is requeued under its slashless key; once it redirects to the
+// slash form the entry records that, and later runs request it directly.
+func TestCrawlerRun_LegacyEntryHealsToTheFinalURL(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/", `<html><head><title>Docs</title></head><body><main id="c"><p>ROOT</p></main></body></html>`)
+	ms.setRedirect("/docs", "/docs/")
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/")
+	siteCfg.ContentSelector = "#c"
+	key := server.URL + "/docs"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	store, err := storage.NewBadgerStore(context.Background(), appCfg.StateDir, testSiteKey, true, silentLogger())
+	require.NoError(t, err)
+	_, e, err := store.CheckPageStatus(key)
+	require.NoError(t, err)
+	e.URL = ""
+	require.NoError(t, store.UpdatePageStatus(key, e))
+	require.NoError(t, store.Close())
+
+	p := runResumableCrawl(t, appCfg, siteCfg, true)
+	require.EqualValues(t, 1, p.PagesUnchanged)
+	assert.Equal(t, 1, ms.hitCount("/docs"), "the legacy key is requested once")
+	assert.Equal(t, server.URL+"/docs/", visitedEntry(t, appCfg, key).URL)
+
+	runResumableCrawl(t, appCfg, siteCfg, true)
+	assert.Equal(t, 1, ms.hitCount("/docs"), "healed: the slashless form isn't requested again")
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/"))
+}
+
+// TestCrawlerRun_TrailingSlashRedirectIsNotRetired: /docs/b answering through
+// a redirect to /docs/b/ is the same page, not a redirect away (#104).
+func TestCrawlerRun_TrailingSlashRedirectIsNotRetired(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/b">b</a></main></body></html>`)
+	ms.set("/docs/b/", `<html><head><title>B</title></head><body><main id="c"><p>PAGE-B</p></main></body></html>`)
+	ms.setRedirect("/docs/b", "/docs/b/")
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/b/"))
+	assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-B"), 1)
+}

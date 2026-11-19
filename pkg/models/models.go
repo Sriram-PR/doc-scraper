@@ -16,6 +16,7 @@ type PageDBEntry struct {
 	LastAttempt time.Time  `json:"last_attempt"`           // Timestamp of the last processing attempt
 	Depth       int        `json:"depth"`                  // Depth at which this page was processed/attempted
 	ContentHash string     `json:"content_hash,omitempty"` // Content hash for incremental crawling
+	URL         string     `json:"url,omitempty"`          // URL to fetch; empty means the key
 }
 
 // ImageDBEntry stores the result of processing an image URL in the database

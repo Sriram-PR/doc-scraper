@@ -41,7 +41,7 @@ func TestCrawlerRun_IncrementalReconvertsPagesHashedBeforeFormatVersion(t *testi
 	require.NoError(t, err)
 	region, err := goquery.OuterHtml(doc.Find("#c"))
 	require.NoError(t, err)
-	key, _, err := parse.ParseAndNormalize(server.URL + "/docs/index.html")
+	key, _, _, err := parse.ParseURL(server.URL + "/docs/index.html")
 	require.NoError(t, err)
 
 	store, err := storage.NewBadgerStore(context.Background(), appCfg.StateDir, testSiteKey, true, slog.New(slog.DiscardHandler))
