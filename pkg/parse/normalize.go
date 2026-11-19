@@ -7,30 +7,35 @@ import (
 	"strings"
 )
 
-// CanonicalURL is the key a page is deduplicated by: it lowercases scheme/host, strips
-// default ports, removes trailing slashes (except root), removes fragments and query strings.
-// Does not modify the input *url.URL.
+// CanonicalURL is the key a page is deduplicated by: lowercase scheme and
+// host, no default port (IPv6 brackets kept), no fragment or query, escaped
+// unreserved characters decoded and other escapes uppercased, a last
+// index.html or index.htm folded into its directory, and no trailing slash
+// except at the root. It does not modify u.
 func CanonicalURL(u *url.URL) string {
 	if u == nil {
 		return ""
 	}
-	normalized := *u
+	c := *u
+	c.Scheme = strings.ToLower(c.Scheme)
+	c.Host = hostWithoutDefaultPort(c.Scheme, strings.ToLower(c.Host))
+	c.Fragment, c.RawFragment = "", ""
+	c.RawQuery, c.ForceQuery = "", false
 
-	normalized.Scheme = strings.ToLower(normalized.Scheme)
-	normalized.Host = strings.ToLower(normalized.Host)
-
-	normalized.Host = hostWithoutDefaultPort(normalized.Scheme, normalized.Host)
-
-	if normalized.Path == "" {
-		normalized.Path = "/"
-	} else if len(normalized.Path) > 1 && strings.HasSuffix(normalized.Path, "/") {
-		normalized.Path = normalized.Path[:len(normalized.Path)-1]
+	p := cleanEscapes(u.EscapedPath(), true)
+	for _, idx := range []string{"/index.html", "/index.htm"} {
+		if strings.HasSuffix(p, idx) {
+			p = p[:len(p)-len(idx)+1]
+			break
+		}
 	}
-
-	normalized.Fragment = ""
-	normalized.RawQuery = ""
-
-	return normalized.String()
+	if p == "" {
+		p = "/"
+	} else if len(p) > 1 && strings.HasSuffix(p, "/") {
+		p = p[:len(p)-1]
+	}
+	setEscapedPath(&c, p)
+	return c.String()
 }
 
 // SameHost reports whether two hostnames (no port) are the same. Hostnames are
@@ -140,4 +145,14 @@ func unhex(c byte) byte {
 	default:
 		return c - 'A' + 10
 	}
+}
+
+// CanonicalKey is CanonicalURL for a URL string; one that doesn't parse is its
+// own key.
+func CanonicalKey(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return CanonicalURL(u)
 }

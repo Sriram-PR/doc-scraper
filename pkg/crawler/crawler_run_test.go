@@ -2040,3 +2040,68 @@ func TestCrawlerRun_TrailingSlashRedirectIsNotRetired(t *testing.T) {
 	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/b/"))
 	assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-B"), 1)
 }
+
+// TestCrawlerRun_EquivalentLinksAreOnePage: A, A? and %41 are one page.
+func TestCrawlerRun_EquivalentLinksAreOnePage(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body><main id="c"><p>HOME</p>`+
+		`<a href="/docs/A">1</a><a href="/docs/A?">2</a><a href="/docs/%41">3</a></main></body></html>`)
+	ms.set("/docs/A", `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+
+	assert.Equal(t, 1, ms.hitCount("/docs/A"))
+	n := 0
+	for _, line := range readJSONLLines(t, filepath.Join(siteOutputDir(appCfg, siteCfg), "pages.jsonl")) {
+		if strings.Contains(line, `"record_type":"page"`) && strings.Contains(line, "PAGE-A") {
+			n++
+		}
+	}
+	assert.Equal(t, 1, n, "one record")
+	assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"), 1)
+}
+
+// TestCrawlerRun_BookRootLinkedAsIndexHTMLIsOnePage: an mdBook root started
+// at /book/ whose sidebar links index.html.
+func TestCrawlerRun_BookRootLinkedAsIndexHTMLIsOnePage(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/", `<html><head><title>Book</title></head><body><main id="c"><p>ROOT</p>`+
+		`<a href="index.html">Intro</a><a href="ch1.html">One</a></main></body></html>`)
+	ms.set("/docs/index.html", `<html><head><title>Book</title></head><body><main id="c"><p>ROOT</p>`+
+		`<a href="index.html">Intro</a><a href="ch1.html">One</a></main></body></html>`)
+	ms.set("/docs/ch1.html", `<html><head><title>One</title></head><body><main id="c"><p>CH1</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+
+	assert.Equal(t, 1, ms.hitCount("/docs/"))
+	assert.Zero(t, ms.hitCount("/docs/index.html"))
+	assert.Zero(t, ms.hitCount("/docs"))
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/"))
+	assert.False(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/index.html"))
+}
+
+// TestCrawlerRun_RedirectToIndexHTMLIsNotRetired: /docs/c answering through
+// /docs/c/index.html is the same page under the canonical key (#104).
+func TestCrawlerRun_RedirectToIndexHTMLIsNotRetired(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/c">c</a></main></body></html>`)
+	ms.set("/docs/c/index.html", `<html><head><title>C</title></head><body><main id="c"><p>PAGE-C</p></main></body></html>`)
+	ms.setRedirect("/docs/c", "/docs/c/index.html")
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/c/index.html"))
+	assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-C"), 1)
+}

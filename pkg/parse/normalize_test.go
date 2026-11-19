@@ -371,3 +371,37 @@ func TestParseURL_ReturnsKeyAndFetch(t *testing.T) {
 	assert.Equal(t, "https://h/docs/", fetch)
 	assert.Equal(t, "/docs/", parsed.Path)
 }
+
+func TestCanonicalURL_EquivalentForms(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"https://h/d/A", "https://h/d/A"},
+		{"https://h/d/A?", "https://h/d/A"},
+		{"https://h/d/%41", "https://h/d/A"},
+		{"https://h/book/", "https://h/book"},
+		{"https://h/book", "https://h/book"},
+		{"https://h/book/index.html", "https://h/book"},
+		{"https://h/book/index.htm", "https://h/book"},
+		{"https://h/index.html", "https://h/"},
+		{"https://h/a/index.html.bak", "https://h/a/index.html.bak"},
+		{"https://h/a/Index.html", "https://h/a/Index.html"},
+		{"https://h/d/%2F", "https://h/d/%2F"},
+		{"https://h/d/%3f", "https://h/d/%3F"},
+		{"https://h/d/%7e", "https://h/d/~"},
+		{"https://[::1]:443/x", "https://[::1]/x"},
+		{"http://[::1]:8080/x", "http://[::1]:8080/x"},
+		{"https://h/p?q=1#f", "https://h/p"},
+	} {
+		u, err := url.Parse(tc.in)
+		require.NoError(t, err)
+		got := CanonicalURL(u)
+		assert.Equal(t, tc.want, got, tc.in)
+		again, err := url.Parse(got)
+		require.NoError(t, err)
+		assert.Equal(t, got, CanonicalURL(again), "idempotent: %s", tc.in)
+	}
+}
+
+func TestCanonicalKey(t *testing.T) {
+	assert.Equal(t, "https://h/book", CanonicalKey("https://h/book/index.html"))
+	assert.Equal(t, "://bad", CanonicalKey("://bad"), "unparseable input comes back unchanged")
+}
