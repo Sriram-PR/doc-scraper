@@ -43,39 +43,12 @@ const (
 // transaction. contentHash records which page content the chunks came from,
 // so unchanged pages can be skipped on the next crawl.
 func (i *Index) ReplaceChunks(ctx context.Context, siteKey, url, title, contentHash string, chunks []chunk.Chunk) error {
-	if siteKey == "" || url == "" {
-		return fmt.Errorf("site_key and url are required")
+	w := i.NewChunkWriter(ctx, siteKey)
+	if err := w.Put(url, title, contentHash, chunks); err != nil {
+		w.Abort()
+		return err
 	}
-	i.writeMu.Lock()
-	defer i.writeMu.Unlock()
-
-	tx, err := i.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM chunks WHERE site_key = ? AND url = ?`, siteKey, url); err != nil {
-		return fmt.Errorf("delete old chunks: %w", err)
-	}
-	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO chunks (site_key, url, title, heading_path, anchor, seq, content_hash, text, identifiers)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		return fmt.Errorf("prepare insert: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-	for _, c := range chunks {
-		identifiers := chunk.IdentifierTokens(c.Text)
-		if _, err := stmt.ExecContext(ctx, siteKey, url, title, c.HeadingPath, c.Anchor, c.Seq, contentHash, c.Text, identifiers); err != nil {
-			return fmt.Errorf("insert chunk: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
-	}
-	return nil
+	return w.Close()
 }
 
 // ChunkedHashes returns url -> content_hash for every page of a site that has
