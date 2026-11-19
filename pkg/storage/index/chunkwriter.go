@@ -12,13 +12,14 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 )
 
-var errChunkWriterClosed = errors.New("chunk writer is closed")
+var (
+	errChunkWriterClosed  = errors.New("chunk writer is closed")
+	errChunkWriterAborted = errors.New("chunk writer was aborted")
+)
 
-// ChunkWriter replaces many pages' chunks for one site with few statements and
-// transactions. FTS5 writes a new segment at the end of every statement, so a
-// statement per chunk leaves thousands of tiny segments to merge. The result
-// matches calling ReplaceChunks for each page in order, row ids included. Not
-// safe for concurrent use.
+// ChunkWriter replaces many pages' chunks for one site with few statements, since
+// FTS5 writes a segment per statement. It holds the index's write lock for about
+// 1 s at a time, so don't write to the index from its goroutine before Close.
 type ChunkWriter struct {
 	idx     *Index
 	ctx     context.Context
@@ -126,6 +127,9 @@ func (w *ChunkWriter) Close() error {
 // Abort rolls back the open transaction and drops pending pages. Safe to call
 // after Close or a failed call, and more than once.
 func (w *ChunkWriter) Abort() {
+	if !w.closed && w.err == nil {
+		w.err = errChunkWriterAborted
+	}
 	w.rollback()
 	w.group, w.groupBytes, w.rows, w.rowBytes = nil, 0, nil, 0
 	w.closed = true

@@ -187,3 +187,14 @@ func TestChunkWriterReleasesTheLockBetweenTransactions(t *testing.T) {
 	}
 	require.NoError(t, w.Close())
 }
+
+func TestChunkWriterCloseAfterAbort(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	pages := testPages("s", "a", "v", 1)
+	w := idx.NewChunkWriter(context.Background(), "s")
+	require.NoError(t, w.Put(pages[0].url, "T", pages[0].hash, chunk.Split(pages[0].md)))
+	w.Abort()
+
+	require.Error(t, w.Close(), "pending pages were dropped")
+	require.Error(t, w.Put(pages[0].url, "T", pages[0].hash, chunk.Split(pages[0].md)))
+}
