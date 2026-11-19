@@ -365,12 +365,12 @@ func (om *OutputManager) UniquePages(exclude []*url.URL) int {
 	}
 	skip := make(map[string]struct{}, len(exclude))
 	for _, u := range exclude {
-		skip[parse.NormalizeURL(u)] = struct{}{}
+		skip[parse.CanonicalURL(u)] = struct{}{}
 	}
 	n := 0
 	for raw := range spans {
 		if u, err := url.Parse(raw); err == nil {
-			if _, ok := skip[parse.NormalizeURL(u)]; ok {
+			if _, ok := skip[parse.CanonicalURL(u)]; ok {
 				continue
 			}
 		}
@@ -392,7 +392,7 @@ func (om *OutputManager) recordedPageKeys() map[string]struct{} {
 	keys := make(map[string]struct{}, len(spans))
 	for raw := range spans {
 		if u, err := url.Parse(raw); err == nil {
-			keys[parse.NormalizeURL(u)] = struct{}{}
+			keys[parse.CanonicalURL(u)] = struct{}{}
 		}
 	}
 	return keys
@@ -439,7 +439,7 @@ func (om *OutputManager) DropPage(u *url.URL) {
 	if om.droppedPages == nil {
 		om.droppedPages = map[string]struct{}{}
 	}
-	om.droppedPages[parse.NormalizeURL(u)] = struct{}{}
+	om.droppedPages[parse.CanonicalURL(u)] = struct{}{}
 }
 
 func (om *OutputManager) isDropped(rawURL string) bool {
@@ -450,7 +450,7 @@ func (om *OutputManager) isDropped(rawURL string) bool {
 	if err != nil {
 		return false
 	}
-	_, ok := om.droppedPages[parse.NormalizeURL(u)]
+	_, ok := om.droppedPages[parse.CanonicalURL(u)]
 	return ok
 }
 

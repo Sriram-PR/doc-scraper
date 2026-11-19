@@ -45,7 +45,7 @@ func sweepOrphans(in sweepInput, log *slog.Logger) int {
 	for p, raw := range in.claimed {
 		claimedPaths[filepath.Clean(p)] = struct{}{}
 		if u, err := url.Parse(raw); err == nil {
-			claimedURLs[parse.NormalizeURL(u)] = struct{}{}
+			claimedURLs[parse.CanonicalURL(u)] = struct{}{}
 		}
 	}
 
@@ -83,7 +83,7 @@ func (in sweepInput) removeIfOrphan(root *os.Root, name, p string, claimedURLs m
 		return false
 	}
 	u, err := url.Parse(pageURL)
-	if err != nil || !in.isOrphan(parse.NormalizeURL(u), claimedURLs) {
+	if err != nil || !in.isOrphan(parse.CanonicalURL(u), claimedURLs) {
 		return false
 	}
 	if err := root.Remove(name); err != nil {

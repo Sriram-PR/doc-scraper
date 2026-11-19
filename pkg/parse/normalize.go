@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// NormalizeURL standardizes a URL for comparison and storage: lowercases scheme/host, strips
+// CanonicalURL is the key a page is deduplicated by: it lowercases scheme/host, strips
 // default ports, removes trailing slashes (except root), removes fragments and query strings.
 // Does not modify the input *url.URL.
-func NormalizeURL(u *url.URL) string {
+func CanonicalURL(u *url.URL) string {
 	if u == nil {
 		return ""
 	}
@@ -40,7 +40,7 @@ func NormalizeURL(u *url.URL) string {
 }
 
 // SameHost reports whether two hostnames (no port) are the same. Hostnames are
-// case-insensitive, and NormalizeURL lowercases the ones it queues, so a plain
+// case-insensitive, and CanonicalURL lowercases the ones it queues, so a plain
 // string comparison against a configured or scraped host is not enough.
 func SameHost(a, b string) bool {
 	return strings.EqualFold(a, b)
@@ -59,6 +59,6 @@ func ParseAndNormalize(urlStr string) (string, *url.URL, error) {
 	if parsed.Scheme == "" || parsed.Host == "" {
 		return "", nil, fmt.Errorf("URL must be absolute (have scheme and host): %q", urlStr)
 	}
-	normalizedStr := NormalizeURL(parsed)
+	normalizedStr := CanonicalURL(parsed)
 	return normalizedStr, parsed, nil
 }

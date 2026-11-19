@@ -1039,7 +1039,7 @@ func (c *Crawler) processSinglePageTask(workItem models.WorkItem, workerLog *slo
 		}
 		return
 	}
-	redirected = parse.NormalizeURL(finalURL) != normalizedURLString
+	redirected = parse.CanonicalURL(finalURL) != normalizedURLString
 	// If successful, resp.Body is open and passed to the next stage.
 
 	bodyBytes, readErr := c.readBody(resp, finalURL, taskLog) // Closes resp.Body
@@ -1168,7 +1168,7 @@ func (c *Crawler) claimedSnapshot() (paths map[string]string, urls map[string]st
 	for p, raw := range c.savedPaths {
 		paths[p] = raw
 		if u, err := url.Parse(raw); err == nil {
-			urls[parse.NormalizeURL(u)] = struct{}{}
+			urls[parse.CanonicalURL(u)] = struct{}{}
 		}
 	}
 	return paths, urls
@@ -1215,7 +1215,7 @@ func (c *Crawler) hasPriorRecord(u *url.URL) bool {
 	if !c.resolved.EnableJSONLOutput {
 		return true
 	}
-	_, ok := c.priorRecords[parse.NormalizeURL(u)]
+	_, ok := c.priorRecords[parse.CanonicalURL(u)]
 	return ok
 }
 
@@ -1242,7 +1242,7 @@ func (c *Crawler) handleSetupAndResumeCheck(currentURL string, taskLog *slog.Log
 	}
 	parsedURL = parsedTargetURL
 
-	normalizedURLStr = parse.NormalizeURL(parsedURL)
+	normalizedURLStr = parse.CanonicalURL(parsedURL)
 	host = parsedURL.Hostname()
 	if host == "" && parsedURL.Scheme != "file" { // Check scheme for file URLs which don't have a host
 		err = fmt.Errorf("URL '%s' missing host (and not a file:// URL)", currentURL)

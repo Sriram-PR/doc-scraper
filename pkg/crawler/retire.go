@@ -70,7 +70,7 @@ func (r *retireList) pending(claimed map[string]struct{}) []retiredPage {
 	seen := make(map[string]struct{}, len(r.entries))
 	var out []retiredPage
 	for _, e := range r.entries {
-		k := parse.NormalizeURL(e.u)
+		k := parse.CanonicalURL(e.u)
 		if _, ok := claimed[k]; ok {
 			continue
 		}
@@ -104,7 +104,7 @@ type pageDeleter interface {
 func applyRetirements(entries []retiredPage, present map[string]struct{}, out pageDropper, store pageDeleter, log *slog.Logger) (retired map[string]struct{}, removed int) {
 	retired = make(map[string]struct{}, len(entries))
 	for _, e := range entries {
-		k := parse.NormalizeURL(e.u)
+		k := parse.CanonicalURL(e.u)
 		retired[k] = struct{}{}
 		out.DropPage(e.u)
 		if deletesVisitedKey(e.reason) {

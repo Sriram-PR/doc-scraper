@@ -51,7 +51,7 @@ func newCarryForward(liveDir, jsonlName string, log *slog.Logger) (*carryForward
 		if err != nil {
 			continue
 		}
-		key := parse.NormalizeURL(u)
+		key := parse.CanonicalURL(u)
 		cf.spans[key], cf.rawURLs[key] = span, rawURL
 	}
 	return cf, nil
@@ -60,7 +60,7 @@ func newCarryForward(liveDir, jsonlName string, log *slog.Logger) (*carryForward
 // note marks u, which failed with a temporary error, for carrying if the live
 // corpus has it.
 func (cf *carryForward) note(u *url.URL) {
-	key := parse.NormalizeURL(u)
+	key := parse.CanonicalURL(u)
 	if _, ok := cf.spans[key]; !ok {
 		return
 	}
@@ -115,7 +115,7 @@ func (cf *carryForward) count() int64 {
 // output. It copies nothing and returns false when the live corpus has no
 // record or Markdown file for u.
 func (cf *carryForward) carry(u *url.URL, om *OutputManager, cp *process.ContentProcessor, siteCfg *config.SiteConfig, stagedDir string) bool {
-	key := parse.NormalizeURL(u)
+	key := parse.CanonicalURL(u)
 	span, ok := cf.spans[key]
 	if !ok {
 		return false

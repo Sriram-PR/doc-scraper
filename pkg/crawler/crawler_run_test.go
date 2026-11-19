@@ -1714,7 +1714,7 @@ func visitedStatus(t *testing.T, appCfg *config.AppConfig, rawURL string) models
 	store, err := storage.NewBadgerStore(context.Background(), appCfg.StateDir, testSiteKey, true, silentLogger())
 	require.NoError(t, err)
 	defer store.Close()
-	st, _, err := store.CheckPageStatus(parse.NormalizeURL(u))
+	st, _, err := store.CheckPageStatus(parse.CanonicalURL(u))
 	require.NoError(t, err)
 	return st
 }

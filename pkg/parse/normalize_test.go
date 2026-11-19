@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNormalizeURL_NilInput(t *testing.T) {
-	assert.Empty(t, NormalizeURL(nil))
+func TestCanonicalURL_NilInput(t *testing.T) {
+	assert.Empty(t, CanonicalURL(nil))
 }
 
-func TestNormalizeURL_SchemeAndHostLowercase(t *testing.T) {
+func TestCanonicalURL_SchemeAndHostLowercase(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -38,12 +38,12 @@ func TestNormalizeURL_SchemeAndHostLowercase(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
+			assert.Equal(t, tt.expected, CanonicalURL(parsed), "input %q", tt.input)
 		})
 	}
 }
 
-func TestNormalizeURL_DefaultPorts(t *testing.T) {
+func TestCanonicalURL_DefaultPorts(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -84,12 +84,12 @@ func TestNormalizeURL_DefaultPorts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
+			assert.Equal(t, tt.expected, CanonicalURL(parsed), "input %q", tt.input)
 		})
 	}
 }
 
-func TestNormalizeURL_PathNormalization(t *testing.T) {
+func TestCanonicalURL_PathNormalization(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -125,12 +125,12 @@ func TestNormalizeURL_PathNormalization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
+			assert.Equal(t, tt.expected, CanonicalURL(parsed), "input %q", tt.input)
 		})
 	}
 }
 
-func TestNormalizeURL_FragmentsRemoved(t *testing.T) {
+func TestCanonicalURL_FragmentsRemoved(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -156,12 +156,12 @@ func TestNormalizeURL_FragmentsRemoved(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
+			assert.Equal(t, tt.expected, CanonicalURL(parsed), "input %q", tt.input)
 		})
 	}
 }
 
-func TestNormalizeURL_QueryStringsRemoved(t *testing.T) {
+func TestCanonicalURL_QueryStringsRemoved(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -187,12 +187,12 @@ func TestNormalizeURL_QueryStringsRemoved(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, _ := url.Parse(tt.input)
-			assert.Equal(t, tt.expected, NormalizeURL(parsed), "input %q", tt.input)
+			assert.Equal(t, tt.expected, CanonicalURL(parsed), "input %q", tt.input)
 		})
 	}
 }
 
-func TestNormalizeURL_DoesNotModifyInput(t *testing.T) {
+func TestCanonicalURL_DoesNotModifyInput(t *testing.T) {
 	input := "HTTP://EXAMPLE.COM:80/path/?q=test#section"
 	parsed, _ := url.Parse(input)
 
@@ -203,7 +203,7 @@ func TestNormalizeURL_DoesNotModifyInput(t *testing.T) {
 	origFragment := parsed.Fragment
 	origQuery := parsed.RawQuery
 
-	_ = NormalizeURL(parsed)
+	_ = CanonicalURL(parsed)
 
 	// Verify input was not modified
 	assert.Equal(t, origScheme, parsed.Scheme)
