@@ -1,37 +1,84 @@
 package process
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 )
 
-// headingRegex matches markdown ATX headings at the start of lines. Group 1 is
-// the hash prefix (#-######), group 2 is the heading text up to end of line.
 var (
-	headingRegex = regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
-	mdLinkRe     = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
-	mdImageRe    = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+	mdLinkRe  = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
+	mdImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 )
 
-// ExtractHeadings returns all ATX heading texts in markdown in document order.
-// Does not parse Setext-style headings or detect headings inside fenced code
-// blocks — acceptable for the inputs we feed it (HTML-to-markdown conversion
-// output, where Setext headings do not occur).
+// isRegexSpace is RE2's \s, [\t\n\f\r ]: no \v.
+func isRegexSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
+}
+
+// ExtractHeadings returns the ATX heading texts in markdown in document order.
+// It reproduces `(?m)^(#{1,6})\s+(.+)$` exactly, including \s+ running across
+// blank lines, and returns an empty non-nil slice when only blank headings
+// matched, so JSONL keeps writing [] for those pages. Setext headings and code
+// fences are not recognized.
 func ExtractHeadings(markdown []byte) []string {
-	matches := headingRegex.FindAllSubmatch(markdown, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	headings := make([]string, 0, len(matches))
-	for _, m := range matches {
-		if len(m) >= 3 {
-			text := strings.TrimSpace(string(m[2]))
-			if text != "" {
-				headings = append(headings, text)
+	md := markdown
+	n := len(md)
+	var out []string
+	matched := false
+	for i := 0; i < n; {
+		if md[i] != '#' {
+			j := bytes.IndexByte(md[i:], '\n')
+			if j < 0 {
+				break
+			}
+			i += j + 1
+			continue
+		}
+		k := 0
+		for i+k < n && md[i+k] == '#' {
+			k++
+		}
+		p := i + k
+		if k > 6 || p >= n || !isRegexSpace(md[p]) {
+			j := bytes.IndexByte(md[p:], '\n')
+			if j < 0 {
+				break
+			}
+			i = p + j + 1
+			continue
+		}
+		q := p
+		for q < n && isRegexSpace(md[q]) {
+			q++
+		}
+		if q == n {
+			// \s+ gives bytes back until .+ can start on a non-newline.
+			q = -1
+			for x := n - 1; x > p; x-- {
+				if md[x] != '\n' {
+					q = x
+					break
+				}
+			}
+			if q < 0 {
+				break
 			}
 		}
+		e := n
+		if j := bytes.IndexByte(md[q:], '\n'); j >= 0 {
+			e = q + j
+		}
+		matched = true
+		if t := strings.TrimSpace(string(md[q:e])); t != "" {
+			out = append(out, t)
+		}
+		i = e + 1
 	}
-	return headings
+	if matched && out == nil {
+		return []string{}
+	}
+	return out
 }
 
 // ExtractLinksAndImages extracts markdown links and image references from markdown content.
