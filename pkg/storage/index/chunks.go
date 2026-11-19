@@ -72,12 +72,13 @@ func (i *Index) ChunkedHashes(ctx context.Context, siteKey string) (map[string]s
 	return out, rows.Err()
 }
 
-// PruneChunks removes chunks for pages no longer in the site's corpus.
-// currentURLs is the complete set of URLs the latest crawl produced.
-func (i *Index) PruneChunks(ctx context.Context, siteKey string, currentURLs map[string]struct{}) error {
+// PruneChunks removes chunks for pages no longer in the site's corpus and
+// returns how many pages it removed. currentURLs is the complete set of URLs
+// the latest crawl produced.
+func (i *Index) PruneChunks(ctx context.Context, siteKey string, currentURLs map[string]struct{}) (int, error) {
 	existing, err := i.ChunkedHashes(ctx, siteKey)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var stale []string
 	for url := range existing {
@@ -86,23 +87,26 @@ func (i *Index) PruneChunks(ctx context.Context, siteKey string, currentURLs map
 		}
 	}
 	if len(stale) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	i.writeMu.Lock()
 	defer i.writeMu.Unlock()
 	tx, err := i.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin: %w", err)
+		return 0, fmt.Errorf("begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, url := range stale {
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM chunks WHERE site_key = ? AND url = ?`, siteKey, url); err != nil {
-			return fmt.Errorf("prune chunks: %w", err)
+			return 0, fmt.Errorf("prune chunks: %w", err)
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(stale), nil
 }
 
 // DeleteSiteChunks removes every chunk for the site, for a site whose corpus is no

@@ -121,7 +121,12 @@ func TestPruneChunksRemovesStalePages(t *testing.T) {
 	seedPage(t, idx, "s", "https://e/gone", "Gone", "h2",
 		"# Gone\n\nwalrus text. "+strings.Repeat("filler ", 40))
 
-	require.NoError(t, idx.PruneChunks(ctx, "s", map[string]struct{}{"https://e/keep": {}}))
+	removed, err := idx.PruneChunks(ctx, "s", map[string]struct{}{"https://e/keep": {}})
+	require.NoError(t, err)
+	assert.Equal(t, 1, removed)
+	removed, err = idx.PruneChunks(ctx, "s", map[string]struct{}{"https://e/keep": {}})
+	require.NoError(t, err)
+	assert.Zero(t, removed)
 
 	results, err := idx.SearchChunks(ctx, "walrus", "", 5)
 	require.NoError(t, err)

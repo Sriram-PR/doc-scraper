@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -124,4 +125,43 @@ func TestIndexChunksFromJSONLDeletedFileClearsTheSite(t *testing.T) {
 	results, err = idx.SearchChunks(ctx, "walrus", "other", 5)
 	require.NoError(t, err)
 	assert.Len(t, results, 1, "another site's chunks must stay")
+}
+
+func TestIndexChunksFromJSONLLogsProgress(t *testing.T) {
+	old := indexProgressInterval
+	indexProgressInterval = 0
+	t.Cleanup(func() { indexProgressInterval = old })
+
+	dir := t.TempDir()
+	idx, err := index.Open(filepath.Join(dir, "index.db"), 5, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
+	defer func() { _ = idx.Close() }()
+	ctx := context.Background()
+	jsonlPath := filepath.Join(dir, "pages.jsonl")
+	filler := strings.Repeat("filler ", 40)
+	pages := []models.PageJSONL{
+		{URL: "https://d.example/a", Title: "A", ContentHash: "a1", Content: "# A\n\nalpha. " + filler},
+		{URL: "https://d.example/b", Title: "B", ContentHash: "b1", Content: "# B\n\nbravo. " + filler},
+		{URL: "https://d.example/c", Title: "C", ContentHash: "c1", Content: "# C\n\ncharlie. " + filler},
+	}
+	run := func() string {
+		var buf bytes.Buffer
+		log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		require.NoError(t, IndexChunksFromJSONL(ctx, idx, "docs", jsonlPath, log))
+		return buf.String()
+	}
+
+	writeChunkTestJSONL(t, jsonlPath, pages)
+	out := run()
+	assert.Equal(t, 4, strings.Count(out, `level=INFO msg="Indexing pages for search" site=docs`), "a start line and a progress line per page:\n%s", out)
+	assert.Contains(t, out, `level=INFO msg="Indexed pages for search" site=docs pages_indexed=3 pages_unchanged=0 pages_removed=0`)
+
+	writeChunkTestJSONL(t, jsonlPath, pages[:2])
+	out = run()
+	assert.NotContains(t, out, `msg="Indexing pages for search"`, "nothing to index, no start line")
+	assert.Contains(t, out, `level=INFO msg="Indexed pages for search" site=docs pages_indexed=0 pages_unchanged=2 pages_removed=1`)
+
+	out = run()
+	assert.NotContains(t, out, "level=INFO")
+	assert.Contains(t, out, `level=DEBUG msg="Indexed pages for search" site=docs pages_indexed=0 pages_unchanged=2 pages_removed=0`)
 }

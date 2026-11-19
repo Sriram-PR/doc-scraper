@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
@@ -43,6 +44,10 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 
 	current := make(map[string]struct{}, len(existing))
 	var indexed, skipped int
+	start := time.Now()
+	lastProgress := start
+	w := idx.NewChunkWriter(ctx, siteKey)
+	defer w.Abort()
 	scanner := NewJSONLScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -61,18 +66,37 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 			skipped++
 			continue
 		}
-		if err := idx.ReplaceChunks(ctx, siteKey, p.URL, p.Title, p.ContentHash, chunk.Split(p.Content)); err != nil {
+		if indexed == 0 {
+			log.Info("Indexing pages for search", "site", siteKey)
+		}
+		if err := w.Put(p.URL, p.Title, p.ContentHash, chunk.Split(p.Content)); err != nil {
 			return err
 		}
 		indexed++
+		if time.Since(lastProgress) >= indexProgressInterval {
+			lastProgress = time.Now()
+			log.Info("Indexing pages for search", "site", siteKey, "pages_indexed", indexed, "pages_unchanged", skipped)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-
-	if err := idx.PruneChunks(ctx, siteKey, current); err != nil {
+	if err := w.Close(); err != nil {
 		return err
 	}
-	log.Debug("chunk index refreshed", "site", siteKey, "pages_indexed", indexed, "pages_unchanged", skipped)
+
+	removed, err := idx.PruneChunks(ctx, siteKey, current)
+	if err != nil {
+		return err
+	}
+	level := slog.LevelDebug
+	if indexed > 0 || removed > 0 {
+		level = slog.LevelInfo
+	}
+	log.Log(ctx, level, "Indexed pages for search", "site", siteKey, "pages_indexed", indexed,
+		"pages_unchanged", skipped, "pages_removed", removed, "duration", time.Since(start).Round(time.Millisecond).String())
 	return nil
 }
+
+// indexProgressInterval spaces the progress lines of a long indexing run.
+var indexProgressInterval = 2 * time.Second
