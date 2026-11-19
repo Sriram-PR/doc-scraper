@@ -2,13 +2,7 @@ package process
 
 import (
 	"bytes"
-	"regexp"
 	"strings"
-)
-
-var (
-	mdLinkRe  = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
-	mdImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 )
 
 // isRegexSpace is RE2's \s, [\t\n\f\r ]: no \v.
@@ -81,29 +75,62 @@ func ExtractHeadings(markdown []byte) []string {
 	return out
 }
 
-// ExtractLinksAndImages extracts markdown links and image references from markdown content.
-// Returns two slices: links (from [text](url)) and images (from ![alt](url)).
-func ExtractLinksAndImages(markdown string) (links []string, images []string) {
-	linkMatches := mdLinkRe.FindAllStringSubmatchIndex(markdown, -1)
-	for _, match := range linkMatches {
-		if match[0] > 0 && markdown[match[0]-1] == '!' {
-			continue
+// ExtractLinksAndImages returns the targets of [text](target) links and
+// ![alt](target) images in markdown, in document order. It reproduces
+// `\[([^\]]*)\]\(([^)]+)\)` (a match right after "!" is an image, not a link)
+// and `!\[([^\]]*)\]\(([^)]+)\)` exactly: brackets don't nest and both parts
+// may span lines.
+func ExtractLinksAndImages(markdown string) (links, images []string) {
+	for pos := 0; ; {
+		s, target, next, ok := nextBracketRef(markdown, pos, "[")
+		if !ok {
+			break
 		}
-		linkURL := strings.TrimSpace(markdown[match[4]:match[5]])
-		if linkURL != "" {
-			links = append(links, linkURL)
-		}
-	}
-
-	imageMatches := mdImageRe.FindAllStringSubmatch(markdown, -1)
-	for _, match := range imageMatches {
-		if len(match) >= 3 {
-			imageURL := strings.TrimSpace(match[2])
-			if imageURL != "" {
-				images = append(images, imageURL)
+		if s == 0 || markdown[s-1] != '!' {
+			if t := strings.TrimSpace(target); t != "" {
+				links = append(links, t)
 			}
 		}
+		pos = next
 	}
-
+	for pos := 0; ; {
+		_, target, next, ok := nextBracketRef(markdown, pos, "![")
+		if !ok {
+			break
+		}
+		if t := strings.TrimSpace(target); t != "" {
+			images = append(images, t)
+		}
+		pos = next
+	}
 	return links, images
+}
+
+// nextBracketRef finds the leftmost match of open + `[^\]]*\]\([^)]+\)` at or
+// after pos, returning where it starts, its target, and where the next search
+// starts.
+func nextBracketRef(md string, pos int, open string) (start int, target string, next int, ok bool) {
+	for {
+		k := strings.Index(md[pos:], open)
+		if k < 0 {
+			return 0, "", 0, false
+		}
+		s := pos + k
+		c := strings.IndexByte(md[s+len(open):], ']')
+		if c < 0 {
+			return 0, "", 0, false
+		}
+		e := s + len(open) + c
+		if e+1 < len(md) && md[e+1] == '(' {
+			r := strings.IndexByte(md[e+2:], ')')
+			if r < 0 {
+				return 0, "", 0, false
+			}
+			if r > 0 {
+				return s, md[e+2 : e+2+r], e + 3 + r, true
+			}
+		}
+		// Every later open before e reaches this same ']' and fails the same way.
+		pos = e + 1
+	}
 }
