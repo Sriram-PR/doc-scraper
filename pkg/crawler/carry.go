@@ -46,13 +46,8 @@ func newCarryForward(liveDir, jsonlName string, log *slog.Logger) (*carryForward
 		return nil, nil
 	}
 	cf := &carryForward{liveDir: liveDir, jsonlPath: path, spans: map[string]pageSpan{}, rawURLs: map[string]string{}, log: log, pending: map[string]*url.URL{}}
-	for rawURL, span := range raw {
-		u, err := url.Parse(rawURL)
-		if err != nil {
-			continue
-		}
-		key := parse.CanonicalURL(u)
-		cf.spans[key], cf.rawURLs[key] = span, rawURL
+	for key, span := range raw {
+		cf.spans[key], cf.rawURLs[key] = span, span.url
 	}
 	return cf, nil
 }

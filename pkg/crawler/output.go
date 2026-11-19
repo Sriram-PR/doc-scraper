@@ -430,6 +430,7 @@ func (om *OutputManager) appendRaw(line []byte) bool {
 type pageSpan struct {
 	offset int64
 	length int
+	url    string // the record's URL as written
 }
 
 // DropPage leaves the page's record out of the finalized JSONL. Records are
@@ -455,9 +456,10 @@ func (om *OutputManager) isDropped(rawURL string) bool {
 }
 
 // finalizeJSONL rewrites the streamed JSONL into canonical form: one page record
-// per URL (last wins), sorted, plus a single crawl_meta. It indexes by byte offset
-// and copies records through, so only URLs and offsets are held in memory, never
-// page bodies. Must run after the append handle is closed; errors are logged.
+// per canonical URL (last wins), sorted, plus a single crawl_meta. It indexes by
+// byte offset and copies records through, so only URLs and offsets are held in
+// memory, never page bodies. Must run after the append handle is closed; errors
+// are logged.
 func (om *OutputManager) finalizeJSONL() {
 	if om.jsonlFilePath == "" {
 		return
@@ -468,9 +470,9 @@ func (om *OutputManager) finalizeJSONL() {
 		om.appendCrawlMeta()
 		return
 	}
-	for u := range spans {
-		if om.isDropped(u) {
-			delete(spans, u)
+	for k, s := range spans {
+		if om.isDropped(s.url) {
+			delete(spans, k)
 		}
 	}
 	om.pagesRecorded.Store(int64(len(spans)))
@@ -482,8 +484,9 @@ func (om *OutputManager) finalizeJSONL() {
 	om.log.Info("Wrote crawl_meta record", "total_pages", len(spans), "path", om.jsonlFilePath)
 }
 
-// indexLastPageOffsets scans the JSONL and returns, per URL, the byte span of
-// that URL's last page record. Only URLs and spans are retained, never bodies.
+// indexLastPageOffsets scans the JSONL and returns, per canonical page URL, the
+// byte span of its last page record. Only URLs and spans are retained, never
+// bodies.
 func indexLastPageOffsets(path string) (map[string]pageSpan, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -506,7 +509,7 @@ func indexLastPageOffsets(path string) (map[string]pageSpan, error) {
 					URL        string `json:"url"`
 				}
 				if json.Unmarshal(line, &hdr) == nil && hdr.RecordType == models.RecordTypePage {
-					spans[hdr.URL] = pageSpan{offset: offset, length: len(line)}
+					spans[parse.CanonicalKey(hdr.URL)] = pageSpan{offset: offset, length: len(line), url: hdr.URL}
 				}
 			}
 			offset += int64(len(line))
@@ -551,21 +554,21 @@ func (om *OutputManager) rewriteFinalizedJSONL(spans map[string]pageSpan) error 
 	}()
 	w := bufio.NewWriter(tmp)
 
-	urls := make([]string, 0, len(spans))
-	for u := range spans {
-		urls = append(urls, u)
+	keys := make([]string, 0, len(spans))
+	for k := range spans {
+		keys = append(keys, k)
 	}
-	sort.Strings(urls)
+	sort.Slice(keys, func(i, j int) bool { return spans[keys[i]].url < spans[keys[j]].url })
 
 	buf := make([]byte, 0, jsonlReadBuf)
-	for _, u := range urls {
-		s := spans[u]
+	for _, k := range keys {
+		s := spans[k]
 		if cap(buf) < s.length {
 			buf = make([]byte, s.length)
 		}
 		rec := buf[:s.length]
 		if _, rErr := src.ReadAt(rec, s.offset); rErr != nil {
-			om.log.Error("Failed to read JSONL record during finalize", "url", u, "err", rErr)
+			om.log.Error("Failed to read JSONL record during finalize", "url", s.url, "err", rErr)
 			continue
 		}
 		// Normalize to exactly one trailing newline; the final streamed record

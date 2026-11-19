@@ -211,3 +211,38 @@ func TestOutputManager_AppendRaw(t *testing.T) {
 	off, _ := newOpenOutputManager(t, false)
 	assert.False(t, off.appendRaw(line))
 }
+
+func TestFinalizeJSONL_DedupesEquivalentURLs(t *testing.T) {
+	tmpDir := t.TempDir()
+	jsonlPath := filepath.Join(tmpDir, "pages.jsonl")
+	f, err := os.OpenFile(jsonlPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	require.NoError(t, err)
+	om := &OutputManager{
+		log:            silentLogger(),
+		siteCfg:        &config.SiteConfig{AllowedDomain: "example.com"},
+		resolved:       &config.ResolvedSiteConfig{},
+		siteOutputDir:  tmpDir,
+		jsonlFile:      f,
+		jsonlFilePath:  jsonlPath,
+		crawlStartTime: time.Now(),
+	}
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/book/index.html", Title: "old"}, silentLogger())
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/zz", Title: "Z"}, silentLogger())
+	om.recordJSONL(models.PageJSONL{RecordType: models.RecordTypePage, URL: "https://example.com/book/", Title: "new"}, silentLogger())
+
+	om.closeJSONLFile()
+	om.finalizeJSONL()
+
+	var pages []models.PageJSONL
+	for _, l := range readJSONLLines(t, jsonlPath) {
+		var p models.PageJSONL
+		require.NoError(t, json.Unmarshal([]byte(l), &p))
+		if p.RecordType == models.RecordTypePage {
+			pages = append(pages, p)
+		}
+	}
+	require.Len(t, pages, 2)
+	assert.Equal(t, "https://example.com/book/", pages[0].URL, "the later record wins and keeps its own URL")
+	assert.Equal(t, "new", pages[0].Title)
+	assert.Equal(t, "https://example.com/zz", pages[1].URL)
+}
