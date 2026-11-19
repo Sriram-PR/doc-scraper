@@ -292,7 +292,7 @@ func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte,
 			contentHash = utils.CalculateStringSHA256(content)
 		}
 		headings := process.ExtractHeadings(markdownBytes)
-		links, images := extractLinksAndImages(content)
+		links, images := process.ExtractLinksAndImages(content)
 
 		pageJSONL := models.PageJSONL{
 			RecordType:  models.RecordTypePage,

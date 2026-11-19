@@ -33,12 +33,6 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
-// Pre-compiled regexes for markdown link and image extraction.
-var (
-	mdLinkRe  = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
-	mdImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
-)
-
 // Crawler orchestrates the web crawling process for a single configured site
 type Crawler struct {
 	log                        *slog.Logger // Logger contextualized with site_key
@@ -1481,31 +1475,4 @@ func parseBody(ctx context.Context, body []byte, finalURL *url.URL) (*goquery.Do
 	default:
 		return nil, nil, fmt.Errorf("%w: parsing HTML from '%s': %w", utils.ErrParsing, finalURL.String(), err)
 	}
-}
-
-// extractLinksAndImages extracts markdown links and image references from markdown content.
-// Returns two slices: links (from [text](url)) and images (from ![alt](url)).
-func extractLinksAndImages(markdown string) (links []string, images []string) {
-	linkMatches := mdLinkRe.FindAllStringSubmatchIndex(markdown, -1)
-	for _, match := range linkMatches {
-		if match[0] > 0 && markdown[match[0]-1] == '!' {
-			continue
-		}
-		linkURL := strings.TrimSpace(markdown[match[4]:match[5]])
-		if linkURL != "" {
-			links = append(links, linkURL)
-		}
-	}
-
-	imageMatches := mdImageRe.FindAllStringSubmatch(markdown, -1)
-	for _, match := range imageMatches {
-		if len(match) >= 3 {
-			imageURL := strings.TrimSpace(match[2])
-			if imageURL != "" {
-				images = append(images, imageURL)
-			}
-		}
-	}
-
-	return links, images
 }
