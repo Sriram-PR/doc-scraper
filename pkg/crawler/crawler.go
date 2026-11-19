@@ -548,6 +548,11 @@ func (c *Crawler) requeueIncomplete(resume bool, runLog *slog.Logger) (int, erro
 	if !resume {
 		return 0, nil
 	}
+	if moved, err := c.store.CanonicalizeKeys(parse.CanonicalKey); err != nil {
+		runLog.Warn("Could not merge visited-DB entries saved under another form of a URL; the next run tries again", "err", err)
+	} else if moved > 0 {
+		runLog.Info("Merged visited-DB entries saved under another form of a URL", "count", moved)
+	}
 	runLog.Info("Resume mode: Scanning database for incomplete tasks to requeue...")
 	initialTasksFromDB := 0
 	requeueChan := make(chan models.WorkItem, 100)

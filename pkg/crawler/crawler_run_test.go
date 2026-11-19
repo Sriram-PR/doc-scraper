@@ -2105,3 +2105,57 @@ func TestCrawlerRun_RedirectToIndexHTMLIsNotRetired(t *testing.T) {
 	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/c/index.html"))
 	assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-C"), 1)
 }
+
+// TestCrawlerRun_MergesAnOldDuplicateKeyAndRecord: state written the way
+// v2.27.0 left an mdBook root (keys and records for both / and /index.html)
+// collapses after one incremental run.
+func TestCrawlerRun_MergesAnOldDuplicateKeyAndRecord(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	root := `<html><head><title>Book</title></head><body><main id="c"><p>ROOT</p><a href="ch1.html">One</a></main></body></html>`
+	ms.set("/docs/", root)
+	ms.set("/docs/index.html", root)
+	ms.set("/docs/ch1.html", `<html><head><title>One</title></head><body><main id="c"><p>CH1</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/")
+	siteCfg.ContentSelector = "#c"
+	runResumableCrawl(t, appCfg, siteCfg, false)
+
+	oldKey := server.URL + "/docs/index.html"
+	store, err := storage.NewBadgerStore(context.Background(), appCfg.StateDir, testSiteKey, true, silentLogger())
+	require.NoError(t, err)
+	_, e, err := store.CheckPageStatus(server.URL + "/docs")
+	require.NoError(t, err)
+	legacy := *e
+	legacy.URL = ""
+	require.NoError(t, store.UpdatePageStatus(oldKey, &legacy))
+	require.NoError(t, store.Close())
+	jsonlPath := filepath.Join(siteOutputDir(appCfg, siteCfg), "pages.jsonl")
+	rec := jsonlRecordOf(t, appCfg, siteCfg, server.URL+"/docs/")
+	rec.URL = oldKey
+	line, err := json.Marshal(rec)
+	require.NoError(t, err)
+	f, err := os.OpenFile(jsonlPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = f.Write(append(line, '\n'))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.Zero(t, ms.hitCount("/docs/index.html"), "the merged legacy key is not fetched")
+	n := 0
+	for _, l := range readJSONLLines(t, jsonlPath) {
+		if strings.Contains(l, `"record_type":"page"`) && strings.Contains(l, "ROOT") {
+			n++
+		}
+	}
+	assert.Equal(t, 1, n, "one record for the root")
+
+	store, err = storage.NewBadgerStore(context.Background(), appCfg.StateDir, testSiteKey, true, silentLogger())
+	require.NoError(t, err)
+	defer store.Close()
+	moved, err := store.CanonicalizeKeys(parse.CanonicalKey)
+	require.NoError(t, err)
+	assert.Zero(t, moved, "nothing left to merge")
+}

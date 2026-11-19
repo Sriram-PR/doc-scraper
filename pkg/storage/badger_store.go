@@ -415,6 +415,115 @@ func (s *BadgerStore) RunGC(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// CanonicalizeKeys merges entries saved under a form of a URL that canon maps
+// elsewhere, so a page is requeued once. One transaction per key: a failure
+// leaves the rest for the next run.
+func (s *BadgerStore) CanonicalizeKeys(canon func(string) string) (int, error) {
+	var stale []string
+	prefix := []byte(pageKeyPrefix)
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			k := string(it.Item().Key()[len(prefix):])
+			if canon(k) != k {
+				stale = append(stale, k)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("%w: scanning page keys: %w", utils.ErrDatabase, err)
+	}
+	moved := 0
+	for _, old := range stale {
+		if err := s.moveKey(old, canon(old)); err != nil {
+			return moved, err
+		}
+		moved++
+	}
+	return moved, nil
+}
+
+func (s *BadgerStore) moveKey(oldKey, newKey string) error {
+	oldK, newK := []byte(pageKeyPrefix+oldKey), []byte(pageKeyPrefix+newKey)
+	var merged bool
+	err := s.dbUpdate(func(txn *badger.Txn) error {
+		merged = false
+		old, err := readEntryTxn(txn, oldK)
+		if errors.Is(err, badger.ErrKeyNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if old.URL == "" {
+			old.URL = oldKey
+		}
+		cur, err := readEntryTxn(txn, newK)
+		switch {
+		case errors.Is(err, badger.ErrKeyNotFound):
+		case err != nil:
+			return err
+		default:
+			merged = true
+			if entryRank(old) <= entryRank(cur) {
+				return txn.Delete(oldK)
+			}
+		}
+		b, err := json.Marshal(old)
+		if err != nil {
+			return err
+		}
+		if err := txn.Set(newK, b); err != nil {
+			return err
+		}
+		return txn.Delete(oldK)
+	})
+	if err != nil {
+		return fmt.Errorf("%w: moving page key '%s': %w", utils.ErrDatabase, oldKey, err)
+	}
+	if merged {
+		s.keyCount.Add(-1)
+	}
+	return nil
+}
+
+// readEntryTxn reads a page entry; an empty or unreadable value is a pending
+// entry, as CheckPageStatus treats it.
+func readEntryTxn(txn *badger.Txn, key []byte) (*models.PageDBEntry, error) {
+	item, err := txn.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	e := &models.PageDBEntry{Status: models.PageStatusPending}
+	err = item.Value(func(v []byte) error {
+		if len(v) > 0 {
+			var d models.PageDBEntry
+			if json.Unmarshal(v, &d) == nil {
+				*e = d
+			}
+		}
+		return nil
+	})
+	return e, err
+}
+
+func entryRank(e *models.PageDBEntry) int {
+	switch {
+	case e.Status == models.PageStatusSuccess && e.ContentHash != "":
+		return 3
+	case e.Status == models.PageStatusSuccess:
+		return 2
+	case e.Status == models.PageStatusPending:
+		return 1
+	default:
+		return 0
+	}
+}
+
 func (s *BadgerStore) RequeueIncomplete(ctx context.Context, workChan chan<- models.WorkItem, includeSuccess bool) (int, int, error) {
 	s.log.Info("Resume Mode: Scanning database for incomplete tasks to requeue...")
 	requeuedCount := 0

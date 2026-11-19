@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -793,4 +794,72 @@ func TestRequeueIncomplete_SendsTheFetchURL(t *testing.T) {
 	}
 	assert.True(t, got["https://example.com/docs/"], "requeued under its fetch URL")
 	assert.True(t, got["https://example.com/legacy"], "an entry without a fetch URL is requeued under its key")
+}
+
+func foldIndex(k string) string { return strings.TrimSuffix(k, "/index.html") }
+
+func TestCanonicalizeKeys_MovesALoneKey(t *testing.T) {
+	store := newTestStore(t)
+	require.NoError(t, store.UpdatePageStatus("https://e/a/index.html", &models.PageDBEntry{Status: models.PageStatusSuccess, ContentHash: "h", LastAttempt: time.Now()}))
+	before, _ := store.GetVisitedCount()
+
+	moved, err := store.CanonicalizeKeys(foldIndex)
+	require.NoError(t, err)
+	assert.Equal(t, 1, moved)
+
+	st, e, err := store.CheckPageStatus("https://e/a")
+	require.NoError(t, err)
+	assert.Equal(t, models.PageStatusSuccess, st)
+	assert.Equal(t, "https://e/a/index.html", e.URL, "the old key becomes the fetch URL")
+	assert.Equal(t, "h", e.ContentHash)
+	st, _, _ = store.CheckPageStatus("https://e/a/index.html")
+	assert.Equal(t, models.PageStatusNotFound, st)
+	after, _ := store.GetVisitedCount()
+	assert.Equal(t, before, after)
+
+	moved, err = store.CanonicalizeKeys(foldIndex)
+	require.NoError(t, err)
+	assert.Zero(t, moved, "a second pass moves nothing")
+}
+
+func TestCanonicalizeKeys_KeepsTheBetterEntry(t *testing.T) {
+	good := &models.PageDBEntry{Status: models.PageStatusSuccess, ContentHash: "h", URL: "https://e/a/", LastAttempt: time.Now()}
+	bad := &models.PageDBEntry{Status: models.PageStatusFailure, LastAttempt: time.Now()}
+	for _, tc := range []struct {
+		name               string
+		atCanonical, atOld *models.PageDBEntry
+	}{
+		{"better entry at the old key", bad, good},
+		{"better entry already canonical", good, bad},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newTestStore(t)
+			require.NoError(t, store.UpdatePageStatus("https://e/a", tc.atCanonical))
+			require.NoError(t, store.UpdatePageStatus("https://e/a/index.html", tc.atOld))
+			before, _ := store.GetVisitedCount()
+
+			_, err := store.CanonicalizeKeys(foldIndex)
+			require.NoError(t, err)
+
+			st, e, err := store.CheckPageStatus("https://e/a")
+			require.NoError(t, err)
+			assert.Equal(t, models.PageStatusSuccess, st)
+			assert.Equal(t, "h", e.ContentHash)
+			after, _ := store.GetVisitedCount()
+			assert.Equal(t, before-1, after)
+		})
+	}
+}
+
+func TestCanonicalizeKeys_TieKeepsTheCanonicalEntry(t *testing.T) {
+	store := newTestStore(t)
+	require.NoError(t, store.UpdatePageStatus("https://e/a", &models.PageDBEntry{Status: models.PageStatusSuccess, ContentHash: "canon", LastAttempt: time.Now()}))
+	require.NoError(t, store.UpdatePageStatus("https://e/a/index.html", &models.PageDBEntry{Status: models.PageStatusSuccess, ContentHash: "old", LastAttempt: time.Now()}))
+
+	_, err := store.CanonicalizeKeys(foldIndex)
+	require.NoError(t, err)
+
+	_, e, err := store.CheckPageStatus("https://e/a")
+	require.NoError(t, err)
+	assert.Equal(t, "canon", e.ContentHash)
 }

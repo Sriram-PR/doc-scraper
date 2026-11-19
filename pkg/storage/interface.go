@@ -49,6 +49,11 @@ type StoreAdmin interface {
 	// be re-fetched and re-checked for content changes. Should be called only during resume.
 	RequeueIncomplete(ctx context.Context, workChan chan<- models.WorkItem, includeSuccess bool) (requeuedCount int, scanErrors int, err error)
 
+	// CanonicalizeKeys moves every page entry whose key canon changes to the
+	// canonical key, keeping the old key as its fetch URL; when both exist the
+	// better entry stays. Returns how many old keys were removed.
+	CanonicalizeKeys(canon func(string) string) (moved int, err error)
+
 	// RunGC runs periodic garbage collection. Should be run in a goroutine
 	RunGC(ctx context.Context, interval time.Duration)
 
