@@ -67,7 +67,7 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 			continue
 		}
 		if indexed == 0 {
-			log.Info("Indexing pages for search", "site", siteKey)
+			log.Info("Indexing pages for search")
 		}
 		if err := w.Put(p.URL, p.Title, p.ContentHash, chunk.Split(p.Content)); err != nil {
 			return err
@@ -75,7 +75,7 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 		indexed++
 		if time.Since(lastProgress) >= indexProgressInterval {
 			lastProgress = time.Now()
-			log.Info("Indexing pages for search", "site", siteKey, "pages_indexed", indexed, "pages_unchanged", skipped)
+			log.Info("Indexing pages for search", "pages_indexed", indexed, "pages_unchanged", skipped)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -93,7 +93,7 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 	if indexed > 0 || removed > 0 {
 		level = slog.LevelInfo
 	}
-	log.Log(ctx, level, "Indexed pages for search", "site", siteKey, "pages_indexed", indexed,
+	log.Log(ctx, level, "Indexed pages for search", "pages_indexed", indexed,
 		"pages_unchanged", skipped, "pages_removed", removed, "duration", time.Since(start).Round(time.Millisecond).String())
 	return nil
 }

@@ -532,7 +532,7 @@ func (s *Server) backfillChunks(ctx context.Context) {
 		if _, statErr := os.Stat(jsonlPath); has && statErr == nil {
 			continue
 		}
-		if err := crawler.IndexChunksFromJSONL(ctx, s.idx, key, jsonlPath, s.log); err != nil {
+		if err := crawler.IndexChunksFromJSONL(ctx, s.idx, key, jsonlPath, s.log.With("site_key", key)); err != nil {
 			s.log.Warn("chunk backfill failed", "site", key, "err", err)
 		}
 	}

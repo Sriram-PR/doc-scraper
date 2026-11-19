@@ -146,22 +146,23 @@ func TestIndexChunksFromJSONLLogsProgress(t *testing.T) {
 	}
 	run := func() string {
 		var buf bytes.Buffer
-		log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})).With("site_key", "docs")
 		require.NoError(t, IndexChunksFromJSONL(ctx, idx, "docs", jsonlPath, log))
 		return buf.String()
 	}
 
 	writeChunkTestJSONL(t, jsonlPath, pages)
 	out := run()
-	assert.Equal(t, 4, strings.Count(out, `level=INFO msg="Indexing pages for search" site=docs`), "a start line and a progress line per page:\n%s", out)
-	assert.Contains(t, out, `level=INFO msg="Indexed pages for search" site=docs pages_indexed=3 pages_unchanged=0 pages_removed=0`)
+	assert.NotContains(t, out, " site=", "the caller's logger names the site")
+	assert.Equal(t, 4, strings.Count(out, `level=INFO msg="Indexing pages for search" site_key=docs`), "a start line and a progress line per page:\n%s", out)
+	assert.Contains(t, out, `level=INFO msg="Indexed pages for search" site_key=docs pages_indexed=3 pages_unchanged=0 pages_removed=0`)
 
 	writeChunkTestJSONL(t, jsonlPath, pages[:2])
 	out = run()
 	assert.NotContains(t, out, `msg="Indexing pages for search"`, "nothing to index, no start line")
-	assert.Contains(t, out, `level=INFO msg="Indexed pages for search" site=docs pages_indexed=0 pages_unchanged=2 pages_removed=1`)
+	assert.Contains(t, out, `level=INFO msg="Indexed pages for search" site_key=docs pages_indexed=0 pages_unchanged=2 pages_removed=1`)
 
 	out = run()
 	assert.NotContains(t, out, "level=INFO")
-	assert.Contains(t, out, `level=DEBUG msg="Indexed pages for search" site=docs pages_indexed=0 pages_unchanged=2 pages_removed=0`)
+	assert.Contains(t, out, `level=DEBUG msg="Indexed pages for search" site_key=docs pages_indexed=0 pages_unchanged=2 pages_removed=0`)
 }
