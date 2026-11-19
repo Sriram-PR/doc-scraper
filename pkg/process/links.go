@@ -164,7 +164,8 @@ func (lp *LinkProcessor) ExtractAndQueueLinks( //nolint:gocyclo // link extracti
 			}
 
 			if added {
-				// Enqueue the fetch URL; its key is the one just marked, so a same-page anchor (index.html#foo) can't be queued again before the parent's status update lands.
+				// The key is already marked, so a same-page anchor (index.html#foo)
+				// can't queue the page again before its status update lands.
 				nextWorkItem := models.WorkItem{URL: fetch, Depth: nextDepth}
 				lp.pq.Add(&nextWorkItem)
 				queuedCount++

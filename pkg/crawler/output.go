@@ -434,8 +434,8 @@ type pageSpan struct {
 }
 
 // DropPage leaves the page's record out of the finalized JSONL. Records are
-// matched by normalized URL, since a requeued URL comes from the visited DB in
-// normalized form while records keep the URL as fetched.
+// matched by canonical URL, since a page may be fetched under another form of
+// its URL than the one it was recorded under.
 func (om *OutputManager) DropPage(u *url.URL) {
 	if om.droppedPages == nil {
 		om.droppedPages = map[string]struct{}{}

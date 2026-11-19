@@ -50,8 +50,8 @@ type StoreAdmin interface {
 	RequeueIncomplete(ctx context.Context, workChan chan<- models.WorkItem, includeSuccess bool) (requeuedCount int, scanErrors int, err error)
 
 	// CanonicalizeKeys moves every page entry whose key canon changes to the
-	// canonical key, keeping the old key as its fetch URL; when both exist the
-	// better entry stays. Returns how many old keys were removed.
+	// canonical key; an entry without a fetch URL gets the old key as one. When
+	// both exist the better entry stays. Returns how many old keys were removed.
 	CanonicalizeKeys(canon func(string) string) (moved int, err error)
 
 	// RunGC runs periodic garbage collection. Should be run in a goroutine

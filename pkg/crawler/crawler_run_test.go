@@ -2159,3 +2159,23 @@ func TestCrawlerRun_MergesAnOldDuplicateKeyAndRecord(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, moved, "nothing left to merge")
 }
+
+// TestCrawlerRun_EscapedLinkIsNotRetired: a page linked as %41 and answered
+// at A is the same page, not a redirect away.
+func TestCrawlerRun_EscapedLinkIsNotRetired(t *testing.T) {
+	server, ms := newMutableDocServer(t)
+	ms.set("/docs/index.html", `<html><head><title>Doc</title></head><body>`+
+		`<main id="c"><p>HOME</p><a href="/docs/%41">a</a></main></body></html>`)
+	ms.set("/docs/A", `<html><head><title>A</title></head><body><main id="c"><p>PAGE-A</p></main></body></html>`)
+	appCfg := newTestAppConfig(t)
+	appCfg.EnableIncremental = true
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#c"
+
+	runResumableCrawl(t, appCfg, siteCfg, false)
+	runResumableCrawl(t, appCfg, siteCfg, true)
+
+	assert.True(t, jsonlHasURL(t, appCfg, siteCfg, server.URL+"/docs/A"))
+	assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"), 1)
+	assert.Equal(t, models.PageStatusSuccess, visitedStatus(t, appCfg, server.URL+"/docs/%41"))
+}
