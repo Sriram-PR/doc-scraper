@@ -159,7 +159,7 @@ For more info, visit [our site](https://docs.example.com).
 	}
 }
 
-// The regex extractors the scanners replaced, verbatim: the fuzz oracle.
+// Regex reference implementations, the fuzz oracle.
 var (
 	refHeadingRe = regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
 	refLinkRe    = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)

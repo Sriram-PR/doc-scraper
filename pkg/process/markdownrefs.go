@@ -10,13 +10,9 @@ func isRegexSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
 }
 
-// ExtractHeadings returns the ATX heading texts in markdown in document order.
-// It reproduces `(?m)^(#{1,6})\s+(.+)$` exactly, including \s+ running across
-// blank lines, and returns an empty non-nil slice when only blank headings
-// matched, so JSONL keeps writing [] for those pages. Setext headings and code
-// fences are not recognized.
-func ExtractHeadings(markdown []byte) []string {
-	md := markdown
+// ExtractHeadings matches `(?m)^(#{1,6})\s+(.+)$` exactly, \s+ crossing lines
+// included; only blank matches give an empty non-nil slice, which JSONL writes as [].
+func ExtractHeadings(md []byte) []string {
 	n := len(md)
 	var out []string
 	matched := false
@@ -75,11 +71,8 @@ func ExtractHeadings(markdown []byte) []string {
 	return out
 }
 
-// ExtractLinksAndImages returns the targets of [text](target) links and
-// ![alt](target) images in markdown, in document order. It reproduces
-// `\[([^\]]*)\]\(([^)]+)\)` (a match right after "!" is an image, not a link)
-// and `!\[([^\]]*)\]\(([^)]+)\)` exactly: brackets don't nest and both parts
-// may span lines.
+// ExtractLinksAndImages matches `\[([^\]]*)\]\(([^)]+)\)` (skipping ones right
+// after "!") and `!\[([^\]]*)\]\(([^)]+)\)` exactly, returning trimmed targets.
 func ExtractLinksAndImages(markdown string) (links, images []string) {
 	for pos := 0; ; {
 		s, target, next, ok := nextBracketRef(markdown, pos, "[")
