@@ -95,6 +95,8 @@ The file mixes two record kinds, distinguished by the `record_type` field:
 
 `headings`, `links`, and `images` are `null`, not `[]`, when the page has none of that kind: Go encodes a nil slice as JSON `null`.
 
+A page linked under equivalent forms (`/guide/` and `/guide/index.html`, `%41` for `A`, a trailing empty `?`) is crawled once and has one record; its `url` is the form it was fetched under.
+
 **`crawl_meta` record fields** (from `CrawlMetaJSONL`):
 
 | Field | Description |
