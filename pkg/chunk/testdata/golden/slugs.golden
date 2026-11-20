@@ -1,0 +1,77 @@
+chunk.FormatVersion 2 fixture 76360492a7c8dfbc092ae5d0c6ca7e3fcac3499510f8380893e0a2347167146d
+
+=== seq 0
+path: Heading text and anchors > Foo bar
+anchor: foo-bar
+identifiers: 
+---
+# Heading text and anchors
+
+Each heading below carries inline Markdown; its anchor and heading path use the rendered text.
+
+## Foo [bar](http://example.com/x)
+
+A link keeps its text and drops its URL.
+
+=== seq 1
+path: Heading text and anchors > 2.0.0 - 2026-06-07
+anchor: 200---2026-06-07
+identifiers: Git Hub
+---
+## [2.0.0](https://example.com/compare/v1.1.2...v2.0.0) - 2026-06-07
+
+A keep-a-changelog release heading; GitHub's id for this is 200---2026-06-07.
+
+=== seq 2
+path: Heading text and anchors > Use code() and em b
+anchor: use-code-and-em-b
+identifiers: 
+---
+## Use `code()` and *em* **b**
+
+Code span content stays, emphasis markers go.
+
+=== seq 3
+path: Heading text and anchors > Logo here
+anchor: logo-here
+identifiers: 
+---
+## ![logo](https://example.com/logo.png) Logo here
+
+An image adds nothing.
+
+=== seq 4
+path: Heading text and anchors > Title x HTML
+anchor: title-x-html
+identifiers: 
+---
+## Title <span>x</span> HTML
+
+Inline HTML tags drop, their text stays.
+
+=== seq 5
+path: Heading text and anchors > Fish & Chips
+anchor: fish--chips
+identifiers: 
+---
+## Fish &amp; Chips
+
+Entities decode before slugging.
+
+=== seq 6
+path: Heading text and anchors > Escaped *stars*
+anchor: escaped-stars
+identifiers: 
+---
+## Escaped \*stars\*
+
+Backslash escapes resolve to the literal character.
+
+=== seq 7
+path: Heading text and anchors > Autolink https://example.com
+anchor: autolink-httpsexamplecom
+identifiers: 
+---
+## Autolink <https://example.com>
+
+An autolink's text is its URL.

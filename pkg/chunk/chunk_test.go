@@ -400,3 +400,12 @@ func TestHeadingStartIgnoresTabPadding(t *testing.T) {
 	require.Len(t, hs, 1)
 	assert.Equal(t, 4, hs[0].start)
 }
+
+func TestSplitHeadingPathIsPlainText(t *testing.T) {
+	md := "# Guide [home](http://example.com/)\n\n## Use `run()` and *care*\n\n" + strings.Repeat("body ", 80) + "\n"
+	chunks := Split(md)
+	require.Len(t, chunks, 1)
+	assert.Equal(t, "Guide home > Use run() and care", chunks[0].HeadingPath)
+	assert.Equal(t, "use-run-and-care", chunks[0].Anchor)
+	assert.Equal(t, []string{"guide-home", "use-run-and-care"}, Anchors(md))
+}

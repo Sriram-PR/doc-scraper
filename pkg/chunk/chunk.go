@@ -170,14 +170,41 @@ func lineStart(markdown string, h *ast.Heading) int {
 	return strings.LastIndexByte(markdown[:pos], '\n') + 1
 }
 
+// headingText is the heading as rendered: link and emphasis text without
+// their markup or URLs, code span content, no images or raw HTML.
 func headingText(h *ast.Heading, src []byte) string {
-	lines := h.Lines()
-	parts := make([]string, 0, lines.Len())
-	for i := range lines.Len() {
-		seg := lines.At(i)
-		parts = append(parts, strings.TrimSpace(string(seg.Value(src))))
+	var b strings.Builder
+	writeInlineText(&b, h, src)
+	return strings.TrimSpace(b.String())
+}
+
+func writeInlineText(b *strings.Builder, n ast.Node, src []byte) {
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		switch c := c.(type) {
+		case *ast.Text:
+			v := c.Segment.Value(src)
+			if !c.IsRaw() {
+				v = util.ResolveEntityNames(util.ResolveNumericReferences(util.UnescapePunctuations(v)))
+			}
+			b.Write(v)
+			if c.SoftLineBreak() || c.HardLineBreak() {
+				b.WriteByte(' ')
+			}
+		case *ast.String:
+			b.Write(c.Value)
+		case *ast.CodeSpan:
+			for t := c.FirstChild(); t != nil; t = t.NextSibling() {
+				if t, ok := t.(*ast.Text); ok {
+					b.WriteString(strings.ReplaceAll(string(t.Segment.Value(src)), "\n", " "))
+				}
+			}
+		case *ast.AutoLink:
+			b.Write(c.Label(src))
+		case *ast.Image, *ast.RawHTML:
+		default:
+			writeInlineText(b, c, src)
+		}
 	}
-	return strings.Join(parts, " ")
 }
 
 // mergeTinyParts absorbs sub-minChunkBytes parts of one section into their
