@@ -117,8 +117,8 @@ func (i *Index) PruneChunks(ctx context.Context, siteKey string, currentURLs map
 	return len(stale), nil
 }
 
-// DeleteSiteChunks removes every chunk for the site, for a site whose corpus is no
-// longer indexed.
+// DeleteSiteChunks removes every chunk and the chunk format for the site, for a
+// site whose corpus is no longer indexed.
 func (i *Index) DeleteSiteChunks(ctx context.Context, siteKey string) error {
 	i.writeMu.Lock()
 	defer i.writeMu.Unlock()

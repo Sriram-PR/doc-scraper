@@ -15,13 +15,9 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
-// IndexChunksFromJSONL streams a site's finalized JSONL and refreshes its
-// full-text chunks: pages whose content hash and title match the indexed
-// chunks are skipped, changed and new pages are re-split, every page is
-// re-split when the site was indexed with an older chunk.FormatVersion, and
-// chunks for pages no longer present are pruned. Shared by crawl finalization
-// and the MCP server's upgrade backfill; one page's content is in memory at a
-// time.
+// IndexChunksFromJSONL refreshes a site's search chunks from its JSONL, re-splitting
+// pages whose content or title changed (all of them after a chunk.FormatVersion
+// change) and pruning pages that are gone.
 func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlPath string, log *slog.Logger) error {
 	if idx == nil || jsonlPath == "" {
 		return nil
@@ -35,9 +31,9 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 	if err != nil {
 		return err
 	}
-	skip := existing
-	if format != chunk.FormatVersion {
-		skip = nil
+	var skip map[string]index.ChunkedPage
+	if format == chunk.FormatVersion {
+		skip = existing
 	}
 
 	f, err := os.Open(jsonlPath)
