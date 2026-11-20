@@ -51,23 +51,31 @@ func (i *Index) ReplaceChunks(ctx context.Context, siteKey, url, title, contentH
 	return w.Close()
 }
 
-// ChunkedHashes returns url -> content_hash for every page of a site that has
+// ChunkedPage is what the index holds for one page: the content hash and title
+// its chunks were written with.
+type ChunkedPage struct {
+	ContentHash string
+	Title       string
+}
+
+// ChunkedPages returns url -> ChunkedPage for every page of a site that has
 // chunks, letting callers skip re-chunking unchanged pages.
-func (i *Index) ChunkedHashes(ctx context.Context, siteKey string) (map[string]string, error) {
+func (i *Index) ChunkedPages(ctx context.Context, siteKey string) (map[string]ChunkedPage, error) {
 	rows, err := i.db.QueryContext(ctx,
-		`SELECT DISTINCT url, content_hash FROM chunks WHERE site_key = ?`, siteKey)
+		`SELECT DISTINCT url, content_hash, title FROM chunks WHERE site_key = ?`, siteKey)
 	if err != nil {
-		return nil, fmt.Errorf("query chunked hashes: %w", err)
+		return nil, fmt.Errorf("query chunked pages: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	out := make(map[string]string)
+	out := make(map[string]ChunkedPage)
 	for rows.Next() {
-		var url, hash string
-		if err := rows.Scan(&url, &hash); err != nil {
+		var url string
+		var p ChunkedPage
+		if err := rows.Scan(&url, &p.ContentHash, &p.Title); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
-		out[url] = hash
+		out[url] = p
 	}
 	return out, rows.Err()
 }
@@ -76,7 +84,7 @@ func (i *Index) ChunkedHashes(ctx context.Context, siteKey string) (map[string]s
 // returns how many pages it removed. currentURLs is the complete set of URLs
 // the latest crawl produced.
 func (i *Index) PruneChunks(ctx context.Context, siteKey string, currentURLs map[string]struct{}) (int, error) {
-	existing, err := i.ChunkedHashes(ctx, siteKey)
+	existing, err := i.ChunkedPages(ctx, siteKey)
 	if err != nil {
 		return 0, err
 	}

@@ -82,12 +82,12 @@ func TestIndexChunksFromJSONL(t *testing.T) {
 		assert.Empty(t, results, "stale term %q must be gone", gone)
 	}
 
-	hashes, err := idx.ChunkedHashes(ctx, "docs")
+	indexed, err := idx.ChunkedPages(ctx, "docs")
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{
-		"https://d.example/config": "c2",
-		"https://d.example/auth":   "a1",
-	}, hashes)
+	assert.Equal(t, map[string]index.ChunkedPage{
+		"https://d.example/config": {ContentHash: "c2", Title: "Config"},
+		"https://d.example/auth":   {ContentHash: "a1", Title: "Auth"},
+	}, indexed)
 }
 
 func TestIndexChunksFromJSONLNilIndexAndMissingFile(t *testing.T) {

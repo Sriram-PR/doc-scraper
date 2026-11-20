@@ -172,7 +172,7 @@ func TestInterruptedFreshRecrawlKeepsLiveCorpus(t *testing.T) {
 	require.EqualValues(t, 5, before)
 	require.EqualValues(t, 1, e.latestCrawl(t).ID)
 	visited := e.liveVisitedCount(t)
-	chunksBefore, err := e.idx.ChunkedHashes(context.Background(), testSiteKey)
+	chunksBefore, err := e.idx.ChunkedPages(context.Background(), testSiteKey)
 	require.NoError(t, err)
 
 	e.srv.setVersion("v2")
@@ -187,7 +187,7 @@ func TestInterruptedFreshRecrawlKeepsLiveCorpus(t *testing.T) {
 	lc := e.latestCrawl(t)
 	assert.EqualValues(t, 1, lc.ID, "interrupted crawl must not be recorded in history")
 	assert.Equal(t, 5, lc.TotalPages)
-	chunksAfter, err := e.idx.ChunkedHashes(context.Background(), testSiteKey)
+	chunksAfter, err := e.idx.ChunkedPages(context.Background(), testSiteKey)
 	require.NoError(t, err)
 	assert.Equal(t, chunksBefore, chunksAfter, "search chunks unchanged")
 	assert.DirExists(t, e.stagingOut(), "staging kept for resume")
@@ -264,7 +264,7 @@ func TestInterruptedInPlaceResumeRecordsNoHistoryButKeepsSearchInSync(t *testing
 	assert.EqualValues(t, 1, e.latestCrawl(t).ID, "interrupted run records no history")
 	live, err := countPriorPageRecords(e.liveJSONL())
 	require.NoError(t, err)
-	chunks, err := e.idx.ChunkedHashes(context.Background(), testSiteKey)
+	chunks, err := e.idx.ChunkedPages(context.Background(), testSiteKey)
 	require.NoError(t, err)
 	assert.Len(t, chunks, int(live), "search index matches the live corpus")
 }

@@ -25,7 +25,7 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 		return nil
 	}
 
-	existing, err := idx.ChunkedHashes(ctx, siteKey)
+	existing, err := idx.ChunkedPages(ctx, siteKey)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 			continue
 		}
 		current[p.URL] = struct{}{}
-		if existing[p.URL] == p.ContentHash && p.ContentHash != "" {
+		if existing[p.URL].ContentHash == p.ContentHash && p.ContentHash != "" {
 			skipped++
 			continue
 		}

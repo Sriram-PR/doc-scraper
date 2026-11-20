@@ -107,9 +107,9 @@ func TestReplaceChunksSwapsContent(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, results)
 
-	hashes, err := idx.ChunkedHashes(ctx, "s")
+	pages, err := idx.ChunkedPages(ctx, "s")
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"https://e/p": "h2"}, hashes)
+	assert.Equal(t, map[string]ChunkedPage{"https://e/p": {ContentHash: "h2", Title: "Page"}}, pages)
 }
 
 func TestPruneChunksRemovesStalePages(t *testing.T) {
@@ -136,9 +136,9 @@ func TestPruneChunksRemovesStalePages(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, has)
 
-	hashes, err := idx.ChunkedHashes(ctx, "s")
+	pages, err := idx.ChunkedPages(ctx, "s")
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"https://e/keep": "h1"}, hashes)
+	assert.Equal(t, map[string]ChunkedPage{"https://e/keep": {ContentHash: "h1", Title: "Keep"}}, pages)
 }
 
 func TestDeleteSiteChunksRemovesOnlyThatSite(t *testing.T) {

@@ -135,9 +135,9 @@ func TestChunkWriterAbortKeepsCommittedPages(t *testing.T) {
 	w.Abort()
 	w.Abort()
 
-	hashes, err := idx.ChunkedHashes(ctx, "s")
+	indexed, err := idx.ChunkedPages(ctx, "s")
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{pages[0].url: pages[0].hash}, hashes)
+	assert.Equal(t, map[string]ChunkedPage{pages[0].url: {ContentHash: pages[0].hash, Title: "T"}}, indexed)
 	require.True(t, idx.writeMu.TryLock(), "Abort releases the write lock")
 	idx.writeMu.Unlock()
 }
@@ -168,9 +168,9 @@ func TestChunkWriterCancelledContext(t *testing.T) {
 	require.ErrorIs(t, w.Put(pages[1].url, "T", pages[1].hash, chunk.Split(pages[1].md)), context.Canceled)
 	require.ErrorIs(t, w.Close(), context.Canceled, "later calls return the same error")
 
-	hashes, err := idx.ChunkedHashes(context.Background(), "s")
+	indexed, err := idx.ChunkedPages(context.Background(), "s")
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{pages[0].url: pages[0].hash}, hashes)
+	assert.Equal(t, map[string]ChunkedPage{pages[0].url: {ContentHash: pages[0].hash, Title: "T"}}, indexed)
 	require.True(t, idx.writeMu.TryLock())
 	idx.writeMu.Unlock()
 }
