@@ -275,19 +275,6 @@ func TestSplitTinyFirstSectionStandsAlone(t *testing.T) {
 	assert.Equal(t, "# Short", chunks[0].Text)
 }
 
-func TestParseHeadingEdgeCases(t *testing.T) {
-	_, _, ok := parseHeading("#not-a-heading")
-	assert.False(t, ok)
-
-	_, _, ok = parseHeading("####### seven")
-	assert.False(t, ok)
-
-	level, text, ok := parseHeading("## Closing hashes ##")
-	assert.True(t, ok)
-	assert.Equal(t, 2, level)
-	assert.Equal(t, "Closing hashes", text)
-}
-
 func TestSection(t *testing.T) {
 	md := "intro\n# Guide\ntext\n## Install\nsteps\n```\n# not a heading\n```\n### Linux\napt\n## Install\nagain\n# Next\nend"
 	for _, tc := range []struct {
@@ -334,4 +321,82 @@ func TestSectionFindsEverySplitAnchor(t *testing.T) {
 			assert.Less(t, start, end, "%s: %s", name, c.Anchor)
 		}
 	}
+}
+
+// Cases cite CommonMark 0.31.2 example numbers where one applies.
+func TestAnchorsFollowCommonMark(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		md   string
+		want []string
+	}{
+		{"setext both levels", "Foo\n===\n\nBar\n---\n", []string{"foo", "bar"}},
+		{"setext one-char underline [83]", "Foo\n=\n", []string{"foo"}},
+		{"setext indented [84]", "   Foo\n---\n\n  Foo\n-----\n\n  Foo\n  ===\n", []string{"foo", "foo-1", "foo-2"}},
+		{"setext underline indent and trailing spaces [86]", "Foo\n   ----      \n", []string{"foo"}},
+		{"four-space title is code [85]", "    Foo\n    ---\n\n    Foo\n---\n", nil},
+		{"four-space underline is text [87]", "Foo\n    ---\n", nil},
+		{"multi-line setext title [95]", "Foo\nBar\n---\n", []string{"foo-bar"}},
+		{"only the last paragraph", "Foo\n\nbar\n---\n", []string{"bar"}},
+		{"underline with inner space [88]", "Foo\n= =\n\nFoo\n--- -\n", nil},
+		{"blank line before dashes [104]", "Foo\n\n---\n", nil},
+		{"equals after a fence", "```\nx\n```\n===\n", nil},
+		{"equals after an ATX heading", "# H\n===\n", []string{"h"}},
+		{"lone equals [97]", "====\n", nil},
+		{"quote then break [92]", "> Foo\n---\n", nil},
+		{"lazy quote line is no underline [93]", "> foo\nbar\n===\n", nil},
+		{"list then break [94]", "- Foo\n---\n", nil},
+		{"setext inside a quote", "> Foo\n> ---\n", []string{"foo"}},
+		{"nested quote", "> > ## Deep\n", []string{"deep"}},
+		{"list item headings [300]", "- # Foo\n- Bar\n  ---\n  baz\n", []string{"foo", "bar"}},
+		{"converter list heading", "- ## Packages\n\n1. ## Item\n", []string{"packages", "item"}},
+		{"converter quote heading", "> ### Each protection type\n", []string{"each-protection-type"}},
+		{"quoted fence keeps its comment", "> ```bash\n> # comment\n> ```\n", nil},
+		{"unquoted line ends a quoted fence", "> ```\n> l1\nl2\n> ```\n\n# real\n", []string{"real"}},
+		{"dashes after a table", "| a |\n| --- |\n| x |\n---\n", nil},
+		{"link reference definition is no title [216]", "[foo]: /url\n===\n", nil},
+		{"paragraph after a link reference [215]", "[foo]: /url\nbar\n===\n", []string{"bar"}},
+		{"html block hides a hash line", "<div>\n# not a heading\n</div>\n", nil},
+		{"hash without space", "#not-a-heading\n", nil},
+		{"seven hashes", "####### seven\n", nil},
+		{"closing hashes", "## Closing hashes ##\n", []string{"closing-hashes"}},
+		{"tab after hashes", "#\tTab\n", []string{"tab"}},
+		{"crlf", "Foo\r\n===\r\n\r\n# Bar\r\n", []string{"foo", "bar"}},
+	} {
+		assert.Equal(t, tc.want, Anchors(tc.md), tc.name)
+	}
+}
+
+func TestSectionStartsAtTheHeadingLine(t *testing.T) {
+	md := "Intro\n\nFoo\nBar\n---\ntext\n\n- ## Item\n  body\n\n> # Quoted\n> more\n"
+	for _, tc := range []struct{ anchor, want string }{
+		{"foo-bar", "Foo\nBar\n---\ntext\n\n"},
+		{"item", "- ## Item\n  body\n\n"},
+		{"quoted", "> # Quoted\n> more\n"},
+	} {
+		start, end, ok := Section(md, tc.anchor)
+		require.True(t, ok, tc.anchor)
+		assert.Equal(t, tc.want, md[start:end], tc.anchor)
+	}
+}
+
+func TestSplitNestedHeadingJoinsTheHierarchy(t *testing.T) {
+	md := "### Step\n\n" + strings.Repeat("step body ", 40) + "\n\n> ## Note\n>\n> " + strings.Repeat("quoted ", 60) + "\n"
+	chunks := Split(md)
+	require.Len(t, chunks, 2)
+	assert.Equal(t, "Step", chunks[0].HeadingPath)
+	assert.Equal(t, "Note", chunks[1].HeadingPath)
+	assert.Equal(t, "note", chunks[1].Anchor)
+
+	start, end, ok := Section(md, "step")
+	require.True(t, ok)
+	assert.Equal(t, md[:strings.Index(md, "> ## Note")], md[start:end])
+}
+
+// A tab split by a list's content indent leaves virtual spaces that
+// goldmark's Pos() counts as bytes; the heading must stay on its own line.
+func TestHeadingStartIgnoresTabPadding(t *testing.T) {
+	hs := headings("* 0\n\t#\nnext\n")
+	require.Len(t, hs, 1)
+	assert.Equal(t, 4, hs[0].start)
 }

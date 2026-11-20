@@ -7,6 +7,13 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // Chunk is one indexable section of a page. HeadingPath is the " > "-joined
@@ -22,7 +29,7 @@ type Chunk struct {
 
 // FormatVersion identifies Split and IdentifierTokens output; bump it when either
 // changes for the same Markdown, so every site is re-chunked once.
-const FormatVersion = 1
+const FormatVersion = 2
 
 const (
 	// targetMaxBytes caps normal chunk growth. Sections larger than this are
@@ -99,6 +106,29 @@ func Anchors(markdown string) []string {
 	return out
 }
 
+// markdownParser is CommonMark plus GitHub's extensions, so a table row is
+// never read as the paragraph a "---" underline turns into a heading.
+var markdownParser = goldmark.New(
+	goldmark.WithExtensions(extension.GFM),
+	goldmark.WithParserOptions(parser.WithBlockParsers(util.Prioritized(atxStartRecorder{parser.NewATXHeadingParser()}, 599))),
+).Parser()
+
+var lineStartAttr = []byte("doc-scraper-line-start")
+
+// atxStartRecorder records where an ATX heading's line starts. goldmark's
+// Pos() counts the virtual spaces of a tab split by a container indent, so
+// for an empty heading ("#") it can point past its line.
+type atxStartRecorder struct{ parser.BlockParser }
+
+func (a atxStartRecorder) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
+	_, seg := reader.Position()
+	n, state := a.BlockParser.Open(parent, reader, pc)
+	if n != nil {
+		n.SetAttribute(lineStartAttr, seg.Start)
+	}
+	return n, state
+}
+
 type heading struct {
 	level  int
 	start  int
@@ -110,36 +140,44 @@ type heading struct {
 // line's byte offset and a per-page unique anchor. Split, Section and Anchors
 // all read it, so they agree on what a heading is.
 func headings(markdown string) []heading {
+	src := []byte(markdown)
 	var (
-		out      []heading
-		inFence  bool
-		fenceTok string
-		slugs    = map[string]int{}
+		out   []heading
+		slugs = map[string]int{}
 	)
-	for pos := 0; pos < len(markdown); {
-		lineStart := pos
-		pos = len(markdown)
-		if i := strings.IndexByte(markdown[lineStart:], '\n'); i >= 0 {
-			pos = lineStart + i + 1
+	_ = ast.Walk(markdownParser.Parse(text.NewReader(src)), func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		h, ok := n.(*ast.Heading)
+		if !ok || !entering {
+			return ast.WalkContinue, nil
 		}
-		line := strings.TrimSuffix(strings.TrimSuffix(markdown[lineStart:pos], "\n"), "\r")
-		trimmed, structural := structuralText(line)
-		if !structural {
-			continue
-		}
-		if tok, rest := fenceToken(trimmed); tok != "" {
-			if !inFence {
-				inFence, fenceTok = true, tok
-			} else if tok[0] == fenceTok[0] && len(tok) >= len(fenceTok) && strings.TrimSpace(rest) == "" {
-				inFence = false
-			}
-			continue
-		}
-		if level, text, ok := parseHeading(trimmed); ok && !inFence {
-			out = append(out, heading{level: level, start: lineStart, text: text, anchor: dedupedSlug(text, slugs)})
-		}
-	}
+		t := headingText(h, src)
+		out = append(out, heading{
+			level:  h.Level,
+			start:  lineStart(markdown, h),
+			text:   t,
+			anchor: dedupedSlug(t, slugs),
+		})
+		return ast.WalkSkipChildren, nil
+	})
 	return out
+}
+
+func lineStart(markdown string, h *ast.Heading) int {
+	pos := h.Pos()
+	if v, ok := h.Attribute(lineStartAttr); ok {
+		pos = v.(int)
+	}
+	return strings.LastIndexByte(markdown[:pos], '\n') + 1
+}
+
+func headingText(h *ast.Heading, src []byte) string {
+	lines := h.Lines()
+	parts := make([]string, 0, lines.Len())
+	for i := range lines.Len() {
+		seg := lines.At(i)
+		parts = append(parts, strings.TrimSpace(string(seg.Value(src))))
+	}
+	return strings.Join(parts, " ")
 }
 
 // mergeTinyParts absorbs sub-minChunkBytes parts of one section into their
@@ -282,31 +320,6 @@ func fenceToken(trimmed string) (string, string) {
 		}
 	}
 	return "", ""
-}
-
-func parseHeading(trimmed string) (level int, text string, ok bool) {
-	n := 0
-	for n < len(trimmed) && trimmed[n] == '#' {
-		n++
-	}
-	if n == 0 || n > 6 {
-		return 0, "", false
-	}
-	rest := trimmed[n:]
-	if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
-		return 0, "", false
-	}
-	text = strings.TrimSpace(rest)
-	// A closing run of #s only counts when preceded by a space ("## foo ##");
-	// "## foo##" keeps its hashes per CommonMark.
-	if i := strings.LastIndexFunc(text, func(r rune) bool { return r != '#' }); i >= 0 {
-		if i+1 < len(text) && text[i] == ' ' {
-			text = strings.TrimSpace(text[:i])
-		}
-	} else {
-		text = ""
-	}
-	return n, text, true
 }
 
 // dedupedSlug builds a GitHub-style anchor for a heading, appending -1, -2,

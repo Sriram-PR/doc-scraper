@@ -1,8 +1,8 @@
-chunk.FormatVersion 1 fixture eacc4083eed667f4072fd62f24cd2eea491b2184b8b7caa0842c415322982bb5
+chunk.FormatVersion 2 fixture cd2b959be6090e20982e4029afc6adfa994cebc495eff2c7c8434155747ace80
 
 === seq 0
-path: 
-anchor: 
+path: Setext Title > Setext Section
+anchor: setext-section
 identifiers: 
 ---
 Setext Title
@@ -15,23 +15,53 @@ Setext Section
 
 Text under a Setext level-two heading.
 
+=== seq 1
+path: Setext Title > Note
+anchor: note
+identifiers: 
+---
 > ## Note
 >
 > A heading inside a blockquote, as callouts are often converted.
 
 > **Warning:** not a heading, just bold text in a quote.
 
+=== seq 2
+path: Setext Title > Heading in a list item
+anchor: heading-in-a-list-item
+identifiers: 
+---
 - ## Heading in a list item
 
 Paragraph text followed by a thematic break.
 
 ---
 
-=== seq 1
-path: ATX after Setext
+=== seq 3
+path: Setext Title > ATX after Setext
 anchor: atx-after-setext
 identifiers: 
 ---
 ## ATX after Setext
 
 Final section with an ATX heading.
+
+=== seq 4
+path: Setext Title > Converter output shapes
+anchor: converter-output-shapes
+identifiers: 
+---
+## Converter output shapes
+
+=== seq 5
+path: Setext Title > Packages > Each protection type has its own settings
+anchor: each-protection-type-has-its-own-settings
+identifiers: Read Me
+---
+- ## Packages
+
+  Javadoc module pages put their section headings inside list items.
+
+> ### Each protection type has its own settings
+>
+> ReadMe pages quote some section headings.

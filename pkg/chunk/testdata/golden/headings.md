@@ -23,3 +23,13 @@ Paragraph text followed by a thematic break.
 ## ATX after Setext
 
 Final section with an ATX heading.
+
+## Converter output shapes
+
+- ## Packages
+
+  Javadoc module pages put their section headings inside list items.
+
+> ### Each protection type has its own settings
+>
+> ReadMe pages quote some section headings.

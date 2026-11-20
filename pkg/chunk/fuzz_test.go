@@ -21,6 +21,11 @@ func FuzzSplit(f *testing.F) {
 	f.Add("# é世界" + strings.Repeat("é", 8000))
 	f.Add("# H\n\n~~~\nfence\n~~~ info trailing\n")
 	f.Add("#\n##\n###\n")
+	f.Add("Title\n=====\n\nSub\n---\n\ntext\n")
+	f.Add("> ## Quoted\n> body\n\n- ## Listed\n\n1. ### Numbered\n")
+	f.Add("> ```\n> l1\nl2\n> ```\n\n# real\n")
+	f.Add("| a |\n| --- |\n| x |\n---\n")
+	f.Add("[foo]: /url\nbar\n===\n")
 	f.Fuzz(func(t *testing.T, markdown string) {
 		chunks := Split(markdown)
 		anchors := map[string]bool{}
