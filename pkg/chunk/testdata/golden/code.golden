@@ -1,0 +1,73 @@
+chunk.FormatVersion 1 fixture 1cb85099063bc19449055290d6289d7c034f3ca4b269b34aea9b69f32c256398
+
+=== seq 0
+path: Installing
+anchor: installing
+identifiers: 
+---
+# Installing
+
+Install the CLI with your package manager, or build it from source if you need a development version. Both paths end with the same binary on your PATH.
+
+```bash
+# not a heading, a shell comment
+## also not a heading
+go install example.com/tool@latest
+
+tool --version
+```
+
+=== seq 1
+path: Installing > From a tarball
+anchor: from-a-tarball
+identifiers: 
+---
+## From a tarball
+
+~~~
+# tilde fence, still code
+curl -LO https://example.com/tool.tar.gz
+~~~
+
+The tarball contains a single static binary. Verify its checksum before you unpack it.
+
+````markdown
+```go
+# inside a nested fence
+```
+
+## still inside the outer fence
+
+````
+
+=== seq 2
+path: Installing > Indented blocks > Three spaces is still a heading
+anchor: three-spaces-is-still-a-heading
+identifiers: set Timeout clear Timeout parse URL
+---
+## Indented blocks
+
+    # indented four spaces, a code block
+    ```
+    an indented fence is literal text
+    ```
+
+   ### Three spaces is still a heading
+
+	# a tab-indented line is code
+
+Text after the indented examples. Use `setTimeout` and `clearTimeout` to schedule work, and `parseURL` to split addresses.
+
+=== seq 3
+path: Installing > Unclosed fence
+anchor: unclosed-fence
+identifiers: read Config
+---
+## Unclosed fence
+
+```python
+def readConfig(path):
+    # comment that looks like a heading
+    return open(path).read()
+
+# the fence never closes, so this stays code

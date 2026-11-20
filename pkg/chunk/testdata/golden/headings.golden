@@ -1,0 +1,37 @@
+chunk.FormatVersion 1 fixture eacc4083eed667f4072fd62f24cd2eea491b2184b8b7caa0842c415322982bb5
+
+=== seq 0
+path: 
+anchor: 
+identifiers: 
+---
+Setext Title
+============
+
+Text under a Setext level-one heading. Renderers treat the underline as making the line above it a heading.
+
+Setext Section
+--------------
+
+Text under a Setext level-two heading.
+
+> ## Note
+>
+> A heading inside a blockquote, as callouts are often converted.
+
+> **Warning:** not a heading, just bold text in a quote.
+
+- ## Heading in a list item
+
+Paragraph text followed by a thematic break.
+
+---
+
+=== seq 1
+path: ATX after Setext
+anchor: atx-after-setext
+identifiers: 
+---
+## ATX after Setext
+
+Final section with an ATX heading.
