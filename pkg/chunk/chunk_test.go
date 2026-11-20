@@ -409,3 +409,29 @@ func TestSplitHeadingPathIsPlainText(t *testing.T) {
 	assert.Equal(t, "use-run-and-care", chunks[0].Anchor)
 	assert.Equal(t, []string{"guide-home", "use-run-and-care"}, Anchors(md))
 }
+
+// Expected values are github-slugger 2.0.0's output for the same headings.
+func TestAnchorsMatchGitHubSlugger(t *testing.T) {
+	page := func(hs ...string) string {
+		var b strings.Builder
+		for _, h := range hs {
+			b.WriteString("## " + h + "\n\n")
+		}
+		return b.String()
+	}
+	for _, tc := range []struct {
+		name string
+		md   string
+		want []string
+	}{
+		{"literal suffix after a generated one", page("A", "A", "A-1", "A", "A-1"), []string{"a", "a-1", "a-1-1", "a-2", "a-1-2"}},
+		{"echo fixture", page("echo", "echo", "echo 1", "echo-1", "echo"), []string{"echo", "echo-1", "echo-1-1", "echo-1-2", "echo-2"}},
+		{"foxtrot fixture", page("foxtrot-1", "foxtrot", "foxtrot"), []string{"foxtrot-1", "foxtrot", "foxtrot-2"}},
+		{"punctuation and symbols", page("A/AAAA records", "C++ & C#", "$HOME", "1.2.3"), []string{"aaaaa-records", "c--c", "home", "123"}},
+		{"combining marks", page("हिन्दी", "école"), []string{"हिन्दी", "école"}},
+		{"letter numbers and connectors", page("Ⅷ roman", "‿x"), []string{"ⅷ-roman", "‿x"}},
+		{"empty slugs are not anchors", page("😀", "!!!", "😀"), nil},
+	} {
+		assert.Equal(t, tc.want, Anchors(tc.md), tc.name)
+	}
+}

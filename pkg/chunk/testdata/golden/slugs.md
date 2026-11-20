@@ -33,3 +33,31 @@ Backslash escapes resolve to the literal character.
 ## Autolink <https://example.com>
 
 An autolink's text is its URL.
+
+## A
+
+First of three headings that would collide under the old dedup.
+
+## A
+
+Second.
+
+## A-1
+
+Third: a literal A-1 after a generated a-1.
+
+## 😀
+
+Emoji only: no anchor.
+
+## !!!
+
+Punctuation only: no anchor.
+
+## हिन्दी
+
+Devanagari keeps its combining marks.
+
+## école
+
+A decomposed é keeps its combining accent.

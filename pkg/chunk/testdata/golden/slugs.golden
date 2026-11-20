@@ -1,4 +1,4 @@
-chunk.FormatVersion 2 fixture 76360492a7c8dfbc092ae5d0c6ca7e3fcac3499510f8380893e0a2347167146d
+chunk.FormatVersion 2 fixture 29682bc5254ac51ed77574007a16d20751721b7a51d2eb21606fc78ee586da17
 
 === seq 0
 path: Heading text and anchors > Foo bar
@@ -75,3 +75,66 @@ identifiers:
 ## Autolink <https://example.com>
 
 An autolink's text is its URL.
+
+=== seq 8
+path: Heading text and anchors > A
+anchor: a
+identifiers: 
+---
+## A
+
+First of three headings that would collide under the old dedup.
+
+=== seq 9
+path: Heading text and anchors > A
+anchor: a-1
+identifiers: 
+---
+## A
+
+Second.
+
+=== seq 10
+path: Heading text and anchors > A-1
+anchor: a-1-1
+identifiers: 
+---
+## A-1
+
+Third: a literal A-1 after a generated a-1.
+
+=== seq 11
+path: Heading text and anchors > 😀
+anchor: 
+identifiers: 
+---
+## 😀
+
+Emoji only: no anchor.
+
+=== seq 12
+path: Heading text and anchors > !!!
+anchor: 
+identifiers: 
+---
+## !!!
+
+Punctuation only: no anchor.
+
+=== seq 13
+path: Heading text and anchors > हिन्दी
+anchor: हिन्दी
+identifiers: 
+---
+## हिन्दी
+
+Devanagari keeps its combining marks.
+
+=== seq 14
+path: Heading text and anchors > école
+anchor: école
+identifiers: 
+---
+## école
+
+A decomposed é keeps its combining accent.

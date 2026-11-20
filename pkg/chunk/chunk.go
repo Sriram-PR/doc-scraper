@@ -4,6 +4,7 @@
 package chunk
 
 import (
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -143,7 +144,7 @@ func headings(markdown string) []heading {
 	src := []byte(markdown)
 	var (
 		out   []heading
-		slugs = map[string]int{}
+		slugs = slugger{}
 	)
 	_ = ast.Walk(markdownParser.Parse(text.NewReader(src)), func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		h, ok := n.(*ast.Heading)
@@ -155,7 +156,7 @@ func headings(markdown string) []heading {
 			level:  h.Level,
 			start:  lineStart(markdown, h),
 			text:   t,
-			anchor: dedupedSlug(t, slugs),
+			anchor: slugs.slug(t),
 		})
 		return ast.WalkSkipChildren, nil
 	})
@@ -349,45 +350,42 @@ func fenceToken(trimmed string) (string, string) {
 	return "", ""
 }
 
-// dedupedSlug builds a GitHub-style anchor for a heading, appending -1, -2,
-// ... for repeated headings in document order, matching how renderers keep
-// duplicate anchors distinct.
-func dedupedSlug(heading string, seen map[string]int) string {
-	slug := slugify(heading)
-	if slug == "" {
+// slugger issues github-slugger's anchors: a repeated slug gets the first
+// free -1, -2, ... suffix, and every issued anchor counts as taken, so
+// headings A, A, A-1 get a, a-1, a-1-1. An empty slug stays "".
+type slugger map[string]int
+
+func (s slugger) slug(heading string) string {
+	base := slugify(heading)
+	if base == "" {
 		return ""
 	}
-	n := seen[slug]
-	seen[slug] = n + 1
-	if n > 0 {
-		return slug + "-" + itoa(n)
+	result := base
+	for {
+		if _, taken := s[result]; !taken {
+			break
+		}
+		s[base]++
+		result = base + "-" + strconv.Itoa(s[base])
 	}
-	return slug
+	s[result] = 0
+	return result
 }
 
+// slugify keeps what github-slugger keeps (letters, combining marks,
+// numbers that are digits or letters, connector punctuation, '-' and
+// spaces), lowercased, with spaces turned into '-'.
 func slugify(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
 		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-':
-			b.WriteRune(r)
 		case r == ' ':
 			b.WriteByte('-')
+		case r == '-' || unicode.In(r, unicode.L, unicode.M, unicode.Nd, unicode.Nl, unicode.Pc, unicode.Other_Alphabetic):
+			b.WriteRune(r)
 		}
 	}
 	return b.String()
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
 }
 
 // unit is an atomic run of lines for size-splitting: either one prose
