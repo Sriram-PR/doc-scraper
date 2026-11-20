@@ -100,12 +100,15 @@ func Anchors(markdown string) []string {
 }
 
 type heading struct {
-	anchor string
 	level  int
 	start  int
+	text   string
+	anchor string
 }
 
-// headings walks the markdown the way splitSections does, so anchors match.
+// headings lists the page's headings in document order, each with its
+// line's byte offset and a per-page unique anchor. Split, Section and Anchors
+// all read it, so they agree on what a heading is.
 func headings(markdown string) []heading {
 	var (
 		out      []heading
@@ -133,7 +136,7 @@ func headings(markdown string) []heading {
 			continue
 		}
 		if level, text, ok := parseHeading(trimmed); ok && !inFence {
-			out = append(out, heading{anchor: dedupedSlug(text, slugs), level: level, start: lineStart})
+			out = append(out, heading{level: level, start: lineStart, text: text, anchor: dedupedSlug(text, slugs)})
 		}
 	}
 	return out
@@ -187,49 +190,31 @@ func splitSections(markdown string) []section {
 	var (
 		sections = []section{{}}
 		stack    []headingFrame
-		inFence  bool
-		fenceTok string
-		slugs    = map[string]int{}
+		hs       = headings(markdown)
+		offset   int
 	)
-
 	for line := range strings.SplitSeq(markdown, "\n") {
+		start := offset
+		offset += len(line) + 1
 		line = strings.TrimSuffix(line, "\r")
-		trimmed, structural := structuralText(line)
-
-		if structural {
-			if tok, rest := fenceToken(trimmed); tok != "" {
-				if !inFence {
-					inFence, fenceTok = true, tok
-				} else if tok[0] == fenceTok[0] && len(tok) >= len(fenceTok) && strings.TrimSpace(rest) == "" {
-					inFence = false
-				}
-				cur := &sections[len(sections)-1]
-				cur.lines = append(cur.lines, line)
-				continue
-			}
-
-			if level, text, ok := parseHeading(trimmed); ok && !inFence {
-				for len(stack) > 0 && stack[len(stack)-1].level >= level {
-					stack = stack[:len(stack)-1]
-				}
-				stack = append(stack, headingFrame{level: level, text: text})
-				var parts []string
-				for _, f := range stack {
-					if f.text != "" {
-						parts = append(parts, f.text)
-					}
-				}
-				sections = append(sections, section{
-					path:   parts,
-					anchor: dedupedSlug(text, slugs),
-					lines:  []string{line},
-				})
-				continue
+		if len(hs) == 0 || hs[0].start != start {
+			cur := &sections[len(sections)-1]
+			cur.lines = append(cur.lines, line)
+			continue
+		}
+		h := hs[0]
+		hs = hs[1:]
+		for len(stack) > 0 && stack[len(stack)-1].level >= h.level {
+			stack = stack[:len(stack)-1]
+		}
+		stack = append(stack, headingFrame{level: h.level, text: h.text})
+		var parts []string
+		for _, f := range stack {
+			if f.text != "" {
+				parts = append(parts, f.text)
 			}
 		}
-
-		cur := &sections[len(sections)-1]
-		cur.lines = append(cur.lines, line)
+		sections = append(sections, section{path: parts, anchor: h.anchor, lines: []string{line}})
 	}
 	return sections
 }

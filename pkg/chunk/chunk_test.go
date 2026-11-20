@@ -1,6 +1,8 @@
 package chunk
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -310,13 +312,26 @@ func TestSection(t *testing.T) {
 
 // Search results carry Split's anchors; each must resolve to a section.
 func TestSectionFindsEverySplitAnchor(t *testing.T) {
-	md := "# A\n\nBody.\n\n## B\n\n" + strings.Repeat("words ", 600) + "\n\n## B\n\nAgain.\n\n### C d\n\n```\n## fenced\n```\n"
-	for _, c := range Split(md) {
-		if c.Anchor == "" {
-			continue
+	pages := map[string]string{
+		"inline": "# A\n\nBody.\n\n## B\n\n" + strings.Repeat("words ", 600) + "\n\n## B\n\nAgain.\n\n### C d\n\n```\n## fenced\n```\n",
+	}
+	fixtures, err := filepath.Glob(filepath.Join("testdata", "golden", "*.md"))
+	require.NoError(t, err)
+	for _, f := range fixtures {
+		b, err := os.ReadFile(f)
+		require.NoError(t, err)
+		pages[f] = string(b)
+	}
+	for name, md := range pages {
+		anchors := Anchors(md)
+		for _, c := range Split(md) {
+			if c.Anchor == "" {
+				continue
+			}
+			assert.Contains(t, anchors, c.Anchor, name)
+			start, end, ok := Section(md, c.Anchor)
+			require.True(t, ok, "%s: %s", name, c.Anchor)
+			assert.Less(t, start, end, "%s: %s", name, c.Anchor)
 		}
-		start, end, ok := Section(md, c.Anchor)
-		require.True(t, ok, c.Anchor)
-		assert.Less(t, start, end, c.Anchor)
 	}
 }

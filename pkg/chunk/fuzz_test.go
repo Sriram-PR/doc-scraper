@@ -8,7 +8,8 @@ import (
 
 // FuzzSplit codifies the invariants established by the pre-release chunker
 // verification: every chunk stays under the hard size cap, cuts land on rune
-// boundaries, sequence numbers are strictly ordered, and no input panics.
+// boundaries, sequence numbers are strictly ordered, every chunk anchor
+// resolves through Anchors and Section, and no input panics.
 func FuzzSplit(f *testing.F) {
 	f.Add("# Title\n\nBody text.\n\n## Section\n\nMore text.\n")
 	f.Add("```go\nfunc main() {}\n```\n")
@@ -22,8 +23,20 @@ func FuzzSplit(f *testing.F) {
 	f.Add("#\n##\n###\n")
 	f.Fuzz(func(t *testing.T, markdown string) {
 		chunks := Split(markdown)
+		anchors := map[string]bool{}
+		for _, a := range Anchors(markdown) {
+			anchors[a] = true
+		}
 		lastSeq := -1
 		for _, c := range chunks {
+			if c.Anchor != "" {
+				if !anchors[c.Anchor] {
+					t.Fatalf("chunk anchor %q missing from Anchors", c.Anchor)
+				}
+				if _, _, ok := Section(markdown, c.Anchor); !ok {
+					t.Fatalf("chunk anchor %q does not resolve through Section", c.Anchor)
+				}
+			}
 			if len(c.Text) > hardMaxBytes {
 				t.Fatalf("chunk of %d bytes exceeds hard cap %d", len(c.Text), hardMaxBytes)
 			}
