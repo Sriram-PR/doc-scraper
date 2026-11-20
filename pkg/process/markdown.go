@@ -63,9 +63,8 @@ func dropBells(n *html.Node) {
 	}
 }
 
-// dropCodeFrameCaptions removes screen-reader-only labels from the captions of
-// figures that hold code, such as Expressive Code's "Terminal window", which
-// otherwise came out as a line of text above the block.
+// dropCodeFrameCaptions removes screen-reader-only labels, such as Expressive
+// Code's "Terminal window", from the captions of figures that hold code.
 func dropCodeFrameCaptions(n *html.Node) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		dropCodeFrameCaptions(c)
@@ -92,10 +91,8 @@ func removeScreenReaderOnly(n *html.Node) {
 	}
 }
 
-// flattenCodeBlocks replaces the children of each <pre> that wraps lines in
-// block elements (Docusaurus, Expressive Code) with their text. The converter
-// starts a new line at every <div> and <br>, so a line wrapped in a <div> that
-// also ends in <br> came out with a blank line after it.
+// flattenCodeBlocks replaces the children of each <pre> that wraps lines in block
+// elements with their text: the converter breaks the line at every <div> and <br>.
 func flattenCodeBlocks(n *html.Node) {
 	if isElement(n, "pre") {
 		if hasLineMarkup(n) {
@@ -155,7 +152,7 @@ func appendCodeText(b *strings.Builder, n *html.Node) {
 		switch {
 		case c.Type == html.TextNode:
 			b.WriteString(c.Data)
-		case c.Type != html.ElementNode:
+		case c.Type != html.ElementNode: // comments
 		case isElement(c, "script", "style", "textarea", "template"):
 		case c.Data == "br":
 			b.WriteByte('\n')

@@ -186,8 +186,7 @@ func TestToMarkdown_CodeBlockLines(t *testing.T) {
 			name: "ExpressiveCodeLines",
 			html: `<pre data-language="js"><code>` +
 				`<div class="ec-line"><div class="code"><span>import a from 'a';</span></div></div>` +
-				`<div class="ec-line"><div class="code">
-</div></div>` +
+				`<div class="ec-line"><div class="code">` + "\n" + `</div></div>` +
 				`<div class="ec-line"><div class="code"><span>export default a;</span></div></div>` +
 				`</code></pre>`,
 			want: "```\nimport a from 'a';\n\nexport default a;\n```",
@@ -198,6 +197,16 @@ func TestToMarkdown_CodeBlockLines(t *testing.T) {
 				`<code class="language-js" data-language="js"><span class="line"><span>const a = 1</span></span>
 <span class="line"><span>const b = 2</span></span></code></pre>`,
 			want: "```js\nconst a = 1\nconst b = 2\n```",
+		},
+		{
+			name: "ScriptBetweenLinesSkipped",
+			html: `<pre><code class="language-html"><div>a</div><script>track()</script><div>b</div></code></pre>`,
+			want: "```html\na\nb\n```",
+		},
+		{
+			name: "NestedPreStartsALine",
+			html: `<pre>a<pre>b</pre></pre>`,
+			want: "```\na\nb\n```",
 		},
 		{
 			name: "BreaksWithoutCode",
