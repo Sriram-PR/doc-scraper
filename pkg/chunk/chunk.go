@@ -18,9 +18,9 @@ import (
 )
 
 // Chunk is one indexable section of a page. HeadingPath is the " > "-joined
-// chain of ancestor headings (empty for content before the first heading);
-// Anchor is the GitHub-style URL fragment of the section's own heading,
-// deduplicated per page; Seq preserves document order within the page.
+// plain text of the ancestor headings (empty for content before the first
+// heading); Anchor is the GitHub-style URL fragment of the section's own
+// heading, deduplicated per page; Seq preserves document order within the page.
 type Chunk struct {
 	HeadingPath string
 	Anchor      string
@@ -55,11 +55,11 @@ const (
 	maxIndent = 3
 )
 
-// Split breaks markdown into ordered chunks. Headings inside fenced code
-// blocks are not treated as section boundaries, and a fenced block is never
-// split at a blank line; when one exceeds the hard size cap it is split at
-// line boundaries with the fence closed and reopened across the cut so every
-// chunk remains valid markdown on its own.
+// Split breaks markdown into ordered chunks. Every heading a CommonMark + GFM
+// renderer sees starts a section, and a fenced block is never split at a
+// blank line; when one exceeds the hard size cap it is split at line
+// boundaries with the fence closed and reopened across the cut so every chunk
+// remains valid markdown on its own.
 func Split(markdown string) []Chunk {
 	sections := splitSections(markdown)
 	sections = foldUmbrellaSections(sections)
