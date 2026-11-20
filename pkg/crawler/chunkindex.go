@@ -16,10 +16,12 @@ import (
 )
 
 // IndexChunksFromJSONL streams a site's finalized JSONL and refreshes its
-// full-text chunks: pages whose content hash already matches the indexed
-// chunks are skipped, changed and new pages are re-split, and chunks for
-// pages no longer present are pruned. Shared by crawl finalization and the
-// MCP server's upgrade backfill; one page's content is in memory at a time.
+// full-text chunks: pages whose content hash and title match the indexed
+// chunks are skipped, changed and new pages are re-split, every page is
+// re-split when the site was indexed with an older chunk.FormatVersion, and
+// chunks for pages no longer present are pruned. Shared by crawl finalization
+// and the MCP server's upgrade backfill; one page's content is in memory at a
+// time.
 func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlPath string, log *slog.Logger) error {
 	if idx == nil || jsonlPath == "" {
 		return nil
@@ -28,6 +30,14 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 	existing, err := idx.ChunkedPages(ctx, siteKey)
 	if err != nil {
 		return err
+	}
+	format, err := idx.ChunkFormat(ctx, siteKey)
+	if err != nil {
+		return err
+	}
+	skip := existing
+	if format != chunk.FormatVersion {
+		skip = nil
 	}
 
 	f, err := os.Open(jsonlPath)
@@ -62,7 +72,7 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 			continue
 		}
 		current[p.URL] = struct{}{}
-		if existing[p.URL].ContentHash == p.ContentHash && p.ContentHash != "" {
+		if alreadyIndexed(skip, &p) {
 			skipped++
 			continue
 		}
@@ -89,6 +99,9 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 	if err != nil {
 		return err
 	}
+	if err := idx.SetChunkFormat(ctx, siteKey, chunk.FormatVersion); err != nil {
+		return err
+	}
 	level := slog.LevelDebug
 	if indexed > 0 || removed > 0 {
 		level = slog.LevelInfo
@@ -96,6 +109,13 @@ func IndexChunksFromJSONL(ctx context.Context, idx *index.Index, siteKey, jsonlP
 	log.Log(ctx, level, "Indexed pages for search", "pages_indexed", indexed,
 		"pages_unchanged", skipped, "pages_removed", removed, "duration", time.Since(start).Round(time.Millisecond).String())
 	return nil
+}
+
+// alreadyIndexed reports whether p's chunks were written from the same content
+// and title.
+func alreadyIndexed(indexed map[string]index.ChunkedPage, p *models.PageJSONL) bool {
+	prev, ok := indexed[p.URL]
+	return ok && p.ContentHash != "" && prev.ContentHash == p.ContentHash && prev.Title == p.Title
 }
 
 // indexProgressInterval spaces the progress lines of a long indexing run.

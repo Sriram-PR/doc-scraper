@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -165,4 +166,92 @@ func TestIndexChunksFromJSONLLogsProgress(t *testing.T) {
 	out = run()
 	assert.NotContains(t, out, "level=INFO")
 	assert.Contains(t, out, `level=DEBUG msg="Indexed pages for search" site_key=docs pages_indexed=0 pages_unchanged=2 pages_removed=0`)
+}
+
+func openChunkTestIndex(t *testing.T) (*index.Index, string) {
+	t.Helper()
+	dir := t.TempDir()
+	idx, err := index.Open(filepath.Join(dir, "index.db"), 5, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = idx.Close() })
+	return idx, dir
+}
+
+// indexAndCount runs IndexChunksFromJSONL and returns the pages_indexed and
+// pages_unchanged counts from its end line.
+func indexAndCount(t *testing.T, idx *index.Index, jsonlPath string) (indexed, unchanged int) {
+	t.Helper()
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	require.NoError(t, IndexChunksFromJSONL(context.Background(), idx, "docs", jsonlPath, log))
+	_, err := fmt.Sscanf(buf.String()[strings.Index(buf.String(), "pages_indexed="):], "pages_indexed=%d pages_unchanged=%d", &indexed, &unchanged)
+	require.NoError(t, err, buf.String())
+	return indexed, unchanged
+}
+
+func TestIndexChunksFromJSONLFollowsTitleChanges(t *testing.T) {
+	idx, dir := openChunkTestIndex(t)
+	ctx := context.Background()
+	jsonlPath := filepath.Join(dir, "pages.jsonl")
+	page := models.PageJSONL{URL: "https://d.example/p1", Title: "P1", ContentHash: "h1",
+		Content: "# Intro\n\nBody text. " + strings.Repeat("filler ", 40)}
+	writeChunkTestJSONL(t, jsonlPath, []models.PageJSONL{page})
+
+	indexed, _ := indexAndCount(t, idx, jsonlPath)
+	assert.Equal(t, 1, indexed)
+	format, err := idx.ChunkFormat(ctx, "docs")
+	require.NoError(t, err)
+	assert.Equal(t, chunk.FormatVersion, format, "the first full index stamps the format")
+
+	indexed, unchanged := indexAndCount(t, idx, jsonlPath)
+	assert.Equal(t, 0, indexed)
+	assert.Equal(t, 1, unchanged, "same content and title is skipped")
+
+	page.Title = "ZetaTitle"
+	writeChunkTestJSONL(t, jsonlPath, []models.PageJSONL{page})
+	indexed, unchanged = indexAndCount(t, idx, jsonlPath)
+	assert.Equal(t, 1, indexed, "a title-only change is re-indexed")
+	assert.Equal(t, 0, unchanged)
+	results, err := idx.SearchChunks(ctx, "ZetaTitle", "docs", 5)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "ZetaTitle", results[0].Title)
+}
+
+func TestIndexChunksFromJSONLRechunksAnOldFormat(t *testing.T) {
+	idx, dir := openChunkTestIndex(t)
+	ctx := context.Background()
+	jsonlPath := filepath.Join(dir, "pages.jsonl")
+	filler := strings.Repeat("filler ", 40)
+	writeChunkTestJSONL(t, jsonlPath, []models.PageJSONL{
+		{URL: "https://d.example/a", Title: "A", ContentHash: "a1", Content: "# A\n\nalpha. " + filler},
+		{URL: "https://d.example/b", Title: "B", ContentHash: "b1", Content: "# B\n\nbravo. " + filler},
+	})
+	indexAndCount(t, idx, jsonlPath)
+	require.NoError(t, idx.SetChunkFormat(ctx, "docs", chunk.FormatVersion-1))
+
+	indexed, unchanged := indexAndCount(t, idx, jsonlPath)
+	assert.Equal(t, 2, indexed, "every page is re-chunked once")
+	assert.Equal(t, 0, unchanged)
+	format, err := idx.ChunkFormat(ctx, "docs")
+	require.NoError(t, err)
+	assert.Equal(t, chunk.FormatVersion, format)
+
+	indexed, unchanged = indexAndCount(t, idx, jsonlPath)
+	assert.Equal(t, 0, indexed)
+	assert.Equal(t, 2, unchanged)
+}
+
+func TestIndexChunksFromJSONLFailureKeepsTheOldFormat(t *testing.T) {
+	idx, dir := openChunkTestIndex(t)
+	ctx := context.Background()
+	require.NoError(t, idx.SetChunkFormat(ctx, "docs", chunk.FormatVersion-1))
+
+	// Opening a directory works; reading it fails, so the scan stops with an error.
+	err := IndexChunksFromJSONL(ctx, idx, "docs", dir, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.Error(t, err)
+
+	format, err := idx.ChunkFormat(ctx, "docs")
+	require.NoError(t, err)
+	assert.Equal(t, chunk.FormatVersion-1, format)
 }
