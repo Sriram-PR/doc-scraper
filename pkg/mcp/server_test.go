@@ -49,6 +49,7 @@ func TestBackfillChunks(t *testing.T) {
 		[]interface{}{pageRecord("https://chunked.example.com/new", "Text only in the JSONL")})
 	require.NoError(t, idx.ReplaceChunks(ctx, "chunked", "https://chunked.example.com/old", "Old", "h-old",
 		chunk.Split("# Old\n\nAlready indexed text. "+strings.Repeat("filler ", 40))))
+	require.NoError(t, idx.SetChunkFormat(ctx, "chunked", chunk.FormatVersion))
 	writeJSONLRecords(t, filepath.Join(app.SiteOutputDir("optedout"), "pages.jsonl"),
 		[]interface{}{pageRecord("https://optedout.example.com/x", "Opted out text")})
 
@@ -82,6 +83,26 @@ func TestBackfillChunks_ClearsASiteWhoseJSONLIsGone(t *testing.T) {
 	has, err := idx.SiteHasChunks(ctx, "gone")
 	require.NoError(t, err)
 	assert.False(t, has)
+}
+
+// After an upgrade that changes the chunker, a site indexed with the old format
+// is re-chunked at startup instead of waiting for its next crawl.
+func TestBackfillChunks_RechunksAnOldFormat(t *testing.T) {
+	ctx := context.Background()
+	s, jsonlPath := newTestServer(t, "stale", "stale.example.com")
+	idx := attachIndex(t, s)
+	writeJSONLRecords(t, jsonlPath, []interface{}{pageRecord("https://stale.example.com/a", "Rechunked pelican text")})
+	require.NoError(t, idx.ReplaceChunks(ctx, "stale", "https://stale.example.com/a", "Page", "h-https://stale.example.com/a",
+		chunk.Split("# Page\n\nOld chunking. "+strings.Repeat("filler ", 40))))
+	require.NoError(t, idx.SetChunkFormat(ctx, "stale", chunk.FormatVersion-1))
+
+	s.backfillChunks(ctx)
+
+	got, _ := callSearchDocs(t, s, map[string]any{"query": "pelican", "site_key": "stale"})
+	assert.EqualValues(t, 1, got["count"])
+	format, err := idx.ChunkFormat(ctx, "stale")
+	require.NoError(t, err)
+	assert.Equal(t, chunk.FormatVersion, format)
 }
 
 func TestBackfillChunks_StopsOnCancelledContext(t *testing.T) {

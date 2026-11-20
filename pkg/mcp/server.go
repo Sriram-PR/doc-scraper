@@ -17,6 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
@@ -506,9 +507,9 @@ func (s *Server) checkHandshake(message any) error {
 }
 
 // backfillChunks indexes existing crawl output for sites that predate the
-// full-text index, so search_docs works after an upgrade without re-crawling.
-// It runs in the background at startup; sites already chunked are skipped via
-// content-hash comparison inside IndexChunksFromJSONL.
+// full-text index or were indexed with an older chunk.FormatVersion, so
+// search_docs works after an upgrade without re-crawling. It runs in the
+// background at startup.
 func (s *Server) backfillChunks(ctx context.Context) {
 	if s.idx == nil {
 		return
@@ -527,9 +528,14 @@ func (s *Server) backfillChunks(ctx context.Context) {
 			s.log.Warn("chunk backfill: check failed", "site", key, "err", err)
 			continue
 		}
-		// A site with chunks is refreshed only when its JSONL is gone, which
-		// clears them.
-		if _, statErr := os.Stat(jsonlPath); has && statErr == nil {
+		format, err := s.idx.ChunkFormat(ctx, key)
+		if err != nil {
+			s.log.Warn("chunk backfill: check failed", "site", key, "err", err)
+			continue
+		}
+		// A site with current chunks is refreshed only when its JSONL is gone,
+		// which clears them.
+		if _, statErr := os.Stat(jsonlPath); has && format == chunk.FormatVersion && statErr == nil {
 			continue
 		}
 		if err := crawler.IndexChunksFromJSONL(ctx, s.idx, key, jsonlPath, s.log.With("site_key", key)); err != nil {
