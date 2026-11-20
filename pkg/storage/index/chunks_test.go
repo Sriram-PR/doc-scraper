@@ -524,3 +524,36 @@ func TestSearchChunksFillsFromSynonyms(t *testing.T) {
 	assert.Equal(t, "https://e/completion", results[0].URL, "the synonym AND stage ranks the page with every concept first")
 	assert.Equal(t, MatchPartial, results[0].Match)
 }
+
+func TestChunkFormatPerSite(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	ctx := context.Background()
+
+	format, err := idx.ChunkFormat(ctx, "s")
+	require.NoError(t, err)
+	assert.Zero(t, format, "a site never indexed has no format")
+
+	require.NoError(t, idx.SetChunkFormat(ctx, "s", 3))
+	require.NoError(t, idx.SetChunkFormat(ctx, "s", 4))
+	require.NoError(t, idx.SetChunkFormat(ctx, "other", 2))
+	format, err = idx.ChunkFormat(ctx, "s")
+	require.NoError(t, err)
+	assert.Equal(t, 4, format)
+}
+
+func TestDeleteSiteChunksClearsItsFormat(t *testing.T) {
+	idx := newTestIndex(t, 5)
+	ctx := context.Background()
+	seedPage(t, idx, "s", "https://e/p", "Page", "h1", "# Page\n\nwombat text. "+strings.Repeat("filler ", 40))
+	require.NoError(t, idx.SetChunkFormat(ctx, "s", chunk.FormatVersion))
+	require.NoError(t, idx.SetChunkFormat(ctx, "other", chunk.FormatVersion))
+
+	require.NoError(t, idx.DeleteSiteChunks(ctx, "s"))
+
+	format, err := idx.ChunkFormat(ctx, "s")
+	require.NoError(t, err)
+	assert.Zero(t, format)
+	format, err = idx.ChunkFormat(ctx, "other")
+	require.NoError(t, err)
+	assert.Equal(t, chunk.FormatVersion, format)
+}

@@ -20,6 +20,11 @@ type Chunk struct {
 	Text        string
 }
 
+// FormatVersion identifies the chunks Split and IdentifierTokens produce. Bump it
+// whenever either gives different output for the same Markdown, so every site is
+// re-chunked once.
+const FormatVersion = 1
+
 const (
 	// targetMaxBytes caps normal chunk growth. Sections larger than this are
 	// split at paragraph boundaries; ~2KB keeps a chunk within a few hundred

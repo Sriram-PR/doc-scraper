@@ -297,3 +297,32 @@ func TestSchemaVersionNilReceiver(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, v)
 }
+
+// A database indexed before chunk formats were recorded has chunks built by
+// format 1, so migration 3 stamps those sites and leaves the rest without a row.
+func TestMigrateStampsIndexedSitesWithChunkFormat1(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "index.db")
+	writeRawDB(t, path, legacySchema+migrations[1].sql+`
+INSERT INTO schema_version(version) VALUES (1), (2);
+INSERT INTO chunks (site_key, url, title, heading_path, anchor, seq, content_hash, text, identifiers)
+VALUES ('a', 'https://a/p', 'P', '', '', 0, 'h', 'body text', '');
+`)
+	idx, err := Open(path, 5, discardLog())
+	require.NoError(t, err)
+	defer func() { _ = idx.Close() }()
+	ctx := context.Background()
+
+	formatA, err := idx.ChunkFormat(ctx, "a")
+	require.NoError(t, err)
+	assert.Equal(t, 1, formatA)
+	formatB, err := idx.ChunkFormat(ctx, "b")
+	require.NoError(t, err)
+	assert.Zero(t, formatB)
+
+	require.NoError(t, idx.SetChunkFormat(ctx, "a", 7))
+	_, err = idx.db.ExecContext(ctx, migrations[2].sql)
+	require.NoError(t, err, "migration 3 runs again cleanly")
+	formatA, err = idx.ChunkFormat(ctx, "a")
+	require.NoError(t, err)
+	assert.Equal(t, 7, formatA, "a second run keeps recorded formats")
+}

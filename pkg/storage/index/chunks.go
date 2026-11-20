@@ -122,8 +122,42 @@ func (i *Index) PruneChunks(ctx context.Context, siteKey string, currentURLs map
 func (i *Index) DeleteSiteChunks(ctx context.Context, siteKey string) error {
 	i.writeMu.Lock()
 	defer i.writeMu.Unlock()
-	if _, err := i.db.ExecContext(ctx, `DELETE FROM chunks WHERE site_key = ?`, siteKey); err != nil {
+	tx, err := i.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chunks WHERE site_key = ?`, siteKey); err != nil {
 		return fmt.Errorf("delete site chunks: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chunk_sites WHERE site_key = ?`, siteKey); err != nil {
+		return fmt.Errorf("delete site chunk format: %w", err)
+	}
+	return tx.Commit()
+}
+
+// ChunkFormat returns the chunk.FormatVersion the site was last fully indexed
+// with, or 0 if it never was.
+func (i *Index) ChunkFormat(ctx context.Context, siteKey string) (int, error) {
+	var format int
+	err := i.db.QueryRowContext(ctx, `SELECT format FROM chunk_sites WHERE site_key = ?`, siteKey).Scan(&format)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("query chunk format: %w", err)
+	}
+	return format, nil
+}
+
+// SetChunkFormat records that every page of the site is indexed with format.
+func (i *Index) SetChunkFormat(ctx context.Context, siteKey string, format int) error {
+	i.writeMu.Lock()
+	defer i.writeMu.Unlock()
+	if _, err := i.db.ExecContext(ctx,
+		`INSERT INTO chunk_sites (site_key, format) VALUES (?, ?)
+		 ON CONFLICT(site_key) DO UPDATE SET format = excluded.format`, siteKey, format); err != nil {
+		return fmt.Errorf("set chunk format: %w", err)
 	}
 	return nil
 }
