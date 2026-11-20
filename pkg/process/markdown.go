@@ -39,6 +39,7 @@ func ToMarkdown(sel *goquery.Selection) (string, error) {
 	container := &html.Node{Type: html.ElementNode, Data: "div", DataAtom: atom.Div}
 	for _, n := range sel.Clone().Nodes {
 		dropBells(n)
+		dropCodeFrameCaptions(n)
 		flattenCodeBlocks(n)
 		container.AppendChild(n)
 	}
@@ -59,6 +60,35 @@ func dropBells(n *html.Node) {
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		dropBells(c)
+	}
+}
+
+// dropCodeFrameCaptions removes screen-reader-only labels from the captions of
+// figures that hold code, such as Expressive Code's "Terminal window", which
+// otherwise came out as a line of text above the block.
+func dropCodeFrameCaptions(n *html.Node) {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		dropCodeFrameCaptions(c)
+	}
+	if !isElement(n, "figure") || firstElement(n, "pre") == nil {
+		return
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if isElement(c, "figcaption") {
+			removeScreenReaderOnly(c)
+		}
+	}
+}
+
+func removeScreenReaderOnly(n *html.Node) {
+	for c := n.FirstChild; c != nil; {
+		next := c.NextSibling
+		if hasClass(c, "sr-only") {
+			n.RemoveChild(c)
+		} else {
+			removeScreenReaderOnly(c)
+		}
+		c = next
 	}
 }
 

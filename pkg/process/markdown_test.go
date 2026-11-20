@@ -242,3 +242,37 @@ func TestToMarkdown_CodeBlockLines(t *testing.T) {
 		})
 	}
 }
+
+func TestToMarkdown_CodeFrameCaptions(t *testing.T) {
+	const copyButton = `<div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="npm run dev"><div></div></button></div>`
+	tests := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "TerminalLabelDropped",
+			html: `<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption>` +
+				`<pre data-language="sh"><code><div class="ec-line"><div class="code"><span>npm run dev</span></div></div></code></pre>` + copyButton + `</figure></div>`,
+			want: "```\nnpm run dev\n```",
+		},
+		{
+			name: "TitleKept",
+			html: `<div class="expressive-code"><figure class="frame has-title not-content"><figcaption class="header"><span class="title">astro.config.mjs</span></figcaption>` +
+				`<pre data-language="js"><code><div class="ec-line"><div class="code"><span>export default {}</span></div></div></code></pre>` + copyButton + `</figure></div>`,
+			want: "astro.config.mjs\n\n```\nexport default {}\n```",
+		},
+		{
+			name: "ScreenReaderTextOutsideCodeFramesKept",
+			html: `<figure><img src="a.png" alt="A"><figcaption>Diagram <span class="sr-only">(opens larger)</span></figcaption></figure><p>See <a href="/x">docs<span class="sr-only"> (new tab)</span></a></p>`,
+			want: "![A](a.png)\n\nDiagram (opens larger)\n\nSee [docs (new tab)](/x)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ToMarkdown(selectionOf(t, "<main>"+tt.html+"</main>", "main"))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, strings.TrimSpace(got))
+		})
+	}
+}
