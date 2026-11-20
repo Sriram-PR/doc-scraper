@@ -18,7 +18,7 @@ import (
 // MarkdownFormatVersion is part of the crawler's incremental content hash.
 // Bump it whenever a change here alters the Markdown for the same HTML, so the
 // next incremental crawl reconverts pages whose HTML did not change.
-const MarkdownFormatVersion = 4
+const MarkdownFormatVersion = 5
 
 // A Converter is safe to share, but every call takes its mutex, and workers
 // spending their time on that mutex stops a crawl scaling past about 8 of them.
@@ -39,6 +39,7 @@ func ToMarkdown(sel *goquery.Selection) (string, error) {
 	container := &html.Node{Type: html.ElementNode, Data: "div", DataAtom: atom.Div}
 	for _, n := range sel.Clone().Nodes {
 		dropBells(n)
+		flattenCodeBlocks(n)
 		container.AppendChild(n)
 	}
 	conv := markdownConverters.Get().(*converter.Converter)
@@ -58,6 +59,89 @@ func dropBells(n *html.Node) {
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		dropBells(c)
+	}
+}
+
+// flattenCodeBlocks replaces the children of each <pre> that wraps lines in
+// block elements (Docusaurus, Expressive Code) with their text. The converter
+// starts a new line at every <div> and <br>, so a line wrapped in a <div> that
+// also ends in <br> came out with a blank line after it.
+func flattenCodeBlocks(n *html.Node) {
+	if isElement(n, "pre") {
+		if hasLineMarkup(n) {
+			flattenPre(n)
+		}
+		return
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		flattenCodeBlocks(c)
+	}
+}
+
+func hasLineMarkup(n *html.Node) bool {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && (c.Data == "br" || codeBlockBreaks[c.Data]) || hasLineMarkup(c) {
+			return true
+		}
+	}
+	return false
+}
+
+func flattenPre(pre *html.Node) {
+	var b strings.Builder
+	appendCodeText(&b, pre)
+	text := &html.Node{Type: html.TextNode, Data: b.String()}
+	var replacement *html.Node
+	if code := firstElement(pre, "code"); code != nil {
+		replacement = &html.Node{Type: html.ElementNode, Data: "code", DataAtom: atom.Code}
+		if class := attr(code, "class"); class != "" {
+			replacement.Attr = []html.Attribute{{Key: "class", Val: class}}
+		}
+		replacement.AppendChild(text)
+	} else {
+		replacement = text
+	}
+	for pre.FirstChild != nil {
+		pre.RemoveChild(pre.FirstChild)
+	}
+	pre.AppendChild(replacement)
+}
+
+// codeBlockBreaks are the elements that start a new line inside a <pre>, as
+// they would when rendered.
+var codeBlockBreaks = map[string]bool{
+	"address": true, "article": true, "aside": true, "blockquote": true, "details": true, "dd": true,
+	"div": true, "dl": true, "dt": true, "figcaption": true, "figure": true, "footer": true,
+	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true, "header": true, "hr": true,
+	"li": true, "main": true, "nav": true, "ol": true, "p": true, "pre": true, "section": true,
+	"summary": true, "table": true, "tr": true, "ul": true,
+}
+
+// appendCodeText writes n's text as rendered: a block element starts a line
+// only when the current one has text, so a <br> ending a <div> line doesn't
+// add an empty line.
+func appendCodeText(b *strings.Builder, n *html.Node) {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		switch {
+		case c.Type == html.TextNode:
+			b.WriteString(c.Data)
+		case c.Type != html.ElementNode:
+		case isElement(c, "script", "style", "textarea", "template"):
+		case c.Data == "br":
+			b.WriteByte('\n')
+		case codeBlockBreaks[c.Data]:
+			endLine(b)
+			appendCodeText(b, c)
+			endLine(b)
+		default:
+			appendCodeText(b, c)
+		}
+	}
+}
+
+func endLine(b *strings.Builder) {
+	if s := b.String(); s != "" && s[len(s)-1] != '\n' {
+		b.WriteByte('\n')
 	}
 }
 

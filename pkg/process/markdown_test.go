@@ -166,3 +166,79 @@ func TestToMarkdown_BellInPageIsDropped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
+
+func TestToMarkdown_CodeBlockLines(t *testing.T) {
+	tests := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "DocusaurusLinesWithBlankLine",
+			html: `<pre class="prism-code language-bash"><code class="codeBlockLines_FJaf">` +
+				`<div class="token-line"><span class="token plain">cd my-website</span><br/></div>` +
+				`<div class="token-line"><span class="token plain" style="display:inline-block"></span><br/></div>` +
+				`<div class="token-line"><span class="token function">npm</span><span class="token plain"> run start</span><br/></div>` +
+				`</code></pre>`,
+			want: "```bash\ncd my-website\n\nnpm run start\n```",
+		},
+		{
+			name: "ExpressiveCodeLines",
+			html: `<pre data-language="js"><code>` +
+				`<div class="ec-line"><div class="code"><span>import a from 'a';</span></div></div>` +
+				`<div class="ec-line"><div class="code">
+</div></div>` +
+				`<div class="ec-line"><div class="code"><span>export default a;</span></div></div>` +
+				`</code></pre>`,
+			want: "```\nimport a from 'a';\n\nexport default a;\n```",
+		},
+		{
+			name: "NextraCopyButtonInsidePre",
+			html: `<pre tabindex="0"><div class="x:absolute"><button title="Copy code"><svg></svg></button></div>` +
+				`<code class="language-js" data-language="js"><span class="line"><span>const a = 1</span></span>
+<span class="line"><span>const b = 2</span></span></code></pre>`,
+			want: "```js\nconst a = 1\nconst b = 2\n```",
+		},
+		{
+			name: "BreaksWithoutCode",
+			html: `<pre>a<br>b</pre>`,
+			want: "```\na\nb\n```",
+		},
+		{
+			name: "BackticksInFlattenedCode",
+			html: `<pre class="language-md"><code><div class="token-line">` + "```js" + `<br/></div><div class="token-line">x<br/></div><div class="token-line">` + "```" + `<br/></div></code></pre>`,
+			want: "````md\n```js\nx\n```\n````",
+		},
+		{
+			name: "CodeWithoutClassHasNoInfoString",
+			html: `<pre><code><div>one</div><div>two</div></code></pre>`,
+			want: "```\none\ntwo\n```",
+		},
+		{
+			name: "PlainCodeUnchanged",
+			html: "<pre><code class=\"language-go\">package main\n\nfunc main() {}\n</code></pre>",
+			want: "```go\npackage main\n\nfunc main() {}\n```",
+		},
+		{
+			name: "ChromaLinesUnchanged",
+			html: `<pre tabindex="0" class="chroma"><code class="language-sh" data-lang="sh"><span class="line"><span class="cl">hugo new site quickstart
+</span></span><span class="line"><span class="cl">cd quickstart
+</span></span></code></pre>`,
+			want: "```sh\nhugo new site quickstart\ncd quickstart\n```",
+		},
+		{
+			name: "ShikiLinesUnchanged",
+			html: `<pre class="shiki" tabindex="0"><code><span class="line"><span>npm add -D vitepress</span></span>
+<span class="line"></span>
+<span class="line"><span>npx vitepress init</span></span></code></pre>`,
+			want: "```\nnpm add -D vitepress\n\nnpx vitepress init\n```",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ToMarkdown(selectionOf(t, "<main>"+tt.html+"</main>", "main"))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, strings.TrimSpace(got))
+		})
+	}
+}
