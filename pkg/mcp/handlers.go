@@ -991,10 +991,44 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		headerLine{"content_hash", record.ContentHash},
 		headerLine{"source", "stored_crawl"},
 	)
-	if len(record.Headings) > 0 {
-		header = append(header, headerLine{"headings", strings.Join(record.Headings, " | ")})
+	if line := headingsLine(record.Content); line != "" {
+		header = append(header, headerLine{"headings", line})
 	}
 	return pageTextResult(header, part), nil
+}
+
+// maxHeadingsLineBytes bounds read_page's headings line: reference and
+// changelog pages list hundreds of headings, sent on every read on top of
+// max_bytes. A bad anchor still gets the full anchor list in its error.
+const maxHeadingsLineBytes = 4096
+
+// headingsLine lists the page's headings as "Text #anchor" (text alone when
+// it has no anchor), cut between entries at maxHeadingsLineBytes.
+func headingsLine(markdown string) string {
+	var entries []string
+	for _, h := range chunk.Headings(markdown) {
+		switch {
+		case h.Text == "":
+		case h.Anchor == "":
+			entries = append(entries, h.Text)
+		default:
+			entries = append(entries, h.Text+" #"+h.Anchor)
+		}
+	}
+	var b strings.Builder
+	for i, e := range entries {
+		sep := ""
+		if i > 0 {
+			sep = " | "
+		}
+		if b.Len()+len(sep)+len(e) > maxHeadingsLineBytes {
+			fmt.Fprintf(&b, "%s(+%d more)", sep, len(entries)-i)
+			break
+		}
+		b.WriteString(sep)
+		b.WriteString(e)
+	}
+	return b.String()
 }
 
 const (

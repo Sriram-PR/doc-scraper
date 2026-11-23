@@ -282,7 +282,7 @@ func TestHandleReadPage_TextOutput(t *testing.T) {
 	assert.NotContains(t, got, "section_end")
 	assert.EqualValues(t, 0, got["offset"])
 	assert.Equal(t, "stored_crawl", got["source"])
-	assert.Equal(t, []any{"A"}, got["headings"])
+	assert.Equal(t, []any{"A #a"}, got["headings"])
 
 	_, got = callPage(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/a", "max_bytes": 1.0})
 	assert.Equal(t, true, got["truncated"])
@@ -291,8 +291,14 @@ func TestHandleReadPage_TextOutput(t *testing.T) {
 
 func TestHandleReadPage_NoHeadingsLineWhenNone(t *testing.T) {
 	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
-	seedCorpus(t, jsonlPath)
-	_, got := callPage(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/b"})
+	writeJSONLRecords(t, jsonlPath, []interface{}{
+		models.PageJSONL{
+			RecordType: models.RecordTypePage, URL: "https://docs.example.com/c", Title: "C",
+			CrawledAt: "2026-05-23T10:00:00Z", Content: "Body only, no headings.", ContentHash: "hash-c",
+		},
+		models.CrawlMetaJSONL{RecordType: models.RecordTypeCrawlMeta, SiteKey: "docs", TotalPages: 1},
+	})
+	_, got := callPage(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/c"})
 	assert.NotContains(t, got, "headings")
 }
 

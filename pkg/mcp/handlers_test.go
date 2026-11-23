@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -998,4 +999,42 @@ func TestUnknownSiteListsAvailableSitesAsText(t *testing.T) {
 	s, _ := newDraftSiteServer(t)
 	r, _ := callJSON(t, s.handleListPages, map[string]any{"site_key": "nope"})
 	assert.Equal(t, "site 'nope' not found. Available sites: docs", errText(t, r))
+}
+
+func TestHandleReadPage_HeadingsComeFromTheContent(t *testing.T) {
+	s, jsonlPath := newTestServer(t, "docs", "docs.example.com")
+	writeJSONLRecords(t, jsonlPath, []interface{}{
+		models.PageJSONL{
+			RecordType: models.RecordTypePage, URL: "https://docs.example.com/c", Title: "C",
+			CrawledAt: "2026-05-23T10:00:00Z", ContentHash: "hash-c",
+			Content:  "Intro\n=====\n\n> ## Note\n\n## 😀\n\nbody\n",
+			Headings: []string{"Stale"},
+		},
+		models.CrawlMetaJSONL{RecordType: models.RecordTypeCrawlMeta, SiteKey: "docs", TotalPages: 1},
+	})
+	_, got := callPage(t, s.handleReadPage, map[string]any{"site_key": "docs", "url": "https://docs.example.com/c", "anchor": "note"})
+	assert.Equal(t, []any{"Intro #intro", "Note #note", "😀"}, got["headings"])
+}
+
+func TestHeadingsLine_CutsBetweenEntriesAt4KB(t *testing.T) {
+	var md strings.Builder
+	for i := range 300 {
+		fmt.Fprintf(&md, "## Heading number %03d\n\n", i)
+	}
+	entries := strings.Split(headingsLine(md.String()), " | ")
+	kept := entries[:len(entries)-1]
+	assert.Equal(t, fmt.Sprintf("(+%d more)", 300-len(kept)), entries[len(entries)-1])
+	assert.Equal(t, "Heading number 000 #heading-number-000", kept[0])
+	prefix := strings.Join(kept, " | ")
+	assert.LessOrEqual(t, len(prefix), maxHeadingsLineBytes)
+	next := fmt.Sprintf("Heading number %03d #heading-number-%03d", len(kept), len(kept))
+	assert.Greater(t, len(prefix)+len(" | ")+len(next), maxHeadingsLineBytes)
+}
+
+func TestHeadingsLine_CapBoundary(t *testing.T) {
+	fits := strings.Repeat("a", 2047)
+	assert.Equal(t, fits+" #"+fits, headingsLine("# "+fits+"\n"), "an entry of exactly 4,096 bytes is kept")
+	assert.Equal(t, "(+1 more)", headingsLine("# "+fits+"a\n"))
+	assert.Empty(t, headingsLine("Body only.\n"))
+	assert.Equal(t, "Title #title", headingsLine("#\n\n# Title\n"), "an empty heading is skipped")
 }
