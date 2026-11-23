@@ -42,7 +42,7 @@ Install golangci-lint through the `/v2` module path as shown. `.../golangci-lint
 | `cmd/doc-scraper` | CLI entry point and subcommands (`crawl`, `watch`, `run`, `config`, `mcp-server`, `search`, `add`) |
 | `pkg/crawler` | Crawl loop, workers, staging and swap of fresh crawls, JSONL / `llms.txt` output, search-chunk indexing |
 | `pkg/fetch` | HTTP client, retries, rate limiting, per-host concurrency, robots.txt, SSRF-safe dialing |
-| `pkg/process` | HTML to Markdown, link rewriting, image downloads, heading extraction |
+| `pkg/process` | HTML to Markdown, link rewriting, image downloads |
 | `pkg/detect` | Docs-framework detection and content-selector choice |
 | `pkg/discover` | Site probing behind `add`: sitemap, robots.txt, llms.txt, scope inference |
 | `pkg/sitemap` | Sitemap fetching and URL enqueueing during a crawl |
