@@ -20,6 +20,7 @@ import (
 
 	"context"
 
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
@@ -291,7 +292,12 @@ func (om *OutputManager) RecordPageOutput(finalURL string, markdownBytes []byte,
 		if len(markdownBytes) > 0 {
 			contentHash = utils.CalculateStringSHA256(content)
 		}
-		headings := process.ExtractHeadings(markdownBytes)
+		var headings []string
+		for _, h := range chunk.Headings(content) {
+			if h.Text != "" {
+				headings = append(headings, h.Text)
+			}
+		}
 		links, images := process.ExtractLinksAndImages(content)
 
 		pageJSONL := models.PageJSONL{

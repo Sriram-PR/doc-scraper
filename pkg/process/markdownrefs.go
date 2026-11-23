@@ -1,75 +1,8 @@
 package process
 
 import (
-	"bytes"
 	"strings"
 )
-
-// isRegexSpace is RE2's \s, [\t\n\f\r ]: no \v.
-func isRegexSpace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
-}
-
-// ExtractHeadings matches `(?m)^(#{1,6})\s+(.+)$` exactly, \s+ crossing lines
-// included; only blank matches give an empty non-nil slice, which JSONL writes as [].
-func ExtractHeadings(md []byte) []string {
-	n := len(md)
-	var out []string
-	matched := false
-	for i := 0; i < n; {
-		if md[i] != '#' {
-			j := bytes.IndexByte(md[i:], '\n')
-			if j < 0 {
-				break
-			}
-			i += j + 1
-			continue
-		}
-		k := 0
-		for i+k < n && md[i+k] == '#' {
-			k++
-		}
-		p := i + k
-		if k > 6 || p >= n || !isRegexSpace(md[p]) {
-			j := bytes.IndexByte(md[p:], '\n')
-			if j < 0 {
-				break
-			}
-			i = p + j + 1
-			continue
-		}
-		q := p
-		for q < n && isRegexSpace(md[q]) {
-			q++
-		}
-		if q == n {
-			// \s+ gives bytes back until .+ can start on a non-newline.
-			q = -1
-			for x := n - 1; x > p; x-- {
-				if md[x] != '\n' {
-					q = x
-					break
-				}
-			}
-			if q < 0 {
-				break
-			}
-		}
-		e := n
-		if j := bytes.IndexByte(md[q:], '\n'); j >= 0 {
-			e = q + j
-		}
-		matched = true
-		if t := strings.TrimSpace(string(md[q:e])); t != "" {
-			out = append(out, t)
-		}
-		i = e + 1
-	}
-	if matched && out == nil {
-		return []string{}
-	}
-	return out
-}
 
 // ExtractLinksAndImages matches `\[([^\]]*)\]\(([^)]+)\)` (skipping ones right
 // after "!") and `!\[([^\]]*)\]\(([^)]+)\)` exactly, returning trimmed targets.

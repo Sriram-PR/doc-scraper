@@ -10,72 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestExtractHeadings_BasicMarkdown(t *testing.T) {
-	markdown := []byte(`# Main Title
-
-Some intro text.
-
-## Section One
-
-Content here.
-
-### Subsection A
-
-More content.
-
-## Section Two
-
-Final content.
-`)
-
-	headings := ExtractHeadings(markdown)
-
-	assert.Equal(t, []string{
-		"Main Title",
-		"Section One",
-		"Subsection A",
-		"Section Two",
-	}, headings)
-}
-
-func TestExtractHeadings_Empty(t *testing.T) {
-	markdown := []byte(`Just plain text without any headings.`)
-
-	headings := ExtractHeadings(markdown)
-
-	assert.Empty(t, headings)
-}
-
-func TestExtractHeadings_OnlyH1(t *testing.T) {
-	markdown := []byte(`# Single Title`)
-
-	headings := ExtractHeadings(markdown)
-
-	assert.Equal(t, []string{"Single Title"}, headings)
-}
-
-func TestExtractHeadings_AllLevels(t *testing.T) {
-	markdown := []byte(`# H1
-## H2
-### H3
-#### H4
-##### H5
-###### H6
-`)
-
-	headings := ExtractHeadings(markdown)
-
-	assert.Equal(t, []string{"H1", "H2", "H3", "H4", "H5", "H6"}, headings)
-}
-
-func TestExtractHeadings_EmptyDocument(t *testing.T) {
-	markdown := []byte(``)
-
-	headings := ExtractHeadings(markdown)
-
-	assert.Empty(t, headings)
-}
-
 func TestExtractLinksAndImages(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -161,27 +95,9 @@ For more info, visit [our site](https://docs.example.com).
 
 // Regex reference implementations, the fuzz oracle.
 var (
-	refHeadingRe = regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
-	refLinkRe    = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
-	refImageRe   = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+	refLinkRe  = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
+	refImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 )
-
-func refHeadings(markdown []byte) []string {
-	matches := refHeadingRe.FindAllSubmatch(markdown, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	headings := make([]string, 0, len(matches))
-	for _, m := range matches {
-		if len(m) >= 3 {
-			text := strings.TrimSpace(string(m[2]))
-			if text != "" {
-				headings = append(headings, text)
-			}
-		}
-	}
-	return headings
-}
 
 func refLinksAndImages(markdown string) (links []string, images []string) {
 	for _, match := range refLinkRe.FindAllStringSubmatchIndex(markdown, -1) {
@@ -227,16 +143,13 @@ var markdownRefsSeeds = []string{
 	"\xff# x\n# \xfe\n[\xff](\xfe)",
 }
 
-// FuzzMarkdownRefsMatchRegex: the scanners return exactly what the regexes
-// did, nil versus empty included, since JSONL writes them as null versus [].
+// FuzzMarkdownRefsMatchRegex: the scanner returns exactly what the regexes did,
+// nil versus empty included, since JSONL writes them as null versus [].
 func FuzzMarkdownRefsMatchRegex(f *testing.F) {
 	for _, s := range markdownRefsSeeds {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		if got, want := ExtractHeadings([]byte(s)), refHeadings([]byte(s)); !reflect.DeepEqual(got, want) {
-			t.Fatalf("headings of %q: got %#v, want %#v", s, got, want)
-		}
 		gotL, gotI := ExtractLinksAndImages(s)
 		wantL, wantI := refLinksAndImages(s)
 		if !reflect.DeepEqual(gotL, wantL) || !reflect.DeepEqual(gotI, wantI) {
@@ -266,7 +179,6 @@ func BenchmarkMarkdownRefs(b *testing.B) {
 			b.SetBytes(int64(len(md)))
 			b.ReportAllocs()
 			for b.Loop() {
-				ExtractHeadings(md)
 				ExtractLinksAndImages(p.md)
 			}
 		})
@@ -274,7 +186,6 @@ func BenchmarkMarkdownRefs(b *testing.B) {
 			b.SetBytes(int64(len(md)))
 			b.ReportAllocs()
 			for b.Loop() {
-				refHeadings(md)
 				refLinksAndImages(p.md)
 			}
 		})

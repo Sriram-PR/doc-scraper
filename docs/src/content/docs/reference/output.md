@@ -86,7 +86,7 @@ The file mixes two record kinds, distinguished by the `record_type` field:
 | `url` | Final absolute URL of the page |
 | `title` | Page title |
 | `content` | Full markdown content |
-| `headings` | Array of headings extracted from the page |
+| `headings` | Array of the page's headings as plain text: ATX and Setext headings and headings inside blockquotes and list items, not `#` lines inside code blocks |
 | `links` | Array of links found in the content |
 | `images` | Array of image URLs found in the content |
 | `content_hash` | SHA-256 hash of the content (used for incremental crawling) |

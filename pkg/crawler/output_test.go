@@ -246,3 +246,21 @@ func TestFinalizeJSONL_DedupesEquivalentURLs(t *testing.T) {
 	assert.Equal(t, "new", pages[0].Title)
 	assert.Equal(t, "https://example.com/zz", pages[1].URL)
 }
+
+func TestRecordPageOutput_HeadingsFollowTheChunker(t *testing.T) {
+	om, _ := newOpenOutputManager(t, true)
+	md := "#\n\nIntro\n=====\n\n> ## Note\n\n~~~sh\n# comment\n~~~\n\n### [Installing Go](https://go.dev/doc/install)\n"
+	om.RecordPageOutput("http://h/docs/a.html", []byte(md), "A", 0, silentLogger())
+	om.RecordPageOutput("http://h/docs/b.html", []byte("No headings here."), "B", 0, silentLogger())
+
+	lines := readJSONLLines(t, om.jsonlFilePath)
+	require.Len(t, lines, 2)
+	var a struct {
+		Headings []string `json:"headings"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(lines[0]), &a))
+	assert.Equal(t, []string{"Intro", "Note", "Installing Go"}, a.Headings)
+	var b map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(lines[1]), &b))
+	assert.Equal(t, "null", string(b["headings"]))
+}
