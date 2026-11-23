@@ -435,3 +435,15 @@ func TestAnchorsMatchGitHubSlugger(t *testing.T) {
 		assert.Equal(t, tc.want, Anchors(tc.md), tc.name)
 	}
 }
+
+func TestHeadings(t *testing.T) {
+	md := "Intro\n=====\n\n## Setup\n\n> ### See [docs](https://x.example/d)\n\n## 😀\n\n## Setup\n"
+	assert.Equal(t, []Heading{
+		{Level: 1, Text: "Intro", Anchor: "intro"},
+		{Level: 2, Text: "Setup", Anchor: "setup"},
+		{Level: 3, Text: "See docs", Anchor: "see-docs"},
+		{Level: 2, Text: "😀", Anchor: ""},
+		{Level: 2, Text: "Setup", Anchor: "setup-1"},
+	}, Headings(md))
+	assert.Nil(t, Headings("No headings here.\n"))
+}

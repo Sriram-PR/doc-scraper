@@ -107,6 +107,28 @@ func Anchors(markdown string) []string {
 	return out
 }
 
+// Heading is one heading of a page: its level (1-6), rendered plain text and
+// anchor ("" when the text has no slug characters).
+type Heading struct {
+	Level  int
+	Text   string
+	Anchor string
+}
+
+// Headings lists the page's headings in document order, the ones Split,
+// Section and Anchors use.
+func Headings(markdown string) []Heading {
+	hs := headings(markdown)
+	if len(hs) == 0 {
+		return nil
+	}
+	out := make([]Heading, len(hs))
+	for i, h := range hs {
+		out[i] = Heading{Level: h.level, Text: h.text, Anchor: h.anchor}
+	}
+	return out
+}
+
 // markdownParser is CommonMark plus GitHub's extensions, so a table row is
 // never read as the paragraph a "---" underline turns into a heading.
 var markdownParser = goldmark.New(
