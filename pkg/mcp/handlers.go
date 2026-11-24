@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,7 +25,6 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
-	"github.com/Sriram-PR/doc-scraper/v2/pkg/parse"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
@@ -214,7 +212,7 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 		return mcp.NewToolResultError(fmt.Sprintf(jsonlDisabledHint, siteKey)), nil
 	}
 
-	file, err := os.Open(jsonlPath)
+	pages, err := s.pages.List(jsonlPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return structuredResult(listPagesResult{
@@ -225,41 +223,8 @@ func (s *Server) handleListPages(ctx context.Context, request mcp.CallToolReques
 				Message:    fmt.Sprintf(notCrawledHint, siteKey),
 			}), nil
 		}
-		return mcp.NewToolResultError(fmt.Sprintf("failed to open JSONL for site '%s': %v", siteKey, err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("failed to read JSONL for site '%s': %v", siteKey, err)), nil
 	}
-	defer file.Close()
-
-	pages := make([]pageListEntry, 0, 256)
-	scanner := crawler.NewJSONLScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		// Cheap discriminator before Unmarshal; skips the crawl_meta footer.
-		if !strings.Contains(line, `"record_type":"page"`) {
-			continue
-		}
-		var p models.PageJSONL
-		if err := json.Unmarshal([]byte(line), &p); err != nil {
-			continue
-		}
-		if p.RecordType != models.RecordTypePage {
-			continue
-		}
-		pages = append(pages, pageListEntry{
-			URL:           p.URL,
-			Title:         p.Title,
-			Depth:         p.Depth,
-			CrawledAt:     utcTimestamp(p.CrawledAt),
-			ContentLength: len(p.Content),
-		})
-	}
-	if err := scanner.Err(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to scan JSONL for site '%s': %v", siteKey, err)), nil
-	}
-
-	sort.Slice(pages, func(i, j int) bool { return pages[i].URL < pages[j].URL })
 
 	total := len(pages)
 	var pageSlice []pageListEntry
@@ -805,42 +770,6 @@ const (
 	maxReadPageBytes     = 1024 * 1024
 )
 
-// findPageRecord streams the crawl JSONL and returns the first page record for
-// wantURL, stopping at the match instead of reading the whole file. Normalized
-// forms are compared as a fallback so a caller's trailing slash or fragment
-// still resolves. A nil record with a nil error means the page is not in the
-// corpus.
-func findPageRecord(jsonlPath, wantURL string) (*models.PageJSONL, error) {
-	file, err := os.Open(jsonlPath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	wantNorm, _, _, normErr := parse.ParseURL(wantURL)
-
-	scanner := crawler.NewJSONLScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || !strings.Contains(line, `"record_type":"page"`) {
-			continue
-		}
-		var p models.PageJSONL
-		if err := json.Unmarshal([]byte(line), &p); err != nil || p.RecordType != models.RecordTypePage {
-			continue
-		}
-		if p.URL == wantURL {
-			return &p, nil
-		}
-		if normErr == nil {
-			if gotNorm, _, _, err := parse.ParseURL(p.URL); err == nil && gotNorm == wantNorm {
-				return &p, nil
-			}
-		}
-	}
-	return nil, scanner.Err()
-}
-
 func (s *Server) anySiteIndexed(ctx context.Context) bool {
 	for _, key := range s.siteKeys() {
 		// On a lookup error, assume content so the caller keeps its generic hint.
@@ -863,7 +792,7 @@ func (s *Server) siteWithPage(exclude, pageURL string) string {
 		if !enabled {
 			continue
 		}
-		if record, err := findPageRecord(jsonlPath, pageURL); err == nil && record != nil {
+		if record, err := s.pages.Page(jsonlPath, pageURL); err == nil && record != nil {
 			return key
 		}
 	}
@@ -944,7 +873,7 @@ func (s *Server) handleReadPage(ctx context.Context, request mcp.CallToolRequest
 		return mcp.NewToolResultError(fmt.Sprintf(jsonlDisabledHint, siteKey)), nil
 	}
 
-	record, err := findPageRecord(jsonlPath, urlStr)
+	record, err := s.pages.Page(jsonlPath, urlStr)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return mcp.NewToolResultError(fmt.Sprintf(notCrawledHint, siteKey)), nil

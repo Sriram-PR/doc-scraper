@@ -55,6 +55,7 @@ type Server struct {
 	log        *slog.Logger
 	jobManager *JobManager
 	idx        *index.Index
+	pages      pageStore
 	sitesMu    sync.RWMutex
 	saveMu     sync.Mutex
 
