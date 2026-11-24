@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"sync"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
@@ -30,6 +31,7 @@ type catalog struct {
 	entries []catalogEntry
 	exact   map[string]int
 	norm    map[string]int
+	list    []pageListEntry
 }
 
 type catalogEntry struct {
@@ -41,6 +43,10 @@ type catalogEntry struct {
 type catalogRecord struct {
 	RecordType string `json:"record_type"`
 	URL        string `json:"url"`
+	Title      string `json:"title"`
+	Content    string `json:"content"`
+	CrawledAt  string `json:"crawled_at"`
+	Depth      int    `json:"depth"`
 }
 
 // Page returns the first page record whose URL equals pageURL or has the same
@@ -72,6 +78,18 @@ func (ps *pageStore) Page(jsonlPath, pageURL string) (*models.PageJSONL, error) 
 		return nil, nil
 	}
 	return c.read(f, i)
+}
+
+// List returns every page record's list fields sorted by URL. The slice is
+// shared; callers must not modify it.
+func (ps *pageStore) List(jsonlPath string) ([]pageListEntry, error) {
+	f, c, err := ps.open(jsonlPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	defer c.mu.Unlock()
+	return c.list, nil
 }
 
 // open returns the opened file and its catalog, current for that file and
@@ -120,6 +138,7 @@ func (c *catalog) build(f *os.File, info os.FileInfo) error {
 	var entries []catalogEntry
 	exact := make(map[string]int)
 	norm := make(map[string]int)
+	var list []pageListEntry
 
 	r := bufio.NewReaderSize(io.NewSectionReader(f, 0, info.Size()), 64*1024)
 	var offset int64
@@ -155,13 +174,21 @@ func (c *catalog) build(f *os.File, info os.FileInfo) error {
 						norm[key] = i
 					}
 				}
+				list = append(list, pageListEntry{
+					URL:           p.URL,
+					Title:         p.Title,
+					Depth:         p.Depth,
+					CrawledAt:     utcTimestamp(p.CrawledAt),
+					ContentLength: len(p.Content),
+				})
 			}
 		}
 		if atEOF {
 			break
 		}
 	}
-	c.entries, c.exact, c.norm, c.info = entries, exact, norm, info
+	sort.SliceStable(list, func(i, j int) bool { return list[i].URL < list[j].URL })
+	c.entries, c.exact, c.norm, c.list, c.info = entries, exact, norm, list, info
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -143,6 +144,9 @@ func TestPageStorePage_SeesARenameSwap(t *testing.T) {
 	got, err = ps.Page(path, "https://d.example/a")
 	require.NoError(t, err)
 	assert.Equal(t, "new", got.Title)
+	list, err := ps.List(path)
+	require.NoError(t, err)
+	assert.Equal(t, "new", list[0].Title, "same size and mod time: only the file identity changed")
 }
 
 func TestPageStorePage_SeesAnAppend(t *testing.T) {
@@ -203,4 +207,99 @@ func TestPageStorePage_ConcurrentFirstReads(t *testing.T) {
 	for _, title := range titles {
 		assert.Equal(t, "A1", title)
 	}
+}
+
+// oldListPages is the scan list_pages used before pageStore.
+func oldListPages(t *testing.T, jsonlPath string) []pageListEntry {
+	t.Helper()
+	file, err := os.Open(jsonlPath)
+	require.NoError(t, err)
+	defer file.Close()
+
+	pages := make([]pageListEntry, 0, 256)
+	scanner := crawler.NewJSONLScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.Contains(line, `"record_type":"page"`) {
+			continue
+		}
+		var p models.PageJSONL
+		if err := json.Unmarshal([]byte(line), &p); err != nil || p.RecordType != models.RecordTypePage {
+			continue
+		}
+		pages = append(pages, pageListEntry{
+			URL:           p.URL,
+			Title:         p.Title,
+			Depth:         p.Depth,
+			CrawledAt:     utcTimestamp(p.CrawledAt),
+			ContentLength: len(p.Content),
+		})
+	}
+	require.NoError(t, scanner.Err())
+	return pages
+}
+
+func TestPageStoreList_MatchesTheOldScan(t *testing.T) {
+	path := lookupFixture(t)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	require.NoError(t, err)
+	b, err := json.Marshal(models.PageJSONL{
+		RecordType: models.RecordTypePage, URL: "https://d.example/0", Title: "Zero",
+		Content: "héllo", CrawledAt: "2026-05-23T12:00:00+02:00", Depth: 3,
+	})
+	require.NoError(t, err)
+	_, err = f.Write(append(b, '\n'))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	var ps pageStore
+	got, err := ps.List(path)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, oldListPages(t, path), got)
+	assert.Len(t, got, 10, "duplicate URLs are kept")
+	assert.True(t, sort.SliceIsSorted(got, func(i, j int) bool { return got[i].URL < got[j].URL }))
+	assert.Contains(t, got, pageListEntry{
+		URL: "https://d.example/0", Title: "Zero", Depth: 3,
+		CrawledAt: "2026-05-23T10:00:00Z", ContentLength: len("héllo"),
+	})
+}
+
+func TestPageStoreList_MissingFile(t *testing.T) {
+	var ps pageStore
+	_, err := ps.List(filepath.Join(t.TempDir(), "pages.jsonl"))
+	assert.ErrorIs(t, err, fs.ErrNotExist)
+}
+
+func TestPageStoreList_ReusesTheCatalog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pages.jsonl")
+	writeLines(t, path, pageLine(t, "https://d.example/a", "old"))
+	var ps pageStore
+	_, err := ps.List(path)
+	require.NoError(t, err)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	writeLines(t, path, pageLine(t, "https://d.example/a", "new"))
+	setModTime(t, path, info)
+
+	got, err := ps.List(path)
+	require.NoError(t, err)
+	assert.Equal(t, "old", got[0].Title, "same file, size and mod time: no rescan")
+}
+
+func TestPageStoreList_SeesANewModTime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pages.jsonl")
+	writeLines(t, path, pageLine(t, "https://d.example/a", "old"))
+	var ps pageStore
+	_, err := ps.List(path)
+	require.NoError(t, err)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	writeLines(t, path, pageLine(t, "https://d.example/a", "new"))
+	require.NoError(t, os.Chtimes(path, time.Time{}, info.ModTime().Add(time.Second)))
+
+	got, err := ps.List(path)
+	require.NoError(t, err)
+	assert.Equal(t, "new", got[0].Title)
 }
