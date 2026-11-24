@@ -3,7 +3,6 @@ package mcp
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,7 +22,6 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
-	"github.com/Sriram-PR/doc-scraper/v2/pkg/models"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
@@ -551,49 +549,20 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 	s.jobManager.UpdateStatus(job.ID, JobStatusCompleted, "")
 }
 
-// getLastCrawledTime returns the end time from the last crawl_meta record in
-// the site's JSONL, or the zero time if none exists.
 // siteActivity returns a site's last_crawled and status values, each empty
 // when absent.
 func (s *Server) siteActivity(key string, siteCfg *config.SiteConfig) (lastCrawled, status string) {
-	if t := s.getLastCrawledTime(key, siteCfg); !t.IsZero() {
+	jsonlPath := filepath.Join(
+		s.cfg.AppConfig.SiteOutputDir(key),
+		config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig),
+	)
+	if t := lastCrawlEnded(jsonlPath); !t.IsZero() {
 		lastCrawled = utcTime(t)
 	}
 	if s.jobManager.IsRunning(key) {
 		status = "running"
 	}
 	return lastCrawled, status
-}
-
-func (s *Server) getLastCrawledTime(siteKey string, siteCfg *config.SiteConfig) time.Time {
-	siteOutputDir := s.cfg.AppConfig.SiteOutputDir(siteKey)
-	jsonlPath := filepath.Join(siteOutputDir, config.GetEffectiveJSONLOutputFilename(siteCfg, s.cfg.AppConfig))
-
-	file, err := os.Open(jsonlPath)
-	if err != nil {
-		return time.Time{}
-	}
-	defer file.Close()
-
-	var lastEnded time.Time
-	scanner := crawler.NewJSONLScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || !strings.Contains(line, models.RecordTypeCrawlMeta) {
-			continue
-		}
-		var meta models.CrawlMetaJSONL
-		if err := json.Unmarshal([]byte(line), &meta); err != nil {
-			continue
-		}
-		if meta.RecordType != models.RecordTypeCrawlMeta {
-			continue
-		}
-		if t, err := time.Parse(time.RFC3339, meta.CrawlEndedAt); err == nil {
-			lastEnded = t
-		}
-	}
-	return lastEnded
 }
 
 // resolveSiteOrError validates site_key against the configured sites and
