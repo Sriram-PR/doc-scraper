@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -709,7 +710,7 @@ func TestUpdateStatus_StaleJobKeepsNewerJobActive(t *testing.T) {
 
 func startTestJob(t *testing.T, jm *JobManager, siteKey string, wait time.Duration) (*Job, bool) {
 	t.Helper()
-	job, created, err := jm.StartJob(context.Background(), siteKey, false, wait)
+	job, created, err := jm.StartJob(context.Background(), siteKey, false, wait, nil)
 	require.NoError(t, err)
 	require.NotNil(t, job)
 	return job, created
@@ -738,7 +739,7 @@ func TestStartJob_WaitsForCancelledCrawlToFinish(t *testing.T) {
 	}
 	result := make(chan started, 1)
 	go func() {
-		job, created, err := jm.StartJob(context.Background(), "docs", false, 10*time.Second)
+		job, created, err := jm.StartJob(context.Background(), "docs", false, 10*time.Second, nil)
 		assert.NoError(t, err)
 		result <- started{job, created}
 	}()
@@ -777,7 +778,7 @@ func TestStartJob_HonoursContextWhileWaiting(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _, err := jm.StartJob(ctx, "docs", false, 10*time.Second)
+	_, _, err := jm.StartJob(ctx, "docs", false, 10*time.Second, nil)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
@@ -790,7 +791,7 @@ func TestStartJob_ConcurrentCallsCreateOneJob(t *testing.T) {
 	var errs []error
 	for range 20 {
 		wg.Go(func() {
-			job, created, err := jm.StartJob(context.Background(), "docs", false, time.Second)
+			job, created, err := jm.StartJob(context.Background(), "docs", false, time.Second, nil)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -843,7 +844,7 @@ func TestReserveSite_StartJobWaitsForRelease(t *testing.T) {
 		release()
 	}()
 	start := time.Now()
-	job, created, err := m.StartJob(context.Background(), "docs", false, 5*time.Second)
+	job, created, err := m.StartJob(context.Background(), "docs", false, 5*time.Second, nil)
 	require.NoError(t, err)
 	assert.True(t, created)
 	assert.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond)
@@ -855,7 +856,7 @@ func TestReserveSite_StartJobTimesOut(t *testing.T) {
 	release, err := m.ReserveSite("docs")
 	require.NoError(t, err)
 	defer release()
-	job, created, err := m.StartJob(context.Background(), "docs", false, 50*time.Millisecond)
+	job, created, err := m.StartJob(context.Background(), "docs", false, 50*time.Millisecond, nil)
 	require.ErrorIs(t, err, ErrSiteReserved)
 	assert.False(t, created)
 	assert.Nil(t, job)
@@ -863,7 +864,7 @@ func TestReserveSite_StartJobTimesOut(t *testing.T) {
 
 func TestReserveSite_RefusedWhileHeld(t *testing.T) {
 	m := NewJobManager("", nil)
-	job, created, err := m.StartJob(context.Background(), "docs", false, time.Second)
+	job, created, err := m.StartJob(context.Background(), "docs", false, time.Second, nil)
 	require.NoError(t, err)
 	require.True(t, created)
 	_, err = m.ReserveSite("docs")
@@ -883,7 +884,7 @@ func TestFinishJob_SkipsReservations(t *testing.T) {
 	release, err := m.ReserveSite("a")
 	require.NoError(t, err)
 	defer release()
-	job, _, err := m.StartJob(context.Background(), "b", false, time.Second)
+	job, _, err := m.StartJob(context.Background(), "b", false, time.Second, nil)
 	require.NoError(t, err)
 	m.FinishJob(job.ID)
 	_, err = m.ReserveSite("a")
@@ -899,4 +900,44 @@ func TestReserveSite_ClipsEchoedKey(t *testing.T) {
 	_, err = m.ReserveSite(key)
 	require.ErrorContains(t, err, "being saved")
 	assert.Less(t, len(err.Error()), 1000)
+}
+
+func TestStartJob_AcquireErrorCreatesNoJob(t *testing.T) {
+	jm := NewJobManager("", nil)
+	boom := errors.New("boom")
+	_, _, err := jm.StartJob(context.Background(), "docs", false, time.Second, func() (func(), error) { return nil, boom })
+	require.ErrorIs(t, err, boom)
+	assert.Empty(t, jm.ListJobs())
+	jm.mu.RLock()
+	assert.Nil(t, jm.workers["docs"], "a failed acquire frees the slot")
+	jm.mu.RUnlock()
+
+	_, created, err := jm.StartJob(context.Background(), "docs", false, time.Second, nil)
+	require.NoError(t, err)
+	assert.True(t, created)
+}
+
+func TestFinishJob_ReleasesBeforeFreeingSlot(t *testing.T) {
+	jm := NewJobManager("", nil)
+	var done chan struct{}
+	var slotFreedFirst, released bool
+	job, created, err := jm.StartJob(context.Background(), "docs", false, time.Second, func() (func(), error) {
+		return func() {
+			released = true
+			select {
+			case <-done:
+				slotFreedFirst = true
+			default:
+			}
+		}, nil
+	})
+	require.NoError(t, err)
+	require.True(t, created)
+	jm.mu.RLock()
+	done = jm.workers["docs"].done
+	jm.mu.RUnlock()
+
+	jm.FinishJob(job.ID)
+	assert.True(t, released)
+	assert.False(t, slotFreedFirst, "a waiting StartJob must not wake before the lock is released")
 }

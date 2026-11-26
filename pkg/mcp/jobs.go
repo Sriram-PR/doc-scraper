@@ -85,10 +85,11 @@ type JobProgress struct {
 }
 
 // siteWorker holds a site's crawl slot. job is nil while a config save
-// holds the slot through ReserveSite.
+// holds the slot through ReserveSite, and while StartJob takes the site lock.
 type siteWorker struct {
-	job  *Job
-	done chan struct{}
+	job     *Job
+	done    chan struct{}
+	release func() // the job's site lock; nil for a ReserveSite hold
 }
 
 type jobsFile struct {
@@ -356,7 +357,9 @@ func (m *JobManager) CreateJob(siteKey string, incremental bool) (*Job, error) {
 // FinishJob. created is false when the site already has an active job, which
 // is returned instead. If an earlier crawl is still shutting down, StartJob
 // waits up to wait for it and then returns that job with created false.
-func (m *JobManager) StartJob(ctx context.Context, siteKey string, incremental bool, wait time.Duration) (job *Job, created bool, err error) {
+// acquire, if set, runs once the site is free and before the job exists; its
+// error is returned as is, and FinishJob calls the release it returns.
+func (m *JobManager) StartJob(ctx context.Context, siteKey string, incremental bool, wait time.Duration, acquire func() (release func(), err error)) (job *Job, created bool, err error) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	for {
@@ -368,8 +371,24 @@ func (m *JobManager) StartJob(ctx context.Context, siteKey string, incremental b
 		}
 		w := m.workers[siteKey]
 		if w == nil {
+			w = &siteWorker{done: make(chan struct{})}
+			m.workers[siteKey] = w
+			m.mu.Unlock()
+
+			var release func()
+			if acquire != nil {
+				if release, err = acquire(); err != nil {
+					m.mu.Lock()
+					delete(m.workers, siteKey)
+					m.mu.Unlock()
+					close(w.done)
+					return nil, false, err
+				}
+			}
+
+			m.mu.Lock()
 			job := m.newJobLocked(siteKey, incremental)
-			m.workers[siteKey] = &siteWorker{job: job, done: make(chan struct{})}
+			w.job, w.release = job, release
 			m.mu.Unlock()
 			m.flush()
 			return job, true, nil
@@ -379,13 +398,12 @@ func (m *JobManager) StartJob(ctx context.Context, siteKey string, incremental b
 		select {
 		case <-w.done:
 		case <-timer.C:
+			m.mu.RLock()
+			defer m.mu.RUnlock()
 			if w.job == nil {
 				return nil, false, ErrSiteReserved
 			}
-			m.mu.RLock()
-			view := viewLocked(w.job)
-			m.mu.RUnlock()
-			return view, false, nil
+			return viewLocked(w.job), false, nil
 		case <-ctx.Done():
 			return nil, false, ctx.Err()
 		}
@@ -428,6 +446,9 @@ func (m *JobManager) FinishJob(jobID string) {
 	defer m.mu.Unlock()
 	for site, w := range m.workers {
 		if w.job != nil && w.job.ID == jobID {
+			if w.release != nil {
+				w.release()
+			}
 			close(w.done)
 			delete(m.workers, site)
 			return

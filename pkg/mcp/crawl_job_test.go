@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitelock"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
 
@@ -389,4 +391,54 @@ func TestRunCrawlJob_AllowShrinkPublishesTransientLoss(t *testing.T) {
 		_, got := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
 		assert.Equal(t, string(tc.want), got["status"], "allow_shrink=%v: %v", tc.allowShrink, got["error_message"])
 	}
+}
+
+func TestCrawlSite_ForeignLockIsAnErrorWithoutAJob(t *testing.T) {
+	s, _, _, _ := newCrawlJobServer(t, "docs")
+	jobsPath := filepath.Join(t.TempDir(), "mcp_jobs.json")
+	s.jobManager = NewJobManager(jobsPath, nil)
+	t.Cleanup(s.jobManager.Stop)
+
+	held, err := sitelock.TryLock(s.cfg.AppConfig.StateDir, "docs", nil)
+	require.NoError(t, err)
+	defer func() { _ = held.Unlock() }()
+
+	res, _ := callJSON(t, s.handleCrawlSite, map[string]any{"site_key": "docs"})
+	require.True(t, res.IsError)
+	assert.Contains(t, errText(t, res), fmt.Sprintf("site 'docs' is being crawled by another process (pid %d); try again after it finishes", os.Getpid()))
+	assert.Empty(t, s.jobManager.ListJobs())
+	assert.NoFileExists(t, jobsPath)
+	waitForSiteReleased(t, s, "docs")
+}
+
+func TestCrawlSite_OwnRunningCrawlIsStillAlreadyRunning(t *testing.T) {
+	release := make(chan struct{})
+	s, _, _ := newCrawlJobServerWith(t, "docs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(func() { close(release); waitForSiteReleased(t, s, "docs") })
+
+	_, first := callJSON(t, s.handleCrawlSite, map[string]any{"site_key": "docs"})
+	require.Equal(t, "started", first["status"])
+	res, second := callJSON(t, s.handleCrawlSite, map[string]any{"site_key": "docs"})
+	require.False(t, res.IsError)
+	assert.Equal(t, "already_running", second["status"])
+	assert.Equal(t, first["job_id"], second["job_id"])
+}
+
+func TestCrawlSite_LockIsFreeAfterTheJobFinishes(t *testing.T) {
+	s, _, _, _ := newCrawlJobServer(t, "docs")
+	_, started := callJSON(t, s.handleCrawlSite, map[string]any{"site_key": "docs"})
+	require.Equal(t, "started", started["status"])
+	id := started["job_id"].(string)
+	require.Eventually(t, func() bool { return isTerminalStatus(s.jobManager.GetJob(id).Status) }, time.Minute, 5*time.Millisecond)
+	waitForSiteReleased(t, s, "docs")
+
+	l, err := sitelock.TryLock(s.cfg.AppConfig.StateDir, "docs", nil)
+	require.NoError(t, err)
+	require.NoError(t, l.Unlock())
 }

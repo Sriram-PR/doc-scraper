@@ -24,6 +24,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/pagebudget"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/process"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitelock"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
@@ -395,9 +396,23 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 		return errResult, nil
 	}
 
-	job, created, err := s.jobManager.StartJob(ctx, siteKey, incremental, crawlRestartWait)
+	job, created, err := s.jobManager.StartJob(ctx, siteKey, incremental, crawlRestartWait, func() (func(), error) {
+		l, err := sitelock.TryLock(s.cfg.AppConfig.StateDir, siteKey, s.log)
+		if err != nil {
+			return nil, err
+		}
+		return func() { _ = l.Unlock() }, nil
+	})
 	if errors.Is(err, ErrSiteReserved) {
 		return mcp.NewToolResultError(fmt.Sprintf("site '%s' config is being saved; try again shortly", clipInput(siteKey))), nil
+	}
+	var busy *sitelock.BusyError
+	if errors.As(err, &busy) {
+		msg := fmt.Sprintf("site '%s' is being crawled by another process", clipInput(siteKey))
+		if busy.PID > 0 {
+			msg += fmt.Sprintf(" (pid %d)", busy.PID)
+		}
+		return mcp.NewToolResultError(msg + "; try again after it finishes"), nil
 	}
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create job: %v", err)), nil
