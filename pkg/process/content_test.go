@@ -927,7 +927,7 @@ func TestProcessAndSaveContent_SkipsTitleWhenH1InsideSelector(t *testing.T) {
 	title, md, onDisk := selectAndProcessPage(t, "main", rawHTML)
 	assert.Equal(t, "Site Docs - Install", title)
 	assert.True(t, strings.HasPrefix(md, "# Installation Guide"), "existing H1 should stay at the top, got:\n%s", md)
-	assert.NotContains(t, md, "# Site Docs - Install")
+	assert.NotContains(t, md, "Site Docs")
 
 	_, body := splitFrontmatter(t, onDisk)
 	assert.Equal(t, md, body)

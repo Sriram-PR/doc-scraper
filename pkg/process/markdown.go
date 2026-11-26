@@ -67,11 +67,34 @@ func EnsureTitleHeading(markdown, title string) string {
 	if hasH1(markdown) {
 		return markdown
 	}
-	return "# " + clean + "\n\n" + strings.TrimLeft(markdown, "\r\n")
+	return "# " + escapeMarkdownHeading(clean) + "\n\n" + strings.TrimLeft(markdown, "\r\n")
 }
 
 func normalizeHeadingTitle(title string) string {
 	return strings.Join(strings.Fields(title), " ")
+}
+
+// escapeMarkdownHeading backslash-escapes CommonMark ASCII punctuation so
+// literal title text (dunders, trailing "#", HTML-like tags, backticks) is
+// not parsed as Markdown formatting or raw HTML.
+func escapeMarkdownHeading(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := range len(s) {
+		c := s[i]
+		if isASCIIPunctuation(c) {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+func isASCIIPunctuation(c byte) bool {
+	return (c >= '!' && c <= '/') ||
+		(c >= ':' && c <= '@') ||
+		(c >= '[' && c <= '`') ||
+		(c >= '{' && c <= '~')
 }
 
 func hasH1(markdown string) bool {

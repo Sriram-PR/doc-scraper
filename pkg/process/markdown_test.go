@@ -9,6 +9,8 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 )
 
 func selectionOf(t *testing.T, page, selector string) *goquery.Selection {
@@ -437,11 +439,38 @@ func TestEnsureTitleHeading(t *testing.T) {
 			title: "Page Title",
 			want:  "# Page Title\n\nBody.",
 		},
+		{
+			name:  "EscapesASCIIPunctuationInTitle",
+			md:    "Body.",
+			title: "object.__init__",
+			want:  `# object\.\_\_init\_\_` + "\n\nBody.",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, EnsureTitleHeading(tt.md, tt.title))
+		})
+	}
+}
+
+func TestEnsureTitleHeading_EscapesMarkdownPunctuation(t *testing.T) {
+	titles := []string{
+		"object.__init__",
+		"__main__",
+		"Title ending in #",
+		"<details> element",
+		"Using `backticks` in title",
+		"A & B [v1.0] (beta) *bold* \\slash",
+	}
+
+	for _, title := range titles {
+		t.Run(title, func(t *testing.T) {
+			md := EnsureTitleHeading("Body paragraph.", title)
+			got := chunk.Headings(md)
+			require.NotEmpty(t, got, "markdown:\n%s", md)
+			assert.Equal(t, 1, got[0].Level)
+			assert.Equal(t, title, got[0].Text)
 		})
 	}
 }
