@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitelock"
 )
 
 func mustHostname(srvURL string) string {
@@ -236,4 +237,72 @@ func TestLogScheduleAndNextRun(t *testing.T) {
 	buf.Reset()
 	s.logNextRun()
 	assert.Contains(t, buf.String(), "Next crawl:")
+}
+
+func TestGetDueSites_SkipsInFlightSites(t *testing.T) {
+	cfg := &config.AppConfig{StateDir: t.TempDir()}
+	s := NewScheduler(cfg, []string{"a", "b"}, time.Hour, discardLog())
+	s.setInFlight([]string{"a"}, true)
+	assert.Equal(t, []string{"b"}, s.getDueSites())
+	s.setInFlight([]string{"a"}, false)
+	assert.ElementsMatch(t, []string{"a", "b"}, s.getDueSites())
+}
+
+func TestRunDueSites_SavesEachSiteWhenItFinishes(t *testing.T) {
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+		fmt.Fprint(w, `<html><head><title>S</title></head><body><main><p>Slow page.</p></main></body></html>`)
+	}))
+	t.Cleanup(slow.Close)
+	quick := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<html><head><title>Q</title></head><body><main><p>Quick page.</p></main></body></html>`)
+	}))
+	t.Cleanup(quick.Close)
+
+	cfg := schedulerConfig(t, slow.URL)
+	cfg.Sites["quick"] = &config.SiteConfig{
+		StartURLs:       []string{quick.URL + "/"},
+		AllowedDomain:   mustHostname(quick.URL),
+		ContentSelector: "main",
+		MaxDepth:        1,
+	}
+	s := NewScheduler(cfg, []string{"fixture", "quick"}, time.Hour, discardLog())
+	require.NoError(t, s.stateManager.Load())
+
+	s.runDueSites()
+	require.Eventually(t, func() bool {
+		b, err := os.ReadFile(filepath.Join(cfg.StateDir, stateFileName))
+		return err == nil && strings.Contains(string(b), `"quick"`)
+	}, 10*time.Second, 10*time.Millisecond, "quick's state is saved while fixture still runs")
+	assert.Empty(t, s.getDueSites(), "fixture is in flight and quick was just recorded")
+
+	close(release)
+	s.wg.Wait()
+	st, ok := s.stateManager.GetSiteState("fixture")
+	require.True(t, ok)
+	assert.True(t, st.LastRunSuccess)
+}
+
+func TestRunDueSites_BusySiteLeavesStateUntouched(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<html><head><title>B</title></head><body><main><p>Busy page.</p></main></body></html>`)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := schedulerConfig(t, srv.URL)
+	held, err := sitelock.TryLock(cfg.StateDir, "fixture", nil)
+	require.NoError(t, err)
+	defer func() { _ = held.Unlock() }()
+
+	s := NewScheduler(cfg, []string{"fixture"}, time.Hour, discardLog())
+	require.NoError(t, s.stateManager.Load())
+	s.runDueSites()
+	s.wg.Wait()
+
+	_, ok := s.stateManager.GetSiteState("fixture")
+	assert.False(t, ok, "a busy site records no run, so it is not delayed")
+	assert.Equal(t, []string{"fixture"}, s.getDueSites(), "and it is due again on the next tick")
 }

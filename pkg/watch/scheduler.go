@@ -30,6 +30,9 @@ type Scheduler struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	idx    *index.Index
+
+	inFlightMu sync.Mutex
+	inFlight   map[string]bool
 }
 
 // WithIndex attaches a crawl-history index passed to every orchestrator the
@@ -48,6 +51,7 @@ func NewScheduler(appCfg *config.AppConfig, siteKeys []string, interval time.Dur
 		interval:     interval,
 		log:          log,
 		stateManager: NewStateManager(appCfg.StateDir),
+		inFlight:     make(map[string]bool),
 		ctx:          ctx,
 		cancel:       cancel,
 	}
@@ -92,41 +96,65 @@ func (s *Scheduler) runDueSites() {
 	}
 
 	s.log.Info(fmt.Sprintf("Running crawl for %d due sites: %v", len(dueSites), dueSites))
+	s.setInFlight(dueSites, true)
 
 	// Watch is incremental by construction; pass resume=true so scheduled re-crawls
 	// reuse the persisted visited DB instead of wiping it.
-	orch := orchestrate.NewOrchestrator(s.ctx, s.appCfg, dueSites, true, s.log).WithIndex(s.idx)
+	orch := orchestrate.NewOrchestrator(s.ctx, s.appCfg, dueSites, true, s.log).
+		WithIndex(s.idx).
+		OnSiteDone(s.siteDone)
 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-
-		results := orch.Run()
-
-		for _, result := range results {
-			if s.ctx.Err() != nil && errors.Is(result.Error, context.Canceled) {
-				s.log.Info(fmt.Sprintf("Crawl for %s interrupted by shutdown; it runs again on the next start", result.SiteKey))
-				continue
-			}
-			errorMsg := ""
-			if result.Error != nil {
-				errorMsg = result.Error.Error()
-			}
-			s.stateManager.UpdateSiteState(result.SiteKey, result.Success,
-				PageCounts{Saved: result.PagesSaved, Unchanged: result.PagesUnchanged, Failed: result.PagesFailed}, errorMsg)
-		}
-
-		if err := s.stateManager.Save(); err != nil {
-			s.log.Error(fmt.Sprintf("Failed to save watch state: %v", err))
-		}
-
-		s.logNextRun()
+		orch.Run()
 	}()
 }
 
+// siteDone records one site's run as soon as it ends, so a fast site is not
+// held back by the slowest in its batch.
+func (s *Scheduler) siteDone(result orchestrate.SiteResult) {
+	defer s.setInFlight([]string{result.SiteKey}, false)
+	switch {
+	case result.Busy:
+		s.log.Info(fmt.Sprintf("Skipping %s: %v; it runs on a later tick", result.SiteKey, result.Error))
+		return
+	case s.ctx.Err() != nil && errors.Is(result.Error, context.Canceled):
+		s.log.Info(fmt.Sprintf("Crawl for %s interrupted by shutdown; it runs again on the next start", result.SiteKey))
+		return
+	}
+	errorMsg := ""
+	if result.Error != nil {
+		errorMsg = result.Error.Error()
+	}
+	s.stateManager.UpdateSiteState(result.SiteKey, result.Success,
+		PageCounts{Saved: result.PagesSaved, Unchanged: result.PagesUnchanged, Failed: result.PagesFailed}, errorMsg)
+	if err := s.stateManager.Save(); err != nil {
+		s.log.Error(fmt.Sprintf("Failed to save watch state: %v", err))
+	}
+	s.logNextRun()
+}
+
+func (s *Scheduler) setInFlight(keys []string, on bool) {
+	s.inFlightMu.Lock()
+	defer s.inFlightMu.Unlock()
+	for _, k := range keys {
+		if on {
+			s.inFlight[k] = true
+		} else {
+			delete(s.inFlight, k)
+		}
+	}
+}
+
 func (s *Scheduler) getDueSites() []string {
+	s.inFlightMu.Lock()
+	defer s.inFlightMu.Unlock()
 	var due []string
 	for _, siteKey := range s.siteKeys {
+		if s.inFlight[siteKey] {
+			continue
+		}
 		if s.stateManager.ShouldRun(siteKey, s.interval) {
 			due = append(due, siteKey)
 		}
