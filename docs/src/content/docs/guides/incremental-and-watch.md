@@ -58,6 +58,8 @@ Watch mode persists state to `<state_dir>/watch_state.json`, tracking:
 
 This allows the scheduler to resume correctly after restarts, only running sites when their interval has elapsed. A failed run (the site was unreachable, every page failed, or the run was kept back for losing pages) is retried after 15 minutes instead of a full interval, or after the interval if that is shorter.
 
+Each site's state is saved as soon as its own crawl ends, so a fast site is recorded without waiting for the slowest one. A site whose crawl is still running is not started again on the next check, and a site being crawled by another process (for example a `crawl` in another terminal) is skipped without recording a failure; it runs on the first check after that crawl ends.
+
 ### Example Output
 
 First run of `watch -site rust_cli_book -interval 24h` (timestamps and the `component=watch` attribute trimmed from each line):

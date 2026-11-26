@@ -80,7 +80,7 @@ Result: Returns up to max_bytes (default 32768) of the page as markdown after a 
 ```
 Tool: crawl_site
 Arguments: { "site_key": "pytorch_docs", "incremental": true }
-Result: Returns job ID for tracking progress. Add "allow_shrink": true to publish a crawl that would otherwise be kept back for losing pages
+Result: Returns job ID for tracking progress. Add "allow_shrink": true to publish a crawl that would otherwise be kept back for losing pages. If another process (a CLI crawl, watch, or another MCP server) is crawling the site, the call fails with "site '<key>' is being crawled by another process (pid N); try again after it finishes" and no job is created
 ```
 
 **Check crawl progress:**

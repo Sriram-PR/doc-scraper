@@ -45,6 +45,8 @@ A finished crawl is kept back instead of published when it would publish no page
 
 Exit codes: `0` success, `1` error, `3` crawl kept back, `130` interrupted. With several sites, an interrupt wins, then an error, then a kept-back crawl.
 
+Only one crawl of a site runs at a time, whether it was started by `crawl`, `watch`, `run` or the MCP server. A crawl of a site that is already being crawled exits `1` right away with `site '<key>' is already being crawled (pid N)` and leaves the running crawl alone. With several sites, a busy site is skipped and reported as `BUSY`, the others are crawled, and the run exits `1`.
+
 ## `watch`
 
 Re-crawl sites on a schedule. One of `-site`, `-sites`, or `-all-sites` is required.
