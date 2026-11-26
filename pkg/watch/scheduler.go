@@ -132,6 +132,7 @@ func (s *Scheduler) siteDone(result orchestrate.SiteResult) {
 	if err := s.stateManager.Save(); err != nil {
 		s.log.Error(fmt.Sprintf("Failed to save watch state: %v", err))
 	}
+	s.setInFlight([]string{result.SiteKey}, false)
 	s.logNextRun()
 }
 
@@ -204,7 +205,12 @@ func (s *Scheduler) logNextRun() {
 		time time.Time
 	}, 0, len(s.siteKeys))
 
+	var running []string
 	for _, siteKey := range s.siteKeys {
+		if s.isInFlight(siteKey) {
+			running = append(running, siteKey)
+			continue
+		}
 		nextRun := s.stateManager.GetNextRunTime(siteKey, s.interval)
 		nextRuns = append(nextRuns, struct {
 			site string
@@ -223,7 +229,15 @@ func (s *Scheduler) logNextRun() {
 			until = 0
 		}
 		s.log.Info(fmt.Sprintf("Next crawl: %s in %v (at %s)", next.site, until.Round(time.Second), next.time.UTC().Format("15:04:05")+" UTC"))
+	} else if len(running) > 0 {
+		s.log.Info(fmt.Sprintf("Waiting for running crawls: %v", running))
 	}
+}
+
+func (s *Scheduler) isInFlight(siteKey string) bool {
+	s.inFlightMu.Lock()
+	defer s.inFlightMu.Unlock()
+	return s.inFlight[siteKey]
 }
 
 // ParseInterval parses a positive duration: a Go duration ("30m", "24h") or

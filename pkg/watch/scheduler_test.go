@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/orchestrate"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitelock"
 )
 
@@ -305,4 +306,36 @@ func TestRunDueSites_BusySiteLeavesStateUntouched(t *testing.T) {
 	_, ok := s.stateManager.GetSiteState("fixture")
 	assert.False(t, ok, "a busy site records no run, so it is not delayed")
 	assert.Equal(t, []string{"fixture"}, s.getDueSites(), "and it is due again on the next tick")
+}
+
+func TestLogNextRun_SkipsInFlightSites(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	cfg := &config.AppConfig{StateDir: t.TempDir()}
+	s := NewScheduler(cfg, []string{"busy", "idle"}, time.Hour, log)
+	s.stateManager.UpdateSiteState("idle", true, PageCounts{Saved: 1}, "")
+	s.setInFlight([]string{"busy"}, true)
+
+	s.logNextRun()
+	out := buf.String()
+	assert.Contains(t, out, "Next crawl: idle in ")
+	assert.NotContains(t, out, "Next crawl: busy")
+
+	buf.Reset()
+	s.setInFlight([]string{"idle"}, true)
+	s.logNextRun()
+	assert.Contains(t, buf.String(), "Waiting for running crawls: [busy idle]")
+	assert.NotContains(t, buf.String(), "Next crawl:")
+}
+
+func TestSiteDone_ReportsTheFinishedSiteAsNext(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	cfg := &config.AppConfig{StateDir: t.TempDir()}
+	s := NewScheduler(cfg, []string{"a"}, time.Hour, log)
+	s.setInFlight([]string{"a"}, true)
+
+	s.siteDone(orchestrate.SiteResult{SiteKey: "a", Success: true})
+	assert.Contains(t, buf.String(), "Next crawl: a in ")
+	assert.Equal(t, []string(nil), s.getDueSites())
 }
