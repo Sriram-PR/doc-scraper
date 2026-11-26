@@ -45,6 +45,7 @@ Each generated Markdown file begins with a YAML frontmatter block carrying page 
 
 - **YAML frontmatter** (delimited by `---`) with `title`, `url` (source URL), `crawled_at` (RFC3339 timestamp), `content_hash` (SHA-256 of the content, matching the JSONL record), and `depth`
 - Clean content converted from HTML to GitHub-Flavored Markdown. A table stays a table when each cell fits on one row (a table of a single cell is layout and becomes just its content); line breaks and paragraphs inside a cell become `<br>`. A table that can't (for example, a cell holds a list, a multi-line code block, a nested table, or more than four lines) becomes one paragraph per cell, each labeled with its column header (`**Name:** value`), or with its row header when every row is a header cell and a value. A header row that is one cell spanning every column is a title: it is written once, as `**Title**`, instead of labeling every cell. Line-numbered code that a highlighter laid out as a table (Pygments and MkDocs Material, Hugo, Jekyll) becomes one code block without the numbers
+- A prepended `# <title>` heading when the converted body has no H1 heading and the page has a title (for example, when the page's `<h1>` sits outside the content selector or readability strips it)
 - Relative links to other crawled pages (within the allowed domain and path prefix); links to pages outside that scope are made absolute
 - Local image references (if images are enabled)
 

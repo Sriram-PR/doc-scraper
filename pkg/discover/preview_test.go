@@ -85,3 +85,22 @@ func TestExtractPreview_ReadabilityPathHasNoBreadcrumb(t *testing.T) {
 	assert.NotContains(t, p.Markdown, "Documentation")
 	assert.Contains(t, p.Markdown, "unusual properties")
 }
+
+func TestExtractPreview_PrependsTitleWhenH1OutsideSelector(t *testing.T) {
+	html := `<html><head><title>Getting Started</title></head><body>` +
+		`<header><h1>Getting Started</h1></header>` +
+		`<article><h2>Install</h2><p>` +
+		strings.Repeat("Real documentation prose about installing the tool. ", 5) +
+		`</p></article></body></html>`
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	require.NoError(t, err)
+	u, err := url.Parse("https://docs.example.com/install/")
+	require.NoError(t, err)
+
+	p := ExtractPreview(doc, u, &config.SiteConfig{ContentSelector: "article"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	require.Empty(t, p.Err)
+	assert.True(t, strings.HasPrefix(p.Markdown, "# Getting Started\n\n"), "preview markdown should start with prepended title, got:\n%s", p.Markdown)
+	assert.Contains(t, p.Markdown, "## Install")
+	assert.Equal(t, len(p.Markdown), p.Chars)
+}

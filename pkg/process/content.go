@@ -40,6 +40,8 @@ func NewContentProcessor(imgProcessor *ImageProcessor, appCfg *config.AppConfig,
 	}
 }
 
+const defaultPageTitle = "Untitled Page"
+
 type pageFrontmatter struct {
 	Title       string `yaml:"title"`
 	URL         string `yaml:"url"`
@@ -82,7 +84,7 @@ func (cp *ContentProcessor) SelectMainContent(
 ) (mainContent *goquery.Selection, pageTitle string, err error) {
 	pageTitle = strings.TrimSpace(doc.Find("title").First().Text())
 	if pageTitle == "" {
-		pageTitle = "Untitled Page"
+		pageTitle = defaultPageTitle
 	}
 	taskLog = taskLog.With("page_title", pageTitle)
 
@@ -100,8 +102,8 @@ func (cp *ContentProcessor) SelectMainContent(
 				return nil, pageTitle, err
 			}
 			mainContent = extractedContent
-			if extractedTitle != "" {
-				pageTitle = extractedTitle
+			if trimmedTitle := strings.TrimSpace(extractedTitle); trimmedTitle != "" {
+				pageTitle = trimmedTitle
 				taskLog = taskLog.With("page_title", pageTitle)
 			}
 			taskLog.Debug(fmt.Sprintf("Extracted content using readability (framework: %s)", result.Framework))
@@ -129,8 +131,8 @@ func (cp *ContentProcessor) SelectMainContent(
 					return nil, pageTitle, err
 				}
 				mainContent = extractedContent
-				if extractedTitle != "" {
-					pageTitle = extractedTitle
+				if trimmedTitle := strings.TrimSpace(extractedTitle); trimmedTitle != "" {
+					pageTitle = trimmedTitle
 				}
 			} else {
 				mainContent = candidate
@@ -252,6 +254,7 @@ func (cp *ContentProcessor) ProcessAndSaveContent(
 		taskLog.Error(err.Error())
 		return "", nil, 0, err
 	}
+	markdownContent = EnsureTitleHeading(markdownContent, pageTitle)
 
 	outputDirForFile := filepath.Dir(currentPageFullOutputPath)
 	if mkdirErr := os.MkdirAll(outputDirForFile, 0755); mkdirErr != nil {
