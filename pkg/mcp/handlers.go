@@ -268,65 +268,10 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 	}
 
 	startTime := time.Now()
-
-	client := fetch.NewClient(s.cfg.AppConfig.HTTPClientSettings, s.log)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to create request: %s", clipInput(err.Error()))), nil
+	title, content, errResult := s.fetchPage(ctx, urlStr, selector, contentSelector)
+	if errResult != nil {
+		return errResult, nil
 	}
-
-	req.Header.Set("User-Agent", config.GetEffectiveDefaultUserAgent(s.cfg.AppConfig))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch URL: %s", clipInput(err.Error()))), nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return mcp.NewToolResultError("HTTP " + resp.Status), nil
-	}
-
-	body := bufio.NewReader(resp.Body)
-	head, _ := body.Peek(512)
-	if ct := fetch.NonHTMLContentType(resp.Header.Get("Content-Type"), head); ct != "" {
-		return mcp.NewToolResultError(fmt.Sprintf("%s is not an HTML page (Content-Type %s); get_page only converts HTML", clipInput(urlStr), clipInput(ct))), nil
-	}
-
-	maxPageSize := config.GetEffectiveMaxPageSize(s.cfg.AppConfig)
-	bodyBytes, err := io.ReadAll(io.LimitReader(body, maxPageSize+1))
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to read response: %v", err)), nil
-	}
-	if int64(len(bodyBytes)) > maxPageSize {
-		return mcp.NewToolResultError(fmt.Sprintf("%s exceeds max_page_size_bytes (%d bytes)", clipInput(urlStr), maxPageSize)), nil
-	}
-
-	doc, release, err := pagebudget.Shared.Parse(ctx, bodyBytes)
-	if errors.Is(err, pagebudget.ErrPageTooComplex) {
-		return mcp.NewToolResultError(fmt.Sprintf("%s is too complex to convert: %v", clipInput(urlStr), err)), nil
-	}
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to parse HTML: %v", err)), nil
-	}
-	defer release()
-
-	title := strings.TrimSpace(doc.Find("title").First().Text())
-	if title == "" {
-		title = "Untitled"
-	}
-
-	contentSelection := doc.FindMatcher(selector)
-	if contentSelection.Length() == 0 {
-		return mcp.NewToolResultError(fmt.Sprintf("content selector '%s' not found on page", clipInput(contentSelector))), nil
-	}
-
-	content, err := process.ToMarkdown(contentSelection.First())
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to convert page: %v", err)), nil
-	}
-	content = strings.TrimSpace(content)
-
 	fetchTimeMs := time.Since(startTime).Milliseconds()
 
 	part, start := sliceAtRuneBoundary(content, offset, maxBytes)
@@ -337,6 +282,69 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		contentLine(start, end, len(content), end < len(content)),
 		{"fetch_time_ms", strconv.FormatInt(fetchTimeMs, 10)},
 	}, part), nil
+}
+
+// fetchPage fetches urlStr and converts the selector's first match to
+// markdown; errResult is set on any failure.
+func (s *Server) fetchPage(ctx context.Context, urlStr string, selector cascadia.Selector, contentSelector string) (title, content string, errResult *mcp.CallToolResult) {
+	client := fetch.NewClient(s.cfg.AppConfig.HTTPClientSettings, s.log)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	if err != nil {
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("failed to create request: %s", clipInput(err.Error())))
+	}
+
+	req.Header.Set("User-Agent", config.GetEffectiveDefaultUserAgent(s.cfg.AppConfig))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("failed to fetch URL: %s", clipInput(err.Error())))
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", mcp.NewToolResultError("HTTP " + resp.Status)
+	}
+
+	body := bufio.NewReader(resp.Body)
+	head, _ := body.Peek(512)
+	if ct := fetch.NonHTMLContentType(resp.Header.Get("Content-Type"), head); ct != "" {
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("%s is not an HTML page (Content-Type %s); get_page only converts HTML", clipInput(urlStr), clipInput(ct)))
+	}
+
+	maxPageSize := config.GetEffectiveMaxPageSize(s.cfg.AppConfig)
+	bodyBytes, err := io.ReadAll(io.LimitReader(body, maxPageSize+1))
+	if err != nil {
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("failed to read response: %v", err))
+	}
+	if int64(len(bodyBytes)) > maxPageSize {
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("%s exceeds max_page_size_bytes (%d bytes)", clipInput(urlStr), maxPageSize))
+	}
+
+	doc, release, err := pagebudget.Shared.Parse(ctx, bodyBytes)
+	if errors.Is(err, pagebudget.ErrPageTooComplex) {
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("%s is too complex to convert: %v", clipInput(urlStr), err))
+	}
+	if err != nil {
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("failed to parse HTML: %v", err))
+	}
+	defer release()
+
+	title = strings.TrimSpace(doc.Find("title").First().Text())
+	if title == "" {
+		title = "Untitled"
+	}
+
+	contentSelection := doc.FindMatcher(selector)
+	if contentSelection.Length() == 0 {
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("content selector '%s' not found on page", clipInput(contentSelector)))
+	}
+
+	content, err = process.ToMarkdown(contentSelection.First())
+	if err != nil {
+		return "", "", mcp.NewToolResultError(fmt.Sprintf("failed to convert page: %v", err))
+	}
+	content = strings.TrimSpace(content)
+	return title, content, nil
 }
 
 // pageWindow reads the max_bytes and offset arguments shared by read_page and
