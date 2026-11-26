@@ -82,7 +82,7 @@ sites:
 | `max_requests` | Integer | Maximum concurrent requests (global) | `10` |
 | `max_requests_per_host` | Integer | Maximum concurrent requests per host | `2` |
 | `output_base_dir` | String | Base directory for crawled content | `"./crawled_docs"` |
-| `state_dir` | String | Directory for BadgerDB state data | `"./crawler_state"` |
+| `state_dir` | String | Directory for crawl state: visited DBs, the search index, and per-site crawl locks | `"./crawler_state"` |
 | `max_retries` | Integer | Maximum retry attempts for HTTP requests. To disable retries, set this to `0` together with a non-zero `initial_retry_delay`; `max_retries: 0` on its own is treated as unset and falls back to the default | `3` |
 | `initial_retry_delay` | Duration | Initial delay for retry backoff | `1s` |
 | `max_retry_delay` | Duration | Maximum delay for retry backoff | `30s` |

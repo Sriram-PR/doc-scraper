@@ -439,8 +439,8 @@ func (m *JobManager) ReserveSite(siteKey string) (release func(), err error) {
 	}, nil
 }
 
-// FinishJob releases the site reservation StartJob took for jobID. Call it once
-// the crawl has closed everything it opened.
+// FinishJob releases the site lock and then the reservation StartJob took for
+// jobID. Call it once the crawl has closed everything it opened.
 func (m *JobManager) FinishJob(jobID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
