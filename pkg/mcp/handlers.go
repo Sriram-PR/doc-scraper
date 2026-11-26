@@ -267,21 +267,39 @@ func (s *Server) handleGetPage(ctx context.Context, request mcp.CallToolRequest)
 		return mcp.NewToolResultError(fmt.Sprintf("invalid URL: %s", clipInput(err.Error()))), nil
 	}
 
+	key := pageCacheKey{parsedURL.String(), contentSelector}
+	if offset > 0 {
+		if p, ok := s.getPages.get(key); ok {
+			return getPageResult(key.url, p.title, p.content, offset, maxBytes,
+				headerLine{"fetch_time_ms", "0"},
+				headerLine{"cached_at", utcTime(p.fetchedAt)},
+			), nil
+		}
+	}
+
 	startTime := time.Now()
 	title, content, errResult := s.fetchPage(ctx, urlStr, selector, contentSelector)
 	if errResult != nil {
 		return errResult, nil
 	}
 	fetchTimeMs := time.Since(startTime).Milliseconds()
+	s.getPages.put(key, cachedPage{title: title, content: content, fetchedAt: s.getPages.clock()})
 
+	return getPageResult(key.url, title, content, offset, maxBytes,
+		headerLine{"fetch_time_ms", strconv.FormatInt(fetchTimeMs, 10)},
+	), nil
+}
+
+func getPageResult(pageURL, title, content string, offset, maxBytes int, timing ...headerLine) *mcp.CallToolResult {
 	part, start := sliceAtRuneBoundary(content, offset, maxBytes)
 	end := start + len(part)
-	return pageTextResult([]headerLine{
-		{"url", parsedURL.String()},
-		{"title", title},
+	header := make([]headerLine, 0, 3+len(timing))
+	header = append(header,
+		headerLine{"url", pageURL},
+		headerLine{"title", title},
 		contentLine(start, end, len(content), end < len(content)),
-		{"fetch_time_ms", strconv.FormatInt(fetchTimeMs, 10)},
-	}, part), nil
+	)
+	return pageTextResult(append(header, timing...), part)
 }
 
 // fetchPage fetches urlStr and converts the selector's first match to

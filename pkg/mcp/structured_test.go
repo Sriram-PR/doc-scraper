@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -562,4 +563,112 @@ func TestHandleGetPage_HonorsMaxPageSize(t *testing.T) {
 	result, _ := callJSON(t, s.handleGetPage, map[string]any{"url": srv.URL + "/p"})
 	require.True(t, result.IsError)
 	assert.Contains(t, errText(t, result), "exceeds max_page_size_bytes")
+}
+
+// countingPageServer serves a large HTML page and counts requests; status
+// gives the response code for the nth request (1-based).
+func countingPageServer(t *testing.T, status func(n int32) int) (*Server, string, *atomic.Int32) {
+	t.Helper()
+	var body strings.Builder
+	body.WriteString("<html><head><title>Big</title></head><body>")
+	for i := range 8000 {
+		fmt.Fprintf(&body, "<p>paragraph %d héllo</p>", i)
+	}
+	body.WriteString("</body></html>")
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := hits.Add(1)
+		if code := status(n); code != http.StatusOK {
+			w.WriteHeader(code)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, body.String())
+	}))
+	t.Cleanup(srv.Close)
+	s, _ := newTestServer(t, "docs", "docs.example.com")
+	s.cfg.AppConfig.HTTPClientSettings = config.HTTPClientConfig{Timeout: 10 * time.Second, AllowPrivateNetworks: true}
+	return s, srv.URL + "/big", &hits
+}
+
+func alwaysOK(int32) int { return http.StatusOK }
+
+func TestHandleGetPage_ReadingInPartsFetchesOnce(t *testing.T) {
+	s, pageURL, hits := countingPageServer(t, alwaysOK)
+	var rebuilt strings.Builder
+	args := map[string]any{"url": pageURL, "max_bytes": 50000}
+	var total int
+	for i := range 20 {
+		_, got := callPage(t, s.handleGetPage, args)
+		require.NotNil(t, got)
+		total = int(got["total_length"].(float64))
+		if i == 0 {
+			assert.NotContains(t, got, "cached_at")
+		} else {
+			assert.Contains(t, got, "cached_at", "part %d", i)
+			assert.InDelta(t, 0, got["fetch_time_ms"], 0)
+		}
+		rebuilt.WriteString(got["content"].(string))
+		next, ok := got["next_offset"]
+		if !ok {
+			break
+		}
+		args["offset"] = next
+	}
+	assert.Equal(t, int32(1), hits.Load())
+	assert.Equal(t, total, rebuilt.Len())
+	assert.True(t, strings.HasSuffix(rebuilt.String(), "paragraph 7999 héllo"))
+}
+
+func TestHandleGetPage_OffsetZeroAlwaysFetches(t *testing.T) {
+	s, pageURL, hits := countingPageServer(t, alwaysOK)
+	for range 2 {
+		_, got := callPage(t, s.handleGetPage, map[string]any{"url": pageURL, "offset": 0})
+		require.NotNil(t, got)
+		assert.NotContains(t, got, "cached_at")
+	}
+	assert.Equal(t, int32(2), hits.Load())
+}
+
+func TestHandleGetPage_AnotherSelectorFetchesAgain(t *testing.T) {
+	s, pageURL, hits := countingPageServer(t, alwaysOK)
+	callPage(t, s.handleGetPage, map[string]any{"url": pageURL})
+	_, got := callPage(t, s.handleGetPage, map[string]any{"url": pageURL, "offset": 10, "content_selector": "p"})
+	require.NotNil(t, got)
+	assert.NotContains(t, got, "cached_at")
+	assert.Equal(t, int32(2), hits.Load())
+}
+
+func TestHandleGetPage_ExpiredPageIsFetchedAgain(t *testing.T) {
+	s, pageURL, hits := countingPageServer(t, alwaysOK)
+	clock := &fakeClock{t: time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)}
+	s.getPages.now = clock.now
+	callPage(t, s.handleGetPage, map[string]any{"url": pageURL})
+	_, got := callPage(t, s.handleGetPage, map[string]any{"url": pageURL, "offset": 10})
+	require.NotNil(t, got)
+	assert.Equal(t, "2026-11-25T10:00:00Z", got["cached_at"])
+
+	clock.t = clock.t.Add(pageCacheTTL + time.Second)
+	_, got = callPage(t, s.handleGetPage, map[string]any{"url": pageURL, "offset": 10})
+	require.NotNil(t, got)
+	assert.NotContains(t, got, "cached_at")
+	assert.Equal(t, int32(2), hits.Load())
+}
+
+func TestHandleGetPage_AFailedFetchIsNotCached(t *testing.T) {
+	s, pageURL, hits := countingPageServer(t, func(n int32) int {
+		if n == 1 {
+			return http.StatusInternalServerError
+		}
+		return http.StatusOK
+	})
+	res, _ := callPage(t, s.handleGetPage, map[string]any{"url": pageURL})
+	require.True(t, res.IsError)
+	_, got := callPage(t, s.handleGetPage, map[string]any{"url": pageURL, "offset": 10})
+	require.NotNil(t, got)
+	assert.NotContains(t, got, "cached_at")
+	_, got = callPage(t, s.handleGetPage, map[string]any{"url": pageURL, "offset": 20})
+	require.NotNil(t, got)
+	assert.Contains(t, got, "cached_at")
+	assert.Equal(t, int32(2), hits.Load())
 }

@@ -56,6 +56,7 @@ type Server struct {
 	jobManager *JobManager
 	idx        *index.Index
 	pages      pageStore
+	getPages   pageCache
 	sitesMu    sync.RWMutex
 	saveMu     sync.Mutex
 
@@ -148,7 +149,8 @@ func (s *Server) registerTools() {
 			"output, and it ignores the site's configured content_selector and scope. The result is "+
 			"text: header lines (url, title, content, fetch_time_ms), an empty line, then the markdown. "+
 			"Large pages are truncated at max_bytes, and the content line then gives next_offset; pass it "+
-			"as offset to read the rest (each call fetches the page again)."),
+			"as offset to read the rest (calls with an offset may reuse the first fetch for up to 5 minutes; "+
+			"their header then has cached_at)."),
 		mcp.WithString("url",
 			mcp.Required(),
 			mcp.Description("The URL to fetch"),
