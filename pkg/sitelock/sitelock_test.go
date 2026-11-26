@@ -3,6 +3,7 @@ package sitelock
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -80,12 +81,15 @@ func TestTryLock_UnsupportedFilesystemWarnsAndProceeds(t *testing.T) {
 	t.Cleanup(func() { tryLockFile = orig })
 
 	var buf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&buf, nil))
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
 	dir := t.TempDir()
 
 	l, err := TryLock(dir, "docs", log)
 	require.NoError(t, err)
-	assert.Contains(t, buf.String(), fmt.Sprintf("file locking is not supported on %s; concurrent crawls of site 'docs' are not prevented", dir))
+	var rec struct{ Level, Msg string }
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "WARN", rec.Level)
+	assert.Equal(t, fmt.Sprintf("file locking is not supported on %s; concurrent crawls of site 'docs' are not prevented", dir), rec.Msg)
 	require.NoError(t, l.Unlock())
 }
 
