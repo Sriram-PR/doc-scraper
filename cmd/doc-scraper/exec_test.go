@@ -21,6 +21,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	pkglog "github.com/Sriram-PR/doc-scraper/v2/pkg/log"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/orchestrate"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitelock"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/taskspec"
 )
 
@@ -268,10 +269,35 @@ func TestParallelExitCode(t *testing.T) {
 		{"refused then failed", []orchestrate.SiteResult{refused, failed}, false, 1},
 		{"failed then refused", []orchestrate.SiteResult{failed, refused}, false, 1},
 		{"interrupted wins", []orchestrate.SiteResult{refused, failed}, true, exitInterrupted},
+		{"busy counts as failure", []orchestrate.SiteResult{ok, {Busy: true, Error: sitelock.ErrBusy}}, false, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, parallelExitCode(tc.results, tc.interrupted))
 		})
+	}
+}
+
+func TestExecuteCrawl_BusySiteFailsWithoutTouchingStaging(t *testing.T) {
+	srv := crawlFixtureServer(t)
+	cfgPath, outDir, stateDir := writeCrawlConfig(t, srv.URL, "")
+
+	held, err := sitelock.TryLock(stateDir, "fixture", nil)
+	require.NoError(t, err)
+	defer func() { _ = held.Unlock() }()
+
+	markers := []string{
+		filepath.Join(outDir, "fixture.staging", "marker"),
+		filepath.Join(stateDir, "fixture_visited_db.staging", "marker"),
+	}
+	for _, m := range markers {
+		require.NoError(t, os.MkdirAll(filepath.Dir(m), 0o755))
+		require.NoError(t, os.WriteFile(m, []byte("running crawl"), 0o644))
+	}
+
+	code := executeCrawl(cfgPath, "fixture", "error", pkglog.FormatText, "", false, false, false, false)
+	assert.Equal(t, 1, code)
+	for _, m := range markers {
+		assert.FileExists(t, m, "a busy crawl must not discard the running crawl's staging")
 	}
 }

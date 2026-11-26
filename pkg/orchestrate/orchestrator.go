@@ -13,6 +13,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/crawler"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitelock"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
 
@@ -22,6 +23,7 @@ type SiteResult struct {
 	Success        bool
 	Error          error
 	Refused        bool // finished but kept back; Error is a *crawler.LossyCrawlError
+	Busy           bool // another crawl holds the site's lock; Error is a *sitelock.BusyError
 	Failures       crawler.Failures
 	PagesSaved     int64
 	PagesUnchanged int64
@@ -44,6 +46,7 @@ type Orchestrator struct {
 	cancel          context.CancelFunc
 	idx             *index.Index
 	allowShrink     bool
+	onSiteDone      func(SiteResult)
 }
 
 // WithIndex attaches a crawl-history index shared across every per-site
@@ -56,6 +59,13 @@ func (o *Orchestrator) WithIndex(idx *index.Index) *Orchestrator {
 // WithAllowShrink publishes crawls that would otherwise be kept back for losing pages.
 func (o *Orchestrator) WithAllowShrink(allow bool) *Orchestrator {
 	o.allowShrink = allow
+	return o
+}
+
+// OnSiteDone registers fn to run as each site's crawl ends, before Run
+// returns. Calls for different sites may overlap.
+func (o *Orchestrator) OnSiteDone(fn func(SiteResult)) *Orchestrator {
+	o.onSiteDone = fn
 	return o
 }
 
@@ -94,6 +104,9 @@ func (o *Orchestrator) Run() []SiteResult {
 		go func(key string) {
 			defer wg.Done()
 			result := o.crawlSite(key)
+			if o.onSiteDone != nil {
+				o.onSiteDone(result)
+			}
 			o.resultsMu.Lock()
 			o.results = append(o.results, result)
 			o.resultsMu.Unlock()
@@ -121,6 +134,21 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 		o.log.Error(fmt.Sprintf("Site '%s' not found in configuration", siteKey))
 		return result
 	}
+
+	lock, err := sitelock.TryLock(o.appCfg.StateDir, siteKey, o.log)
+	if err != nil {
+		result.Error = err
+		if errors.Is(err, sitelock.ErrBusy) {
+			result.Busy = true
+			o.log.Warn(fmt.Sprintf("Skipping site '%s': %v", siteKey, err))
+		} else {
+			o.log.Error(fmt.Sprintf("Failed to lock site '%s': %v", siteKey, err))
+		}
+		result.Duration = time.Since(startTime)
+		return result
+	}
+	// Deferred before the store's Close, so it runs after it.
+	defer func() { _ = lock.Unlock() }()
 
 	siteCtx, siteCancel := context.WithCancel(o.ctx)
 	defer siteCancel()
@@ -208,6 +236,9 @@ func (o *Orchestrator) logSummary(totalDuration time.Duration) {
 			status = "FAILED"
 			if r.Refused {
 				status = "KEPT BACK"
+			}
+			if r.Busy {
+				status = "BUSY"
 			}
 			failCount++
 		} else {

@@ -22,6 +22,7 @@ import (
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
 	pkglog "github.com/Sriram-PR/doc-scraper/v2/pkg/log"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/orchestrate"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitelock"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/taskspec"
 	versionpkg "github.com/Sriram-PR/doc-scraper/v2/pkg/version"
@@ -816,6 +817,14 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	validateSiteConfigs(appCfg, []string{siteKey}, log)
 	log.Info(fmt.Sprintf("Site Config for '%s': Domain: %s, Prefix: %s, ContentSel: '%s', ...",
 		siteKey, siteCfg.AllowedDomain, siteCfg.AllowedPathPrefix, siteCfg.ContentSelector))
+
+	lock, err := sitelock.TryLock(appCfg.StateDir, siteKey, log)
+	if err != nil {
+		log.Error(err.Error())
+		return 1
+	}
+	// Deferred before the store's Close, so it runs after it.
+	defer func() { _ = lock.Unlock() }()
 
 	applyIncrementalOverride(appCfg, incrementalMode, fullMode, log)
 
