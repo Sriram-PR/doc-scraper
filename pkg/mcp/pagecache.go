@@ -54,11 +54,9 @@ func (c *pageCache) get(k pageCacheKey) (cachedPage, bool) {
 }
 
 // put stores p under k, replacing any entry, and evicts least recently used
-// entries until the total fits; an entry over the cap is not stored.
+// entries until the total fits; an entry over the cap is not stored, but still
+// drops k's older entry.
 func (c *pageCache) put(k pageCacheKey, p cachedPage) {
-	if p.size() > pageCacheMaxBytes {
-		return
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.items == nil {
@@ -67,6 +65,9 @@ func (c *pageCache) put(k pageCacheKey, p cachedPage) {
 	}
 	if el, ok := c.items[k]; ok {
 		c.remove(el)
+	}
+	if p.size() > pageCacheMaxBytes {
+		return
 	}
 	c.items[k] = c.order.PushFront(&pageCacheItem{key: k, page: p, expires: c.clock().Add(pageCacheTTL)})
 	c.bytes += p.size()

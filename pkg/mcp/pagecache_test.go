@@ -99,3 +99,13 @@ func TestPageCache_ConcurrentUse(t *testing.T) {
 	_, ok := c.get(pageCacheKey{"a", "body"})
 	assert.True(t, ok)
 }
+
+func TestPageCache_AnOversizeRefetchDropsTheOldEntry(t *testing.T) {
+	c, _ := newTestPageCache()
+	a := pageCacheKey{"a", "body"}
+	c.put(a, pageOfSize(10))
+	c.put(a, pageOfSize(pageCacheMaxBytes+1))
+
+	_, ok := c.get(a)
+	assert.False(t, ok, "an offset read must not see content older than the latest fetch")
+}
