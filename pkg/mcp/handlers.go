@@ -396,11 +396,13 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 		return errResult, nil
 	}
 
+	var lock *sitelock.Lock
 	job, created, err := s.jobManager.StartJob(ctx, siteKey, incremental, crawlRestartWait, func() (func(), error) {
 		l, err := sitelock.TryLock(s.cfg.AppConfig.StateDir, siteKey, s.log)
 		if err != nil {
 			return nil, err
 		}
+		lock = l
 		return func() { _ = l.Unlock() }, nil
 	})
 	if errors.Is(err, ErrSiteReserved) {
@@ -436,7 +438,7 @@ func (s *Server) handleCrawlSite(ctx context.Context, request mcp.CallToolReques
 		siteCfg = latest
 	}
 
-	go s.runCrawlJob(job, siteCfg, siteKey, allowShrink)
+	go s.runCrawlJob(job, lock, siteCfg, siteKey, allowShrink)
 
 	return structuredResult(crawlSiteResult{
 		Status:      "started",
@@ -504,7 +506,7 @@ const (
 // the same site to close its store.
 var crawlRestartWait = 30 * time.Second
 
-func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey string, allowShrink bool) {
+func (s *Server) runCrawlJob(job *Job, lock *sitelock.Lock, siteCfg *config.SiteConfig, siteKey string, allowShrink bool) {
 	// Deferred first so it runs last, after the store is closed.
 	defer s.jobManager.FinishJob(job.ID)
 	s.jobManager.UpdateStatus(job.ID, JobStatusRunning, "")
@@ -518,7 +520,7 @@ func (s *Server) runCrawlJob(job *Job, siteCfg *config.SiteConfig, siteKey strin
 	// incremental implies resume); change detection compares each page to the
 	// hash stored there, so a fresh DB would reprocess every page.
 	resume := job.Incremental
-	stage, store, err := crawler.OpenStagedStore(jobCtx, s.cfg.AppConfig, siteKey, resume, s.log)
+	stage, store, err := crawler.OpenStagedStore(jobCtx, s.cfg.AppConfig, lock, resume, s.log)
 	if err != nil {
 		s.jobManager.UpdateStatus(job.ID, JobStatusFailed, fmt.Sprintf("failed to open store: %v", err))
 		return

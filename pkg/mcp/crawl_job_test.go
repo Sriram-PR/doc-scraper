@@ -84,7 +84,7 @@ func runJob(t *testing.T, s *Server, siteCfg *config.SiteConfig, siteKey string,
 	t.Helper()
 	job, err := s.jobManager.CreateJob(siteKey, incremental)
 	require.NoError(t, err)
-	s.runCrawlJob(job, siteCfg, siteKey, false)
+	runCrawlJobLocked(t, s, job, siteCfg, siteKey, false)
 	got := s.jobManager.GetJob(job.ID)
 	require.NotNil(t, got)
 	require.Equal(t, JobStatusCompleted, got.Status, "job error: %s", got.ErrorMessage)
@@ -171,10 +171,11 @@ func TestGetJobStatus_ReportsLiveProgress(t *testing.T) {
 
 	job, err := s.jobManager.CreateJob(siteKey, false)
 	require.NoError(t, err)
+	lock := lockFor(t, s, siteKey)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.runCrawlJob(job, siteCfg, siteKey, false)
+		s.runCrawlJob(job, lock, siteCfg, siteKey, false)
 	}()
 	t.Cleanup(func() {
 		close(release)
@@ -246,10 +247,11 @@ func TestGetFreshness_RunningJobReportsPagesUnchanged(t *testing.T) {
 	block.Store(true)
 	job, err := s.jobManager.CreateJob(siteKey, true)
 	require.NoError(t, err)
+	lock := lockFor(t, s, siteKey)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.runCrawlJob(job, siteCfg, siteKey, false)
+		s.runCrawlJob(job, lock, siteCfg, siteKey, false)
 	}()
 	t.Cleanup(func() {
 		close(release)
@@ -340,7 +342,7 @@ func TestRunCrawlJob_ReportsCountsAndFailures(t *testing.T) {
 	}))
 	job, err := s.jobManager.CreateJob(siteKey, false)
 	require.NoError(t, err)
-	s.runCrawlJob(job, siteCfg, siteKey, false)
+	runCrawlJobLocked(t, s, job, siteCfg, siteKey, false)
 
 	_, got := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
 	assert.Equal(t, string(JobStatusCompleted), got["status"])
@@ -359,7 +361,7 @@ func TestRunCrawlJob_RefusedJob(t *testing.T) {
 	s, siteCfg, _ := newCrawlJobServerWith(t, siteKey, http.NotFoundHandler())
 	job, err := s.jobManager.CreateJob(siteKey, false)
 	require.NoError(t, err)
-	s.runCrawlJob(job, siteCfg, siteKey, false)
+	runCrawlJobLocked(t, s, job, siteCfg, siteKey, false)
 
 	_, got := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
 	assert.Equal(t, string(JobStatusFailed), got["status"])
@@ -386,7 +388,7 @@ func TestRunCrawlJob_AllowShrinkPublishesTransientLoss(t *testing.T) {
 		s, siteCfg, _ := newCrawlJobServerWith(t, siteKey, handler)
 		job, err := s.jobManager.CreateJob(siteKey, false)
 		require.NoError(t, err)
-		s.runCrawlJob(job, siteCfg, siteKey, tc.allowShrink)
+		runCrawlJobLocked(t, s, job, siteCfg, siteKey, tc.allowShrink)
 
 		_, got := callJSON(t, s.handleGetJobStatus, map[string]any{"job_id": job.ID})
 		assert.Equal(t, string(tc.want), got["status"], "allow_shrink=%v: %v", tc.allowShrink, got["error_message"])
@@ -441,4 +443,19 @@ func TestCrawlSite_LockIsFreeAfterTheJobFinishes(t *testing.T) {
 	l, err := sitelock.TryLock(s.cfg.AppConfig.StateDir, "docs", nil)
 	require.NoError(t, err)
 	require.NoError(t, l.Unlock())
+}
+
+func lockFor(t *testing.T, s *Server, siteKey string) *sitelock.Lock {
+	t.Helper()
+	l, err := sitelock.TryLock(s.cfg.AppConfig.StateDir, siteKey, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Unlock() })
+	return l
+}
+
+func runCrawlJobLocked(t *testing.T, s *Server, job *Job, siteCfg *config.SiteConfig, siteKey string, allowShrink bool) {
+	t.Helper()
+	l := lockFor(t, s, siteKey)
+	defer func() { _ = l.Unlock() }()
+	s.runCrawlJob(job, l, siteCfg, siteKey, allowShrink)
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/fetch"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitelock"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage/index"
 )
@@ -96,7 +97,9 @@ func newStageEnv(t *testing.T, pageNames ...string) *stageEnv {
 func (e *stageEnv) crawl(t *testing.T, ctx context.Context, cancel context.CancelFunc, resume bool) error {
 	t.Helper()
 	logger := e.log.logger()
-	stage, store, err := OpenStagedStore(ctx, e.appCfg, testSiteKey, resume, logger)
+	lock := lockSite(t, e.appCfg, testSiteKey)
+	defer func() { _ = lock.Unlock() }()
+	stage, store, err := OpenStagedStore(ctx, e.appCfg, lock, resume, logger)
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
 	httpClient := fetch.NewClient(e.appCfg.HTTPClientSettings, logger)
@@ -506,7 +509,9 @@ func (e *stageEnv) crashBeforeIndex(t *testing.T) *commitJournal {
 	ctx, cancel := e.log.deadlineContext(t, e.appCfg)
 	defer cancel()
 	logger := e.log.logger()
-	stage, store, err := OpenStagedStore(ctx, e.appCfg, testSiteKey, false, logger)
+	lock := lockSite(t, e.appCfg, testSiteKey)
+	defer func() { _ = lock.Unlock() }()
+	stage, store, err := OpenStagedStore(ctx, e.appCfg, lock, false, logger)
 	require.NoError(t, err)
 	stage.crashAfter = 6 // files swapped and .old removed; index not yet updated
 	fetcher := fetch.NewFetcher(fetch.NewClient(e.appCfg.HTTPClientSettings, logger), e.appCfg, logger)
@@ -576,4 +581,19 @@ func TestReplayReadsTheJournaledOutputAfterAConfigChange(t *testing.T) {
 	latest := e.latestCrawl(t)
 	require.True(t, latest.CrawlStartedAt.Equal(j.CrawlStartedAt))
 	assert.Equal(t, want, latest.TotalPages, "the recovered crawl's pages come from its own JSONL")
+}
+
+func TestOpenStagedStore_RequiresTheSiteLock(t *testing.T) {
+	appCfg := newTestAppConfig(t)
+	_, _, err := OpenStagedStore(context.Background(), appCfg, nil, false, silentLogger())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "crawl lock")
+}
+
+func lockSite(t *testing.T, appCfg *config.AppConfig, siteKey string) *sitelock.Lock {
+	t.Helper()
+	l, err := sitelock.TryLock(appCfg.StateDir, siteKey, silentLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Unlock() })
+	return l
 }

@@ -884,7 +884,7 @@ func executeCrawl(configFile, siteKey, logLevelStr, logFormat, pprofAddr string,
 	log.Info("Initializing components...")
 	logEntry := log.With("component", "crawl")
 
-	stage, store, err := crawler.OpenStagedStore(crawlCtx, appCfg, siteKey, isResume, logEntry)
+	stage, store, err := crawler.OpenStagedStore(crawlCtx, appCfg, lock, isResume, logEntry)
 	if err != nil {
 		fatal(log, "Failed to initialize visited DB: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/sitelock"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/storage"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
 )
@@ -44,7 +45,8 @@ func (p swapPair) backup() string { return p.live + backupSuffix }
 // PlanStage decides where a crawl runs. It first finishes a commit a crash
 // interrupted, and fails if it can't. A fresh crawl then discards any stale
 // staging and starts a new one; a resumed crawl continues staging if present
-// and otherwise runs in place.
+// and otherwise runs in place. The caller must hold the site's crawl lock (see
+// OpenStagedStore).
 func PlanStage(appCfg *config.AppConfig, siteKey string, resume bool, log *slog.Logger) (*Stage, error) {
 	s := &Stage{
 		log:      log,
@@ -87,9 +89,14 @@ func (s *Stage) Done() error {
 	return removeJournal(s.journal)
 }
 
-// OpenStagedStore plans the stage for a crawl and opens the visited DB it
-// should use.
-func OpenStagedStore(ctx context.Context, appCfg *config.AppConfig, siteKey string, resume bool, log *slog.Logger) (*Stage, *storage.BadgerStore, error) {
+// OpenStagedStore plans the stage for the site lock holds and opens the
+// visited DB it should use. The caller keeps the lock until the store is
+// closed and the crawl has returned.
+func OpenStagedStore(ctx context.Context, appCfg *config.AppConfig, lock *sitelock.Lock, resume bool, log *slog.Logger) (*Stage, *storage.BadgerStore, error) {
+	if lock == nil {
+		return nil, nil, errors.New("opening a staged store needs the site's crawl lock")
+	}
+	siteKey := lock.Site()
 	stage, err := PlanStage(appCfg, siteKey, resume, log)
 	if err != nil {
 		return nil, nil, fmt.Errorf("preparing staging for '%s': %w", siteKey, err)

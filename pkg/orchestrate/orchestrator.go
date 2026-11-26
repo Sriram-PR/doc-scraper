@@ -153,7 +153,7 @@ func (o *Orchestrator) crawlSite(siteKey string) SiteResult {
 	siteCtx, siteCancel := context.WithCancel(o.ctx)
 	defer siteCancel()
 
-	stage, store, err := crawler.OpenStagedStore(siteCtx, o.appCfg, siteKey, o.resume, o.log)
+	stage, store, err := crawler.OpenStagedStore(siteCtx, o.appCfg, lock, o.resume, o.log)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create store for '%s': %w", siteKey, err)
 		result.Success = false
