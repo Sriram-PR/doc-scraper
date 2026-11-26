@@ -2179,3 +2179,43 @@ func TestCrawlerRun_EscapedLinkIsNotRetired(t *testing.T) {
 	assert.Len(t, mdFilesContaining(t, siteOutputDir(appCfg, siteCfg), "PAGE-A"), 1)
 	assert.Equal(t, models.PageStatusSuccess, visitedStatus(t, appCfg, server.URL+"/docs/%41"))
 }
+
+func TestCrawlerRun_PrependsTitleWhenH1OutsideSelector(t *testing.T) {
+	pages := map[string]string{
+		"/docs/index.html": `<html><head><title>API Reference</title></head><body>
+			<header><h1>API Reference</h1></header>
+			<main id="content"><h2>Endpoints</h2><p>Use GET /items to list items.</p></main>
+		</body></html>`,
+	}
+	server, _ := newDocServer(t, pages)
+	appCfg := newTestAppConfig(t)
+	siteCfg := baseSiteConfig(server, "/docs/index.html")
+	siteCfg.ContentSelector = "#content"
+
+	require.NoError(t, runCrawl(t, appCfg, siteCfg))
+
+	outDir := siteOutputDir(appCfg, siteCfg)
+	raw, err := os.ReadFile(filepath.Join(outDir, "index.md"))
+	require.NoError(t, err)
+	fileStr := string(raw)
+
+	require.True(t, strings.HasPrefix(fileStr, "---\n"), "file must start with frontmatter")
+	fmYAML, body, found := strings.Cut(fileStr[len("---\n"):], "\n---\n\n")
+	require.True(t, found, "frontmatter must be closed")
+
+	var fm struct {
+		Title       string `yaml:"title"`
+		ContentHash string `yaml:"content_hash"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(fmYAML), &fm))
+
+	assert.Equal(t, "API Reference", fm.Title)
+	assert.True(t, strings.HasPrefix(body, "# API Reference\n\n"), "saved body should start with prepended title, got:\n%s", body)
+
+	rec := jsonlRecordOf(t, appCfg, siteCfg, server.URL+"/docs/index.html")
+	assert.Equal(t, "API Reference", rec.Title)
+	assert.True(t, strings.HasPrefix(rec.Content, "# API Reference\n\n"), "JSONL content should start with prepended title, got:\n%s", rec.Content)
+	assert.Equal(t, []string{"API Reference", "Endpoints"}, rec.Headings)
+	assert.Equal(t, rec.ContentHash, fm.ContentHash)
+	assert.Equal(t, utils.CalculateStringSHA256(rec.Content), rec.ContentHash)
+}

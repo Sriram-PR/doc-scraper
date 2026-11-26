@@ -13,12 +13,14 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
+
+	"github.com/Sriram-PR/doc-scraper/v2/pkg/chunk"
 )
 
 // MarkdownFormatVersion is part of the crawler's incremental content hash.
 // Bump it whenever a change here alters the Markdown for the same HTML, so the
 // next incremental crawl reconverts pages whose HTML did not change.
-const MarkdownFormatVersion = 5
+const MarkdownFormatVersion = 6
 
 // A Converter is safe to share, but every call takes its mutex, and workers
 // spending their time on that mutex stops a crawl scaling past about 8 of them.
@@ -50,6 +52,35 @@ func ToMarkdown(sel *goquery.Selection) (string, error) {
 		return "", fmt.Errorf("converting HTML to Markdown: %w", err)
 	}
 	return string(out), nil
+}
+
+// EnsureTitleHeading prepends an ATX H1 heading for title when markdown has
+// non-empty body content, a usable title, and no H1 heading.
+func EnsureTitleHeading(markdown, title string) string {
+	if strings.TrimSpace(markdown) == "" {
+		return markdown
+	}
+	clean := normalizeHeadingTitle(title)
+	if clean == "" || clean == defaultPageTitle {
+		return markdown
+	}
+	if hasH1(markdown) {
+		return markdown
+	}
+	return "# " + clean + "\n\n" + strings.TrimLeft(markdown, "\r\n")
+}
+
+func normalizeHeadingTitle(title string) string {
+	return strings.Join(strings.Fields(title), " ")
+}
+
+func hasH1(markdown string) bool {
+	for _, h := range chunk.Headings(markdown) {
+		if h.Level == 1 && strings.TrimSpace(h.Text) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // dropBells removes BEL from text: the converter uses it as its escape marker,

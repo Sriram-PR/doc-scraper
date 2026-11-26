@@ -13,6 +13,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/config"
 	"github.com/Sriram-PR/doc-scraper/v2/pkg/utils"
@@ -859,4 +860,129 @@ func TestProcessAndSaveContent_LeavesLinksToFilesAbsolute(t *testing.T) {
 	assert.Contains(t, md, "[Zip](https://e.com/docs/guide/archive.ZIP)")
 	assert.Contains(t, md, "[Tarball](https://e.com/docs/dist/tool.tar.gz)")
 	assert.Contains(t, md, "[Version](../v1.2/index.md)", "dotted page names are pages")
+}
+
+func selectAndProcessPage(t *testing.T, selector, rawHTML string) (pageTitle, md, onDisk string) {
+	t.Helper()
+	outDir := t.TempDir()
+	ip := newImageProcessorWithWorkers(t, newFakeImageStore(), &stubFetcher{}, 1)
+	cp := NewContentProcessor(ip, &config.AppConfig{}, silentLog())
+	siteCfg := &config.SiteConfig{
+		AllowedDomain:     "docs.example.com",
+		AllowedPathPrefix: "/docs/",
+		ContentSelector:   selector,
+	}
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawHTML))
+	require.NoError(t, err)
+	u, err := url.Parse("https://docs.example.com/docs/guide.html")
+	require.NoError(t, err)
+
+	mainContent, title, err := cp.SelectMainContent(doc, u, siteCfg, silentLog())
+	require.NoError(t, err)
+
+	saved, mdBytes, _, err := cp.ProcessAndSaveContent(mainContent, title, u, siteCfg, outDir, 0, silentLog(), context.Background())
+	require.NoError(t, err)
+
+	diskBytes, err := os.ReadFile(saved)
+	require.NoError(t, err)
+	return title, string(mdBytes), string(diskBytes)
+}
+
+func splitFrontmatter(t *testing.T, fileContent string) (pageFrontmatter, string) {
+	t.Helper()
+	require.True(t, strings.HasPrefix(fileContent, "---\n"), "file should start with YAML frontmatter")
+	rest := fileContent[len("---\n"):]
+	fmYAML, body, found := strings.Cut(rest, "\n---\n\n")
+	require.True(t, found, "frontmatter should end with closing delimiter")
+
+	var fm pageFrontmatter
+	require.NoError(t, yaml.Unmarshal([]byte(fmYAML), &fm))
+	return fm, body
+}
+
+func TestProcessAndSaveContent_PrependsTitleWhenH1OutsideSelector(t *testing.T) {
+	rawHTML := `<html><head><title>Getting Started</title></head><body>
+		<header><h1>Getting Started</h1></header>
+		<main><h2>Install</h2><p>Run the installer.</p></main>
+	</body></html>`
+
+	title, md, onDisk := selectAndProcessPage(t, "main", rawHTML)
+	assert.Equal(t, "Getting Started", title)
+	assert.True(t, strings.HasPrefix(md, "# Getting Started\n\n"), "returned markdown should start with prepended H1, got:\n%s", md)
+	assert.Contains(t, md, "## Install")
+
+	fm, body := splitFrontmatter(t, onDisk)
+	assert.Equal(t, "Getting Started", fm.Title)
+	assert.Equal(t, md, body)
+	assert.True(t, strings.HasPrefix(body, "# Getting Started\n\n"))
+	assert.Equal(t, utils.CalculateStringSHA256(md), fm.ContentHash)
+}
+
+func TestProcessAndSaveContent_SkipsTitleWhenH1InsideSelector(t *testing.T) {
+	rawHTML := `<html><head><title>Site Docs - Install</title></head><body>
+		<main><h1>Installation Guide</h1><p>Steps here.</p></main>
+	</body></html>`
+
+	title, md, onDisk := selectAndProcessPage(t, "main", rawHTML)
+	assert.Equal(t, "Site Docs - Install", title)
+	assert.True(t, strings.HasPrefix(md, "# Installation Guide"), "existing H1 should stay at the top, got:\n%s", md)
+	assert.NotContains(t, md, "# Site Docs - Install")
+
+	_, body := splitFrontmatter(t, onDisk)
+	assert.Equal(t, md, body)
+}
+
+func TestProcessAndSaveContent_ReadabilityRemovedH1PrependsTitle(t *testing.T) {
+	prose := strings.Repeat("Readability extracts substantial documentation paragraphs while removing outer page headers. ", 10)
+	rawHTML := `<html><head><title>Readability Guide</title></head><body>` +
+		`<header><h1>Readability Guide</h1></header>` +
+		`<div id="story"><p>` + prose + `</p><p>` + prose + `</p></div>` +
+		`</body></html>`
+
+	outDir := t.TempDir()
+	ip := newImageProcessorWithWorkers(t, newFakeImageStore(), &stubFetcher{}, 1)
+	cp := NewContentProcessor(ip, &config.AppConfig{}, silentLog())
+	siteCfg := &config.SiteConfig{
+		AllowedDomain:     "docs.example.com",
+		AllowedPathPrefix: "/docs/",
+		ContentSelector:   "auto",
+	}
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawHTML))
+	require.NoError(t, err)
+	u, err := url.Parse("https://docs.example.com/docs/readability.html")
+	require.NoError(t, err)
+
+	mainContent, title, err := cp.SelectMainContent(doc, u, siteCfg, silentLog())
+	require.NoError(t, err)
+	require.Zero(t, mainContent.Find("h1").Length(), "fixture should reach ProcessAndSaveContent without an H1 from readability")
+	assert.Equal(t, "Readability Guide", title)
+
+	saved, mdBytes, _, err := cp.ProcessAndSaveContent(mainContent, title, u, siteCfg, outDir, 0, silentLog(), context.Background())
+	require.NoError(t, err)
+	md := string(mdBytes)
+	assert.True(t, strings.HasPrefix(md, "# Readability Guide\n\n"), "readability body without H1 should get prepended title, got:\n%s", md)
+
+	diskBytes, err := os.ReadFile(saved)
+	require.NoError(t, err)
+	fm, body := splitFrontmatter(t, string(diskBytes))
+	assert.Equal(t, md, body)
+	assert.Equal(t, utils.CalculateStringSHA256(md), fm.ContentHash)
+}
+
+func TestProcessAndSaveContent_ReadabilityWhitespaceTitleKeepsDefaultAndNoH1(t *testing.T) {
+	prose := strings.Repeat("Readability extracts substantial documentation paragraphs even when the title element is blank. ", 10)
+	rawHTML := "<html><head><title>  \n\t  </title></head><body>" +
+		`<div id="story"><p>` + prose + `</p><p>` + prose + `</p></div>` +
+		"</body></html>"
+
+	title, md, onDisk := selectAndProcessPage(t, "auto", rawHTML)
+	assert.Equal(t, defaultPageTitle, title)
+	assert.False(t, strings.HasPrefix(md, "# "), "whitespace title must not prepend an empty or default H1, got:\n%s", md)
+	assert.NotContains(t, md, "# Untitled Page")
+
+	fm, body := splitFrontmatter(t, onDisk)
+	assert.Equal(t, defaultPageTitle, fm.Title)
+	assert.Equal(t, md, body)
 }

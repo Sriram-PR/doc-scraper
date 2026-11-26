@@ -285,3 +285,163 @@ func TestToMarkdown_CodeFrameCaptions(t *testing.T) {
 		})
 	}
 }
+
+func TestEnsureTitleHeading(t *testing.T) {
+	tests := []struct {
+		name  string
+		md    string
+		title string
+		want  string
+	}{
+		{
+			name:  "BodyWithoutHeading",
+			md:    "Intro paragraph.",
+			title: "Getting Started",
+			want:  "# Getting Started\n\nIntro paragraph.",
+		},
+		{
+			name:  "BodyWithOnlyH2AndH3ATX",
+			md:    "## Install\n\n### Linux\n\nRun apt.",
+			title: "Getting Started",
+			want:  "# Getting Started\n\n## Install\n\n### Linux\n\nRun apt.",
+		},
+		{
+			name:  "BodyWithOnlySetextH2",
+			md:    "Install\n---\n\nRun apt.",
+			title: "Getting Started",
+			want:  "# Getting Started\n\nInstall\n---\n\nRun apt.",
+		},
+		{
+			name:  "ExistingATXH1Unchanged",
+			md:    "# Existing\n\nBody.",
+			title: "Different Title",
+			want:  "# Existing\n\nBody.",
+		},
+		{
+			name:  "IndentedATXH1Unchanged",
+			md:    "   # Indented\n\nBody.",
+			title: "Different Title",
+			want:  "   # Indented\n\nBody.",
+		},
+		{
+			name:  "ATXH1AfterParagraphUnchanged",
+			md:    "Intro note.\n\n# Existing\n\nBody.",
+			title: "Different Title",
+			want:  "Intro note.\n\n# Existing\n\nBody.",
+		},
+		{
+			name:  "SetextH1TripleEqualsUnchanged",
+			md:    "Existing\n===\n\nBody.",
+			title: "Different Title",
+			want:  "Existing\n===\n\nBody.",
+		},
+		{
+			name:  "SetextH1SingleEqualsUnchanged",
+			md:    "Existing\n=\n\nBody.",
+			title: "Different Title",
+			want:  "Existing\n=\n\nBody.",
+		},
+		{
+			name:  "HashInsideBacktickFencePrepends",
+			md:    "```bash\n# shell comment\necho hi\n```",
+			title: "CLI Usage",
+			want:  "# CLI Usage\n\n```bash\n# shell comment\necho hi\n```",
+		},
+		{
+			name:  "HashInsideTildeFencePrepends",
+			md:    "~~~\n# comment\n~~~\n\nBody.",
+			title: "CLI Usage",
+			want:  "# CLI Usage\n\n~~~\n# comment\n~~~\n\nBody.",
+		},
+		{
+			name:  "HashInsideIndentedCodeBlockPrepends",
+			md:    "    # indented code\n\nBody.",
+			title: "CLI Usage",
+			want:  "# CLI Usage\n\n    # indented code\n\nBody.",
+		},
+		{
+			name:  "HashInsideHTMLBlockPrepends",
+			md:    "<div>\n# not a heading\n</div>\n\nBody.",
+			title: "HTML Note",
+			want:  "# HTML Note\n\n<div>\n# not a heading\n</div>\n\nBody.",
+		},
+		{
+			name:  "HashWithoutSpacePrepends",
+			md:    "#nospace\n\nBody.",
+			title: "Tags",
+			want:  "# Tags\n\n#nospace\n\nBody.",
+		},
+		{
+			name:  "SevenHashesPrepends",
+			md:    "####### seven hashes\n\nBody.",
+			title: "Heading",
+			want:  "# Heading\n\n####### seven hashes\n\nBody.",
+		},
+		{
+			name:  "EmptyH1Prepends",
+			md:    "#\n\nBody.",
+			title: "Page Title",
+			want:  "# Page Title\n\n#\n\nBody.",
+		},
+		{
+			name:  "NestedH1InBlockquoteUnchanged",
+			md:    "> # Quoted\n\nBody.",
+			title: "Page Title",
+			want:  "> # Quoted\n\nBody.",
+		},
+		{
+			name:  "NestedH1InListItemUnchanged",
+			md:    "- # List H1\n\nBody.",
+			title: "Page Title",
+			want:  "- # List H1\n\nBody.",
+		},
+		{
+			name:  "EmptyTitleUnchanged",
+			md:    "Body.",
+			title: "",
+			want:  "Body.",
+		},
+		{
+			name:  "WhitespaceOnlyTitleUnchanged",
+			md:    "Body.",
+			title: "  \r\n\t ",
+			want:  "Body.",
+		},
+		{
+			name:  "DefaultUntitledPageUnchanged",
+			md:    "Body.",
+			title: defaultPageTitle,
+			want:  "Body.",
+		},
+		{
+			name:  "NormalizesTitleWhitespaceAndUnicodeLineBreak",
+			md:    "Body.",
+			title: "  My\r\n\tCool  Title\u2028Here  ",
+			want:  "# My Cool Title Here\n\nBody.",
+		},
+		{
+			name:  "EmptyBodyUnchanged",
+			md:    "",
+			title: "Page Title",
+			want:  "",
+		},
+		{
+			name:  "WhitespaceOnlyBodyUnchanged",
+			md:    "   \n\t\r\n  ",
+			title: "Page Title",
+			want:  "   \n\t\r\n  ",
+		},
+		{
+			name:  "TrimsLeadingNewlinesBeforeBody",
+			md:    "\r\n\nBody.",
+			title: "Page Title",
+			want:  "# Page Title\n\nBody.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, EnsureTitleHeading(tt.md, tt.title))
+		})
+	}
+}

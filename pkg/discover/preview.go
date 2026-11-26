@@ -32,7 +32,7 @@ type Preview struct {
 func ExtractPreview(doc *goquery.Document, pageURL *url.URL, site *config.SiteConfig, log *slog.Logger) Preview {
 	p := Preview{URL: pageURL.String()}
 	cp := process.NewContentProcessor(nil, &config.AppConfig{}, log)
-	selection, _, err := cp.SelectMainContent(doc, pageURL, site, log)
+	selection, pageTitle, err := cp.SelectMainContent(doc, pageURL, site, log)
 	if err != nil {
 		p.Err = err.Error()
 		return p
@@ -51,6 +51,7 @@ func ExtractPreview(doc *goquery.Document, pageURL *url.URL, site *config.SiteCo
 		p.Err = err.Error()
 		return p
 	}
+	markdown = process.EnsureTitleHeading(markdown, pageTitle)
 	p.Markdown = markdown
 	p.Chars = len(markdown)
 	if pageText > 0 {
