@@ -2,7 +2,9 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -251,6 +253,9 @@ func writeValidated(path string, content []byte, key string, perm os.FileMode) e
 	}
 	if _, err := check.Validate(); err != nil {
 		return fmt.Errorf("the updated config would not validate (left untouched): %w", err)
+	}
+	if errs := checkSiteKeys(slices.Collect(maps.Keys(check.Sites))); len(errs) > 0 {
+		return fmt.Errorf("the updated config would not validate (left untouched): %w", errors.Join(errs...))
 	}
 
 	dir := filepath.Dir(path)

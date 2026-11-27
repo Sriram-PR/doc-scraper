@@ -297,3 +297,18 @@ func TestUpsertSite_ReplaceKeepsCRLF(t *testing.T) {
 	assert.Equal(t, "article.main", cfg.Sites["alpha"].ContentSelector)
 	assert.Equal(t, "article", cfg.Sites["beta"].ContentSelector)
 }
+
+func TestUpsertSite_RefusesAKeyThatSharesAnotherSitesFiles(t *testing.T) {
+	before := `sites:
+  existing:
+    start_urls: ["https://docs.example.com/"]
+    allowed_domain: "docs.example.com"
+    content_selector: "main"
+`
+	path := writeTempConfig(t, before)
+	err := UpsertSite(path, "existing_", testSite(), false)
+	require.ErrorContains(t, err, "site keys 'existing' and 'existing_' share the directory 'existing'")
+	data, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, before, string(data), "the config is left untouched")
+}

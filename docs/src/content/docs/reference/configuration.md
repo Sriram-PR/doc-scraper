@@ -110,6 +110,8 @@ sites:
 
 ## Site options
 
+A site's key names its output directory, visited DB and lock file, after characters that aren't safe in file names (such as `/`, `:` and control characters) become `_` and leading and trailing `_`, spaces and dots are dropped. A config fails to load when two keys end up with the same name, ignoring case (`docs` and `docs_`, `a/b` and `a_b`, or `Docs` and `docs`), when a key ends in `.staging` or `.old` (doc-scraper's own directories), or when a key has no letter or digit.
+
 Each entry under `sites:` accepts these keys.
 
 | Option | Type | Description | Default |

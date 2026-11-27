@@ -51,3 +51,34 @@ func TestLoad_ListsEverySiteWithNoSettings(t *testing.T) {
 	assert.Contains(t, lines[0], "site 'a' has no settings")
 	assert.Contains(t, lines[1], "site 'z' has no settings")
 }
+
+func TestLoad_RejectsSiteKeysThatShareFiles(t *testing.T) {
+	for _, tc := range []struct {
+		name, sites, want string
+	}{
+		{"trailing underscore", "  existing:\n    content_selector: main\n  existing_:\n    content_selector: main\n",
+			"site keys 'existing' and 'existing_' share the directory 'existing'; rename one"},
+		{"slash", "  a/b:\n    content_selector: main\n  a_b:\n    content_selector: main\n",
+			"site keys 'a/b' and 'a_b' share the directory 'a_b'; rename one"},
+		{"case only", "  Docs:\n    content_selector: main\n  docs:\n    content_selector: main\n",
+			"site keys 'Docs' and 'docs' share the directory 'docs' on case-insensitive filesystems; rename one"},
+		{"staging suffix", "  existing.staging:\n    content_selector: main\n",
+			"site key 'existing.staging' ends in .staging, which doc-scraper uses for its own directories; rename it"},
+		{"backup suffix", "  docs.OLD:\n    content_selector: main\n",
+			"site key 'docs.OLD' ends in .old, which doc-scraper uses for its own directories; rename it"},
+		{"no letter or digit", "  '..':\n    content_selector: main\n",
+			"site key '..' needs at least one letter or digit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := Load(writeTempConfig(t, "sites:\n"+tc.sites))
+			require.ErrorIs(t, err, utils.ErrConfigValidation)
+			assert.Equal(t, utils.ErrConfigValidation.Error()+": "+tc.want, err.Error())
+		})
+	}
+}
+
+func TestLoad_AcceptsDistinctSiteKeys(t *testing.T) {
+	cfg, _, err := Load(writeTempConfig(t, "sites:\n  docs:\n    content_selector: main\n  docs-v2:\n    content_selector: main\n  'my docs':\n    content_selector: main\n  ドキュメント:\n    content_selector: main\n"))
+	require.NoError(t, err)
+	assert.Len(t, cfg.Sites, 4)
+}

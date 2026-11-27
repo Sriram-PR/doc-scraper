@@ -302,3 +302,13 @@ func TestSaveSite_LogsChangedFields(t *testing.T) {
 	assert.Contains(t, line, "replaced=true")
 	assert.Contains(t, line, "changed_fields=\"[content_selector start_urls]\"")
 }
+
+func TestSaveSite_KeyThatSharesAnotherSitesDirectoryIsRefused(t *testing.T) {
+	f := newSaveFixture(t, true)
+	before := f.fileBytes(t)
+	res, _ := callJSON(t, f.s.handleSaveSite, map[string]any{"site_key": "docs_", "entry": f.entry("/docs/new.html")})
+	assert.Contains(t, errText(t, res), "site keys 'docs' and 'docs_' share the directory 'docs'")
+	assert.Equal(t, before, f.fileBytes(t))
+	_, ok := f.s.site("docs_")
+	assert.False(t, ok)
+}

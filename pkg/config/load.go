@@ -32,6 +32,7 @@ func Load(path string) (*AppConfig, []string, error) {
 			errs = append(errs, fmt.Errorf("%w: site '%s' has no settings", utils.ErrConfigValidation, key))
 		}
 	}
+	errs = append(errs, checkSiteKeys(slices.Collect(maps.Keys(cfg.Sites)))...)
 	if len(errs) > 0 {
 		return nil, nil, errors.Join(errs...)
 	}
